@@ -1,0 +1,9 @@
+(jbuild_version 1)
+
+(library
+ ((name            yaks_core)
+  (public_name     yaks-core)
+  (wrapped     false)
+  (libraries       (yaks-codec lwt lwt.unix apero logs logs.lwt ppx_deriving.show ppx_deriving.ord))
+  (preprocess
+    (pps (ppx_deriving.show ppx_deriving.ord lwt_ppx)))))

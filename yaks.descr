@@ -1,3 +1,0 @@
-YAKS(Yet Another Key-value Store) is a distributed service that implements 
-an eventually consistent, scalable, high performance, and distributed key/value 
-store with pluggable back-ends, front-ends and transports.
