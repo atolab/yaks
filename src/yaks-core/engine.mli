@@ -15,5 +15,5 @@ module Engine : sig
     (** More operations will be needed *)  
   end
 
-  module Make (S : EventStream.S ) : S with type t = message S.t and type 'a sink = 'a S.Sink.s
+  module Make (S : EventStream.S ) : S with type 'a sink = 'a S.Sink.s
 end

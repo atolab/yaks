@@ -7,6 +7,7 @@
 *.cmx
 *.cmxs
 *.cmxa
+*.install
 *~
 
 # ocamlbuild working directory
@@ -19,3 +20,8 @@ _build/
 # oasis generated files
 setup.data
 setup.log
+
+# merlin generated files
+.merlin
+
+# 

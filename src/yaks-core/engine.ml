@@ -16,12 +16,14 @@ module Engine = struct
   end
 
   module Make (S : EventStream.S )  = struct   
-    type t =  message S.t
+    type t =  { evt_src : message S.Source.s; evt_sink : message S.Sink.s }
+
     type 'a sink = 'a S.Sink.s
       
     type config = { channel_len : int }  
 
-    let create cfg = S.create cfg.channel_len
+    let create cfg = 
+      let (evt_src, evt_sink) = S.create cfg.channel_len in { evt_src; evt_sink }
 
     let process e msg s  =       
       let%lwt _ = Logs_lwt.debug (fun m -> m "Processing message id = %d " msg.mid) in 

@@ -1,8 +1,7 @@
 module EventStream = struct 
   
   module type S = sig 
-    type 'a t      
-    val create : int -> 'a t 
+    type 'a t          
     
     module Sink : sig
       type 'a s            
@@ -15,6 +14,8 @@ module EventStream = struct
       val of_stream : 'a t -> 'a s
       val get : 'a s -> 'a option Lwt.t
     end    
+
+    val create : int -> 'a Source.s * 'a Sink.s 
   end  
   
 
@@ -26,9 +27,7 @@ module EventStream = struct
                   end ) : S with type 'a t = 'a I.q = struct 
 
       type 'a t = 'a I.q
-       
-      let create = I.create
-    
+             
     module Sink = struct
       type 'a s  = 'a I.q
       
@@ -42,7 +41,9 @@ module EventStream = struct
       let of_stream s = s
       let get = I.get 
     end  
-          
-    end
 
+    let create len = 
+      let s = I.create len in 
+      (Source.of_stream s, Sink.of_stream s)           
+    end
 end

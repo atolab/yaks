@@ -1,8 +1,7 @@
 module EventStream : sig 
   
   module type S = sig 
-    type 'a t      
-    val create : int -> 'a t 
+    type 'a t          
     
     module Sink : sig
       type 'a s             
@@ -15,6 +14,8 @@ module EventStream : sig
       val of_stream : 'a t -> 'a s
       val get : 'a s -> 'a option Lwt.t
     end    
+
+    val create : int -> 'a Source.s * 'a Sink.s 
   end 
   
   
