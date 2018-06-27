@@ -19,19 +19,26 @@ let create_socket cfg =
     let _ = listen sock cfg.backlog in sock
 
 let serve_connection sock fe = 
+  let%lwt _ = Logs_lwt.debug (fun m -> m "Serving connection" ) in
   let (esrc, esink) = EventStream.create fe.cfg.stream_len in 
   let max_len = fe.cfg.bufsize in
   let rbuf = Lwt_bytes.create fe.cfg.bufsize in 
-  let sbuf = Bi_outbuf.create fe.cfg.bufsize in 
-  let ic = Lwt_io.of_fd Lwt_io.input sock in   
-  let oc = Lwt_io.of_fd Lwt_io.output sock in   
+  let sbuf = Bi_outbuf.create fe.cfg.bufsize in    
   
   let rec receive_loop () = 
-    let%lwt len = Lwt_io.read_int ic in  
-    let%lwt bs = Lwt_bytes.read sock rbuf 0 max_len in    
-    let msg = read_message @@ Bi_inbuf.from_bytes (Lwt_bytes.to_bytes rbuf) in    
-    let%lwt _ = Engine.process fe.engine msg esink in 
-    receive_loop ()    
+    let%lwt _ = Logs_lwt.debug (fun m -> m "Watiting for connection data" ) in
+    let lbuf = Lwt_bytes.create 4 in 
+    let%lwt _ = Lwt_bytes.recv sock lbuf 0 4 [] in 
+    let%lwt len = Lwt_io.read_int (Lwt_io.of_bytes Lwt_io.Input lbuf)in  
+    let%lwt _ = Logs_lwt.debug (fun m -> m "Received message of %d bytes" len) in
+    let%lwt bs = Lwt_bytes.recv sock rbuf 0 max_len [] in    
+    let%lwt _ = Logs_lwt.debug (fun m -> m "Read %d bytes out of the socket" bs) in
+    try 
+      let msg = read_message @@ Bi_inbuf.from_bytes (Lwt_bytes.to_bytes rbuf) in    
+      let%lwt _ = Engine.process fe.engine msg esink in receive_loop ()    
+    with 
+    | _ -> let%lwt _ = Logs_lwt.debug (fun m -> m "Failed to decode the message!") in receive_loop ()
+
   in 
   
   let rec send_loop () =     
@@ -40,8 +47,11 @@ let serve_connection sock fe =
       write_message sbuf msg ;
       let payload = Bi_outbuf.contents sbuf in 
       let len = String.length payload in
+      let lbuf = Lwt_bytes.create 4 in       
+      let oc = (Lwt_io.of_bytes Lwt_io.Output lbuf) in
       let%lwt _ = Lwt_io.write_int oc len in 
-      let%lwt _ = Lwt_unix.send sock (Bytes.of_string payload) 0 len [] in
+      let%lwt _ = Lwt_bytes.send sock lbuf 0 (Lwt_bytes.length lbuf) [] in                         
+      let%lwt _ = Lwt_bytes.send sock (Lwt_bytes.of_string payload) 0 len [] in                         
       Lwt.return_unit
     | None -> send_loop ()
   
