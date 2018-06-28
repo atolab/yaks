@@ -3,7 +3,7 @@ open Yaks_codec.Message
 
 type config = { iface : string; port : int; backlog : int; bufsize : int; stream_len : int }
 
-type t = { socket : Lwt_unix.file_descr;  engine: Engine.t; cfg : config }
+type t = { socket : Lwt_unix.file_descr;  sink: (message * message EventStream.Sink.s) EventStream.Sink.s; cfg : config }
 
 (** TODO: This should also be a functor configured by the serialier  *)
 
@@ -28,17 +28,26 @@ let serve_connection sock fe =
   let rec receive_loop () = 
     let%lwt _ = Logs_lwt.debug (fun m -> m "Watiting for connection data" ) in
     let lbuf = Lwt_bytes.create 4 in 
-    let%lwt _ = Lwt_bytes.recv sock lbuf 0 4 [] in 
-    let%lwt len = Lwt_io.read_int (Lwt_io.of_bytes Lwt_io.Input lbuf)in  
-    let%lwt _ = Logs_lwt.debug (fun m -> m "Received message of %d bytes" len) in
-    let%lwt bs = Lwt_bytes.recv sock rbuf 0 max_len [] in    
-    let%lwt _ = Logs_lwt.debug (fun m -> m "Read %d bytes out of the socket" bs) in
-    try 
-      let msg = read_message @@ Bi_inbuf.from_bytes (Lwt_bytes.to_bytes rbuf) in    
-      let%lwt _ = Engine.process fe.engine msg esink in receive_loop ()    
-    with 
-    | _ -> let%lwt _ = Logs_lwt.debug (fun m -> m "Failed to decode the message!") in receive_loop ()
-
+    let%lwt n = Lwt_bytes.recv sock lbuf 0 4 [] in 
+    if n != 0 then 
+      begin  
+        let%lwt len = Lwt_io.read_int (Lwt_io.of_bytes Lwt_io.Input lbuf)in  
+        let%lwt _ = Logs_lwt.debug (fun m -> m "Received message of %d bytes" len) in
+        let%lwt n = Lwt_bytes.recv sock rbuf 0 max_len [] in    
+        if n != 0 then 
+          begin
+            let%lwt _ = Logs_lwt.debug (fun m -> m "Read %d bytes out of the socket" n) in
+            try 
+              let msg = read_message @@ Bi_inbuf.from_bytes (Lwt_bytes.to_bytes rbuf) in    
+              let%lwt _ = EventStream.Sink.push (msg, esink) fe.sink in  receive_loop ()          
+            with 
+            | _ -> let%lwt _ = Logs_lwt.debug (fun m -> m "Failed to decode the message!") in receive_loop ()
+          end
+        else 
+          let%lwt _ = Logs_lwt.debug (fun m -> m "Peer closed session") in Lwt.return_unit
+      end
+    else 
+      let%lwt _ = Logs_lwt.debug (fun m -> m "Peer closed session") in Lwt.return_unit
   in 
   
   let rec send_loop () =     
@@ -65,10 +74,10 @@ let rec accept_connection fe =
   let _ = serve_connection sock fe in
   accept_connection fe
 
-let create cfg engine = 
+let create cfg sink = 
   let _ = Logs_lwt.debug (fun m -> m "Socket-FE creating accepting socket") in
   let socket = create_socket cfg  in  
-  { socket; engine; cfg }
+  { socket; sink; cfg }
 
 let start = accept_connection 
 
