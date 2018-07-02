@@ -38,8 +38,9 @@ type access_control = [
 
 type access_operation = [
   | Put of tuple 
-  | Get of string 
+  | Get of string   
   | DPut of tuple
+  | Remove of string
   | Sub of string 
   | Unsub of string   
 ]

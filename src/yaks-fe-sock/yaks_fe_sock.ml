@@ -3,7 +3,7 @@ open Yaks_codec.Message
 
 type config = { iface : string; port : int; backlog : int; bufsize : int; stream_len : int }
 
-type t = { socket : Lwt_unix.file_descr;  sink: (message * message EventStream.Sink.s) EventStream.Sink.s; cfg : config }
+type t = { socket : Lwt_unix.file_descr; sink : event_sink; cfg : config }
 
 (** TODO: This should also be a functor configured by the serialier  *)
 
@@ -23,7 +23,8 @@ let serve_connection sock fe =
   let (esrc, esink) = EventStream.create fe.cfg.stream_len in 
   let max_len = fe.cfg.bufsize in
   let rbuf = Lwt_bytes.create fe.cfg.bufsize in 
-  let sbuf = Bi_outbuf.create fe.cfg.bufsize in    
+  let sbuf = Bi_outbuf.create fe.cfg.bufsize in   
+  let handler = fun e -> EventStream.Sink.push e esink in 
   
   let rec receive_loop () = 
     let%lwt _ = Logs_lwt.debug (fun m -> m "Watiting for connection data" ) in
@@ -39,7 +40,7 @@ let serve_connection sock fe =
             let%lwt _ = Logs_lwt.debug (fun m -> m "Read %d bytes out of the socket" n) in
             try 
               let msg = read_message @@ Bi_inbuf.from_bytes (Lwt_bytes.to_bytes rbuf) in    
-              let%lwt _ = EventStream.Sink.push (msg, esink) fe.sink in  receive_loop ()          
+              let%lwt _ = EventStream.Sink.push (EventWithHandler (msg, handler)) fe.sink in  receive_loop ()          
             with 
             | _ -> let%lwt _ = Logs_lwt.debug (fun m -> m "Failed to decode the message!") in receive_loop ()
           end
