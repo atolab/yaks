@@ -1,6 +1,7 @@
 open Yaks_core
-open Yaks_codec.Message
-
+open Yaks_event
+let read_message buf = Ok {cid=0L; entity_id = Auto  }
+let write_message buf msg = ()
 type config = { iface : string; port : int; backlog : int; bufsize : int; stream_len : int }
 
 type t = { socket : Lwt_unix.file_descr; sink : event_sink; cfg : config }

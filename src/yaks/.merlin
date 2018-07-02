@@ -1,4 +1,3 @@
-B ../../_build/default/src/yaks-codec/.yaks_codec.objs
 B ../../_build/default/src/yaks-core/.yaks_core.objs
 B ../../_build/default/src/yaks-fe-sock/.yaks_fe_sock.objs
 B ../../_build/default/src/yaks/.yaksc.eobjs
@@ -20,6 +19,7 @@ B /Users/kydos/.opam/default/lib/ppx_deriving
 B /Users/kydos/.opam/default/lib/ppx_tools
 B /Users/kydos/.opam/default/lib/result
 B /Users/kydos/.opam/default/lib/uchar
+B /Users/kydos/.opam/default/lib/yaks-codec
 B /Users/kydos/.opam/default/lib/yojson
 B /usr/local/lib/ocaml
 B /usr/local/lib/ocaml/compiler-libs
@@ -27,7 +27,6 @@ B /usr/local/lib/ocaml/threads
 FLG -ppx '/Users/kydos/ATOLabs/yaks/_build/default/.ppx/lwt_ppx+ppx_deriving.show+ppx_deriving.ord/ppx.exe --as-ppx'
 FLG -w -40 -w -40
 S .
-S ../yaks-codec
 S ../yaks-core
 S ../yaks-fe-sock
 S /Users/kydos/.opam/default/lib/apero
@@ -47,6 +46,7 @@ S /Users/kydos/.opam/default/lib/ppx_deriving
 S /Users/kydos/.opam/default/lib/ppx_tools
 S /Users/kydos/.opam/default/lib/result
 S /Users/kydos/.opam/default/lib/uchar
+S /Users/kydos/.opam/default/lib/yaks-codec
 S /Users/kydos/.opam/default/lib/yojson
 S /usr/local/lib/ocaml
 S /usr/local/lib/ocaml/compiler-libs

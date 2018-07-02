@@ -12,22 +12,28 @@ module Engine = struct
     let event_sink e = e.evt_sink
     
     let process e (msg : message) (handler : message_handler) = 
-      let mid = msg.mid in 
-      match msg.msg with 
-      | Yaks_codec.(`Request req) -> handler msg         
-      | Yaks_codec.(`Reply reply) -> Lwt.return_unit
       
+      match msg with 
+      | Create {cid; entity; entity_id} -> handler (Ok {cid; entity_id})
+      | Delete { cid; entity_id }  -> handler (Ok {cid; entity_id})
+      | Get { cid; access_id; key } -> handler (Ok {cid; entity_id=access_id}) 
+      | Put { cid; access_id ; key; value } -> handler (Ok {cid; entity_id=access_id}) 
+      | Patch { cid; access_id; key; value }  -> handler (Ok {cid; entity_id=access_id}) 
+      | Notify { cid; sid; values } -> handler (Ok {cid; entity_id=Auto}) 
+      | Values { cid; values } -> handler (Ok {cid; entity_id=Auto}) 
+      | Error  { cid; reason } -> handler (Ok {cid; entity_id=Auto}) 
+      | Ok  { cid;  entity_id} -> handler (Ok {cid; entity_id=Auto})      
 
     let start e  =
       let open Lwt.Infix in 
       let rec loop () = 
         match%lwt EventStream.Source.get e.evt_src with
         | Some (EventWithHandler (msg, handler))  ->           
-          let%lwt _ = Logs_lwt.debug (fun m -> m "Processing message id = %d " msg.mid) in 
+          (* let%lwt _ = Logs_lwt.debug (fun m -> m "Processing message id = %d " msg.mid) in  *)
           process e msg handler >>= loop
         
         | Some (Event msg)  ->           
-          let%lwt _ = Logs_lwt.debug (fun m -> m "Processing message id = %d " msg.mid) in 
+          (* let%lwt _ = Logs_lwt.debug (fun m -> m "Processing message id = %d " msg.mid) in  *)
           process e msg (fun e -> Lwt.return_unit) >>= loop
 
         | None -> loop ()

@@ -1,15 +1,42 @@
 module EventStream = Event_stream.EventStream.Make(Stream_lwt.Stream)
 
-type message = Yaks_codec.Message.message
+type property = {key : string; value : string}
+
+type entity = 
+  | Access of { path : string; cache_size : int64 }
+  | Storage of { path : string; properties: property list }
+  | Subscriber of { access_id: string; path : string; push : bool}
+
+type entity_identifier = 
+  | AccessId of string 
+  | StorageId of string 
+  | SubscriberId of int64
+  | Auto
+
+type tuple = { key: string; value: Lwt_bytes.t }
+
+type message = 
+  | Create of { cid: int64; entity : entity; entity_id : entity_identifier }
+  | Delete of { cid: int64; entity_id : entity_identifier } 
+  | Get of { cid: int64; access_id : entity_identifier; key : string }
+  | Put of { cid: int64; access_id : entity_identifier; key : string; value : string }
+  | Patch of { cid: int64; access_id : entity_identifier; key : string; value : string }
+  | Notify of { cid: int64; sid : entity_identifier; values: tuple list }
+  | Values of { cid: int64; values : tuple list }
+  | Error of { cid : int64; reason : int }
+  | Ok of { cid : int64;  entity_id: entity_identifier}
+
+
+  
 type message_handler = message -> unit Lwt.t
 
-type message_sink = Yaks_codec.Message.message EventStream.Sink.s
-type message_source = Yaks_codec.Message.message EventStream.Source.s
-type message_resolver = Yaks_codec.Message.message Lwt.u
+type message_sink = message EventStream.Sink.s
+type message_source = message EventStream.Source.s
+type message_resolver = message Lwt.u
 
 type event = 
-  | EventWithHandler of Yaks_codec.Message.message * message_handler
-  | Event of Yaks_codec.Message.message
+  | EventWithHandler of message * message_handler
+  | Event of message
 
 type event_stream = event EventStream.t
 type event_sink = event EventStream.Sink.s
