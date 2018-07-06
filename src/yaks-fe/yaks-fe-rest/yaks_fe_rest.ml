@@ -51,9 +51,10 @@ let string_of_properties p =
 let string_of_entity e = match e with
   | Access{path; cache_size} -> "Acc("^path^")"
   | Storage{path; properties}    -> "Str("^path^")"
-  | Subscriber{access_id; path; push} -> "Sub("^path^")"
+  | Subscriber{access_id; selector; push} -> "Sub("^selector^")"
 
 let string_of_entity_id eid = match eid with
+  | Yaks -> "yaks"
   | AccessId s -> s
   | StorageId s -> s
   | SubscriberId i -> Int64.to_string i
@@ -63,14 +64,16 @@ let string_of_message msg =
   match msg with
   | Create{cid; entity; entity_id} ->
     "#"^(Int64.to_string cid)^" Create("^(string_of_entity_id entity_id)^":"^(string_of_entity entity)^")"
-  | Delete{cid; entity_id} ->
-    "#"^(Int64.to_string cid)^" Delete("^(string_of_entity_id entity_id)^")"
-  | Get{cid; access_id; key} ->
+  | Dispose{cid; entity_id} ->
+    "#"^(Int64.to_string cid)^" Dispose("^(string_of_entity_id entity_id)^")"
+  | Get{cid; entity_id; key} ->
     "#"^(Int64.to_string cid)^" Get("^key^")"
   | Put{cid; access_id; key; value} ->
     "#"^(Int64.to_string cid)^" Put("^key^", "^value^")"
   | Patch{cid; access_id; key; value} ->
     "#"^(Int64.to_string cid)^" Patch("^key^", "^value^")"
+  | Remove{cid; access_id; key} ->
+    "#"^(Int64.to_string cid)^" Get("^key^")"
   | Notify{cid; sid; values} ->
     "#"^(Int64.to_string cid)^" Notify("^(string_of_entity_id sid)^")"
   | Values{cid; values} ->
@@ -79,6 +82,15 @@ let string_of_message msg =
     "#"^(Int64.to_string cid)^" Error("^(string_of_int reason)^")"
   | Ok{cid; entity_id} ->
     "#"^(Int64.to_string cid)^" Ok("^(string_of_entity_id entity_id)^")"
+
+let string_of_values values =
+  String.concat "" [
+    "{\n";
+    values |> List.map (fun {key; value} ->
+        String.concat "" ["{ "; key; " , "; Lwt_bytes.to_string value;" }\n";])
+    |> String.concat "\n";
+    "}\n";
+  ]
 
 let properties_of_query =
   List.map (fun (k, v):property -> {key=k; value=(String.concat "," v)}) 
@@ -123,8 +135,8 @@ let unsupported_uri path =
 let unsupported_operation operation path =
   Server.respond_error ~status:`Bad_request ~body:("Operation "^(Code.string_of_method operation)^" not supported on path: "^path) ()
 
-let missing_headers headers =
-  Server.respond_error ~status:`Bad_request ~body:("Missing headers (or wrong format): "^String.concat " , " headers) ()
+let missing_query query_elts =
+  Server.respond_error ~status:`Bad_request ~body:("Missing query elements (or wrong format): "^String.concat " , " query_elts) ()
 
 let unexpected_reply reply =
   Server.respond_error ~status:`Internal_server_error ~body:("Unexpected reply from engine:"^(string_of_message reply)) ()
@@ -141,6 +153,12 @@ let storage_not_found id =
 let unkown_storage_type properties =
   Server.respond_error ~status:`Not_implemented ~body:("No implementation of Storage for properties: "^(string_of_properties properties)) ()
 
+let missing_cookie cookie_name =
+  Server.respond_error ~status:`Precondition_failed ~body:("Missing cookie: "^cookie_name) ()
+
+let no_matching_key selector =
+  Server.respond_error ~status:`Not_found ~body:("No key found matching selector: "^selector) ()
+
 
 
 (**********************************)
@@ -149,7 +167,6 @@ let unkown_storage_type properties =
 
 let create_access fe ?id path cache_size =
   let _ = Logs_lwt.debug (fun m -> m "  create_access %s %s %Ld" (OptionM.get ~if_none:"?" id) path cache_size) in
-  let open Yaks_codec.Message in
   let msg = Create { 
       cid = next_request_counter fe;
       entity = Access {path; cache_size};
@@ -172,12 +189,27 @@ let create_access fe ?id path cache_size =
 
 let get_access ?id fe =
   let _ = Logs_lwt.debug (fun m -> m "  get_access %s" (OptionM.get ~if_none:"?" id)) in
-  not_implemented "GET /yaks/access not implemented: missing event for this..."
+  let msg = Get { 
+      cid = next_request_counter fe;
+      entity_id = Yaks;
+      key = "access"^(OptionM.get ~if_none:"" id);
+      encoding = Some(`Json)
+    }
+  in
+  let on_reply = fun reply -> match reply with
+    | Values {cid; encoding=`Json; values} ->
+      Server.respond_string ~status:`OK ~body:(string_of_values values) ()
+    | Error {cid; reason=404} ->
+      access_not_found (OptionM.get ~if_none:"NO_ID!!!" id)
+    | _ ->
+      unexpected_reply reply
+  in
+  push_to_engine fe.request_sink msg on_reply
+
 
 let dispose_access fe id =
   let _ = Logs_lwt.debug (fun m -> m "  dispose_access %s" id) in
-  let open Yaks_codec.Message in
-  let msg = Delete { 
+  let msg = Dispose { 
       cid = next_request_counter fe;
       entity_id = AccessId(id)
     }
@@ -194,7 +226,6 @@ let dispose_access fe id =
 
 let create_storage fe ?id path properties =
   let _ = Logs_lwt.debug (fun m -> m "  create_storage %s %s" (OptionM.get ~if_none:"?" id) path) in
-  let open Yaks_codec.Message in
   let msg = Create { 
       cid = next_request_counter fe;
       entity = Storage {path; properties};
@@ -216,12 +247,26 @@ let create_storage fe ?id path properties =
 
 let get_storage ?id fe =
   let _ = Logs_lwt.debug (fun m -> m "  get_storage %s" (OptionM.get ~if_none:"?" id)) in
-  not_implemented "GET /yaks/storage not implemented: missing event for this..."
+  let msg = Get { 
+      cid = next_request_counter fe;
+      entity_id = Yaks;
+      key = "storages"^(OptionM.get ~if_none:"" id);
+      encoding = Some(`Json)
+    }
+  in
+  let on_reply = fun reply -> match reply with
+    | Values {cid; encoding=`Json; values} ->
+      Server.respond_string ~status:`OK ~body:(string_of_values values) ()
+    | Error {cid; reason=404} ->
+      storage_not_found (OptionM.get ~if_none:"NO_ID!!!" id)
+    | _ ->
+      unexpected_reply reply
+  in
+  push_to_engine fe.request_sink msg on_reply
 
 let dispose_storage fe id =
   let _ = Logs_lwt.debug (fun m -> m "  dispose_storage %s" id) in
-  let open Yaks_codec.Message in
-  let msg = Delete { 
+  let msg = Dispose { 
       cid = next_request_counter fe;
       entity_id = StorageId(id)
     }
@@ -238,10 +283,9 @@ let dispose_storage fe id =
 
 let subscribe fe access_id selector =
   let _ = Logs_lwt.debug (fun m -> m "  subscribe %s %s" access_id selector) in
-  let open Yaks_codec.Message in
   let msg = Create { 
       cid = next_request_counter fe;
-      entity = Subscriber {access_id; path=selector; push=false};
+      entity = Subscriber {access_id; selector; push=false};
       entity_id = Auto
     }
   in
@@ -258,12 +302,27 @@ let subscribe fe access_id selector =
 
 let get_subscriptions fe access_id =
   let _ = Logs_lwt.debug (fun m -> m "  get_subscriptions %s" access_id) in
-  not_implemented "GET /yaks/access/id/subs not implemented: missing event for this..."
+  let msg = Get { 
+      cid = next_request_counter fe;
+      entity_id = Yaks;
+      key = "access/"^access_id^"/sub";
+      encoding = Some(`Json)
+    }
+  in
+  let on_reply = fun reply -> match reply with
+    | Values {cid; encoding=`Json; values} ->
+      Server.respond_string ~status:`OK ~body:(string_of_values values) ()
+    | Error {cid; reason=404} ->
+      access_not_found access_id
+    | _ ->
+      unexpected_reply reply
+  in
+  push_to_engine fe.request_sink msg on_reply
+
 
 let unsubscribe fe access_id sub_id =
   let _ = Logs_lwt.debug (fun m -> m "  unsubscribe %s %Ld" access_id sub_id) in
-  let open Yaks_codec.Message in
-  let msg = Delete { 
+  let msg = Dispose { 
       cid = next_request_counter fe;
       entity_id = SubscriberId(sub_id)
     }
@@ -278,6 +337,90 @@ let unsubscribe fe access_id sub_id =
   in
   push_to_engine fe.request_sink msg on_reply
 
+(**********************************)
+(*      Key/Value operations      *)
+(**********************************)
+
+let status_ok = `Ok
+
+let get_key_value fe access_id selector =
+  let _ = Logs_lwt.debug (fun m -> m "  get_key_value %s %s" access_id selector) in
+  let msg = Get { 
+      cid = next_request_counter fe;
+      entity_id = AccessId(access_id);
+      key = selector;
+      encoding = None
+    }
+  in
+  let on_reply = fun reply -> match reply with
+    | Values {cid; values} ->
+      Server.respond_string ~status:`OK ~body:(string_of_values values) ()
+    | Error {cid; reason=404} ->
+      no_matching_key selector
+    | _ ->
+      unexpected_reply reply
+  in
+  push_to_engine fe.request_sink msg on_reply
+
+let put_key_value fe access_id selector value =
+  let _ = Logs_lwt.debug (fun m -> m "  put_key_value %s %s" access_id selector) in
+  let msg = Put { 
+      cid = next_request_counter fe;
+      access_id = AccessId(access_id);
+      key = selector;
+      value
+    }
+  in
+  let on_reply = fun reply -> match reply with
+    | Ok {cid; _} ->
+      Server.respond_string ~status:`No_content ~body:"" ()
+    | Error {cid; reason=404} ->
+      no_matching_key selector
+    | _ ->
+      unexpected_reply reply
+  in
+  push_to_engine fe.request_sink msg on_reply
+
+let put_delta_key_value fe access_id selector delta_value =
+  let _ = Logs_lwt.debug (fun m -> m "  put_delta_key_value %s %s" access_id selector) in
+  let msg = Patch { 
+      cid = next_request_counter fe;
+      access_id = AccessId(access_id);
+      key = selector;
+      value=delta_value
+    }
+  in
+  let on_reply = fun reply -> match reply with
+    | Ok {cid; _} ->
+      Server.respond_string ~status:`No_content ~body:"" ()
+    | Error {cid; reason=404} ->
+      no_matching_key selector
+    | _ ->
+      unexpected_reply reply
+  in
+  push_to_engine fe.request_sink msg on_reply
+
+let remove_key_value fe access_id selector =
+  let _ = Logs_lwt.debug (fun m -> m "  put_delta_key_value %s %s" access_id selector) in
+  let msg = Remove { 
+      cid = next_request_counter fe;
+      access_id = AccessId(access_id);
+      key = selector;
+    }
+  in
+  let on_reply = fun reply -> match reply with
+    | Ok {cid; _} ->
+      Server.respond_string ~status:`No_content ~body:"" ()
+    | Error {cid; reason=404} ->
+      no_matching_key selector
+    | _ ->
+      unexpected_reply reply
+  in
+  push_to_engine fe.request_sink msg on_reply
+
+
+
+
 
 (**********************************)
 (*   HTTP requests dispatching    *)
@@ -291,9 +434,9 @@ let execute_control_operation fe meth path query headers body =
       let access_path =  query_get_opt query "path" >== List.hd in
       let cache_size = query_get_opt query "cacheSize" >== List.hd >>= Int64.of_string_opt in
       match (access_path, cache_size) with
-      | (None, None) -> missing_headers (["path:string"; "cacheSize:int"])
-      | (None, _)    -> missing_headers (["path:string"])
-      | (_, None)    -> missing_headers (["cacheSize:int"])
+      | (None, None) -> missing_query (["path:string"; "cacheSize:int"])
+      | (None, _)    -> missing_query (["path:string"])
+      | (_, None)    -> missing_query (["cacheSize:int"])
       | (Some(path), Some(cache_size)) -> create_access fe path cache_size
     )
   (* PUT /yaks/access/id ? path & cacheSize *)
@@ -302,9 +445,9 @@ let execute_control_operation fe meth path query headers body =
       let access_path =  query_get_opt query "path" >== List.hd in
       let cache_size = query_get_opt query "cacheSize" >== List.hd >>= Int64.of_string_opt in
       match (access_path, cache_size) with
-      | (None, None) -> missing_headers (["path:string"; "cacheSize:int"])
-      | (None, _)    -> missing_headers (["path:string"])
-      | (_, None)    -> missing_headers (["cacheSize:int"])
+      | (None, None) -> missing_query (["path:string"; "cacheSize:int"])
+      | (None, _)    -> missing_query (["path:string"])
+      | (_, None)    -> missing_query (["cacheSize:int"])
       | (Some(path), Some(cache_size)) -> create_access fe path cache_size ~id
     )
   (* GET /yaks/access *)
@@ -315,7 +458,7 @@ let execute_control_operation fe meth path query headers body =
   | (`GET, ["yaks"; "access"; id]) -> (
       get_access fe ~id
     )
-  (* DELETE /yaks/access/id *)
+  (* Dispose /yaks/access/id *)
   | (`DELETE, ["yaks"; "access"; id]) -> (
       dispose_access fe id
     )
@@ -324,7 +467,7 @@ let execute_control_operation fe meth path query headers body =
       let open OptionM.InfixM in
       let storage_path =  query_get_opt query "path" >== List.hd in
       match storage_path with
-      | None -> missing_headers (["path:string"])
+      | None -> missing_query (["path:string"])
       | Some(path) -> 
         let properties = query |> List.filter (fun (n, _) -> n != "path") |> properties_of_query in
         create_storage fe path properties
@@ -334,7 +477,7 @@ let execute_control_operation fe meth path query headers body =
       let open OptionM.InfixM in
       let storage_path =  query_get_opt query "path" >== List.hd in
       match storage_path with
-      | None -> missing_headers (["path:string"])
+      | None -> missing_query (["path:string"])
       | Some(path) -> 
         let properties = query |> List.filter (fun (n, _) -> n != "path") |> properties_of_query in
         create_storage fe path properties ~id
@@ -347,7 +490,7 @@ let execute_control_operation fe meth path query headers body =
   | (`GET, ["yaks"; "storages"; id]) -> (
       get_storage fe ~id
     )
-  (* DELETE /yaks/storages/id *)
+  (* Dispose /yaks/storages/id *)
   | (`DELETE, ["yaks"; "storages"; id]) -> (
       dispose_storage fe id
     )
@@ -356,17 +499,30 @@ let execute_control_operation fe meth path query headers body =
       let open OptionM.InfixM in
       let selector =  query_get_opt query "selector" >== List.hd in
       match selector with
-      | None -> missing_headers (["selector:string"])
+      | None -> missing_query (["selector:string"])
       | Some(selector) -> 
         subscribe fe aid selector
     )
-
+  (* Otherwise... *)
   | (_, _) -> String.concat "/" path |> unsupported_uri
 
 
-let execute_data_operation fe meth path query headers body =
-  match meth with
-  | _ -> unsupported_operation meth path
+let execute_data_operation fe meth selector headers body =
+  let access_id = Header.get headers cookie_name_access_id in
+  match (meth, access_id) with
+  | (_, None) ->
+    missing_cookie cookie_name_access_id
+  | (`GET, Some(aid)) ->
+    get_key_value fe aid selector
+  | (`PUT, Some(aid)) ->
+    let%lwt value = Cohttp_lwt.Body.to_string body in
+    put_key_value fe aid selector value
+  | (`PATCH, Some(aid)) ->
+    let%lwt value = Cohttp_lwt.Body.to_string body in
+    put_delta_key_value fe aid selector value
+  | (`DELETE, Some(aid)) ->
+    remove_key_value fe aid selector
+  | _ -> unsupported_operation meth selector
 
 
 
@@ -385,7 +541,7 @@ let execute_http_request fe req body =
     let normalized_path = path |> String.split_on_char '/' |> List.filter (fun s -> String.length s > 0) in
     execute_control_operation fe meth normalized_path query headers body
   else
-    execute_data_operation fe meth path query headers body
+    execute_data_operation fe meth (Uri.to_string uri) headers body
 
 
 let create cfg request_sink = 
