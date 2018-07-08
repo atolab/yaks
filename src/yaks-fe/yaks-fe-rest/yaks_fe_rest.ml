@@ -33,7 +33,7 @@ let next_request_counter fe =
   fe.request_counter
 
 let query_get_opt query name =
-  let open Acommon.OptionM.InfixM in 
+  let open Option.Infix in 
   List.find_opt (fun (n, v) -> n = name) query >>= fun (_, v) -> Some(v)
 
 let query_to_string query =
@@ -165,8 +165,8 @@ let no_matching_key selector =
 (*      Control operations        *)
 (**********************************)
 
-let create_access fe ?id path cache_size =
-  let _ = Logs_lwt.debug (fun m -> m "  create_access %s %s %Ld" (OptionM.get ~if_none:"?" id) path cache_size) in
+let create_access fe ?id path cache_size =  
+  let%lwt _ = Logs_lwt.debug (fun m -> m "  create_access %s %s %Ld" (Option.get_or_default id  "?") path cache_size) in
   let msg = Create { 
       cid = next_request_counter fe;
       entity = Access {path; cache_size};
@@ -188,11 +188,14 @@ let create_access fe ?id path cache_size =
   push_to_engine fe.request_sink msg on_reply
 
 let get_access ?id fe =
-  let _ = Logs_lwt.debug (fun m -> m "  get_access %s" (OptionM.get ~if_none:"?" id)) in
+  let _ = Logs_lwt.debug (fun m -> m "  get_access %s" (Option.get_or_default id "?")) in
   let msg = Get { 
       cid = next_request_counter fe;
       entity_id = Yaks;
-      key = "access"^(OptionM.get ~if_none:"" id);
+      (* @AC: Julien, I think that it should be access/id as opposed to accessid 
+         please double check the change below.
+      *)
+      key = Printf.sprintf "access/%s"(Option.get_or_default id "");
       encoding = Some(`Json)
     }
   in
@@ -200,7 +203,7 @@ let get_access ?id fe =
     | Values {cid; encoding=`Json; values} ->
       Server.respond_string ~status:`OK ~body:(string_of_values values) ()
     | Error {cid; reason=404} ->
-      access_not_found (OptionM.get ~if_none:"NO_ID!!!" id)
+      access_not_found (Option.get_or_default id "NO_ID!!!")
     | _ ->
       unexpected_reply reply
   in
@@ -225,7 +228,7 @@ let dispose_access fe id =
   push_to_engine fe.request_sink msg on_reply
 
 let create_storage fe ?id path properties =
-  let _ = Logs_lwt.debug (fun m -> m "  create_storage %s %s" (OptionM.get ~if_none:"?" id) path) in
+  let _ = Logs_lwt.debug (fun m -> m "  create_storage %s %s" (Option.get_or_default id "?") path) in
   let msg = Create { 
       cid = next_request_counter fe;
       entity = Storage {path; properties};
@@ -246,11 +249,11 @@ let create_storage fe ?id path properties =
   push_to_engine fe.request_sink msg on_reply
 
 let get_storage ?id fe =
-  let _ = Logs_lwt.debug (fun m -> m "  get_storage %s" (OptionM.get ~if_none:"?" id)) in
+  let _ = Logs_lwt.debug (fun m -> m "  get_storage %s" (Option.get_or_default id "?")) in
   let msg = Get { 
       cid = next_request_counter fe;
       entity_id = Yaks;
-      key = "storages"^(OptionM.get ~if_none:"" id);
+      key = "storages"^(Option.get_or_default id "");
       encoding = Some(`Json)
     }
   in
@@ -258,7 +261,7 @@ let get_storage ?id fe =
     | Values {cid; encoding=`Json; values} ->
       Server.respond_string ~status:`OK ~body:(string_of_values values) ()
     | Error {cid; reason=404} ->
-      storage_not_found (OptionM.get ~if_none:"NO_ID!!!" id)
+      storage_not_found (Option.get_or_default id "NO_ID!!!")
     | _ ->
       unexpected_reply reply
   in
@@ -430,7 +433,7 @@ let execute_control_operation fe meth path query headers body =
   match (meth, path) with
   (* POST /yaks/access ? path & cacheSize *)
   | (`POST, ["yaks"; "access"]) -> (
-      let open OptionM.InfixM in
+      let open Option.Infix in
       let access_path =  query_get_opt query "path" >== List.hd in
       let cache_size = query_get_opt query "cacheSize" >== List.hd >>= Int64.of_string_opt in
       match (access_path, cache_size) with
@@ -441,7 +444,7 @@ let execute_control_operation fe meth path query headers body =
     )
   (* PUT /yaks/access/id ? path & cacheSize *)
   | (`PUT, ["yaks"; "access"; id]) -> (
-      let open OptionM.InfixM in
+      let open Option.Infix in
       let access_path =  query_get_opt query "path" >== List.hd in
       let cache_size = query_get_opt query "cacheSize" >== List.hd >>= Int64.of_string_opt in
       match (access_path, cache_size) with
@@ -464,7 +467,7 @@ let execute_control_operation fe meth path query headers body =
     )
   (* POST /yaks/storages ? path & options... *)
   | (`POST, ["yaks"; "storages"]) -> (
-      let open OptionM.InfixM in
+      let open Option.Infix in
       let storage_path =  query_get_opt query "path" >== List.hd in
       match storage_path with
       | None -> missing_query (["path:string"])
@@ -474,7 +477,7 @@ let execute_control_operation fe meth path query headers body =
     )
   (* PUT /yaks/storages/id ? path & options... *)
   | (`PUT, ["yaks"; "storages"; id]) -> (
-      let open OptionM.InfixM in
+      let open Option.Infix in
       let storage_path =  query_get_opt query "path" >== List.hd in
       match storage_path with
       | None -> missing_query (["path:string"])
@@ -496,7 +499,7 @@ let execute_control_operation fe meth path query headers body =
     )
   (* POST /yaks/access/id/subs *)
   | (`POST, ["yaks"; "access"; aid; "subs"]) -> (
-      let open OptionM.InfixM in
+      let open Option.Infix in
       let selector =  query_get_opt query "selector" >== List.hd in
       match selector with
       | None -> missing_query (["selector:string"])
