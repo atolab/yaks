@@ -31,7 +31,7 @@ public class YaksImpl extends Utils implements Yaks {
 
 	public YaksImpl(String... args) {
 		if(args.length == 0) {
-			LOG.error("Usage: <yaksUrl>");
+			System.out.println("Usage: <yaksUrl>");
 			System.exit(-1);
 		}		
 		String yaksUrl = args[0];
@@ -52,12 +52,10 @@ public class YaksImpl extends Utils implements Yaks {
 			switch (encoding) {
 			case JSON:
 			default:
-				ClientResponse response = webResource.path("yaks/access")
+				ClientResponse response = webResource.path("/yaks/access")
 				.queryParam("path", scopePath)
 				.queryParam("cacheSize", cacheSize + "")
 				.post(ClientResponse.class);
-
-				LOG.info(response.getEntity(String.class));
 
 				switch (response.getStatus()) {
 				case HttpURLConnection.HTTP_CREATED :			
@@ -164,7 +162,7 @@ public class YaksImpl extends Utils implements Yaks {
 					.get(ClientResponse.class);
 
 			String data = response.getEntity(String.class);
-			System.out.println(data);
+			//System.out.println(data);
 
 			switch (response.getStatus()) {
 			case HttpURLConnection.HTTP_OK:

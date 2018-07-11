@@ -7,14 +7,12 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Future;
 import java.util.function.Function;
 
-import javax.net.ssl.HttpsURLConnection;
 import javax.ws.rs.core.Cookie;
 import javax.ws.rs.core.MediaType;
 import javax.ws.rs.core.MultivaluedMap;
 
 import com.google.gson.annotations.Expose;
 import com.google.gson.annotations.SerializedName;
-import com.sun.jersey.api.client.Client;
 import com.sun.jersey.api.client.ClientResponse;
 import com.sun.jersey.api.client.WebResource;
 
@@ -57,7 +55,6 @@ public class AccessImpl extends Utils implements Access {
 		this.accessId = accessId;
 		this.scopePath = scopePath;
 		this.cacheSize = cacheSize;
-		/**/
 	}
 
 	@Override
@@ -251,9 +248,13 @@ public class AccessImpl extends Utils implements Access {
 		this.location = location;		
 	}
 
+	public String getLocation() {
+		return location;
+	}
+
 	@Override
 	public String toString() {	
-		return "{id:"+ getAccessId()+", cache:" + getCacheSize() + ", scopePath:" + scopePath+"}";
+		return "{id:"+ getAccessId()+", cache:" + getCacheSize() + ", scopePath:" + scopePath+", location: "+location+"}";
 	}
 
 }
