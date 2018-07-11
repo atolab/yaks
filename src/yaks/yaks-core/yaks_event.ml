@@ -49,3 +49,57 @@ type event =
 type event_stream = event EventStream.t
 type event_sink = event EventStream.Sink.s
 type event_source = event EventStream.Source.s
+
+
+(**********************************)
+(*      helpers functions         *)
+(**********************************)
+
+let string_of_property : property -> string =
+  fun p -> Printf.sprintf "%s=%s" p.key p.value
+
+let string_of_properties p =
+  String.concat ""
+    [ "["; List.map string_of_property p |> String.concat ","; "]"]
+
+let string_of_entity e = match e with
+  | Access{path; cache_size} -> Printf.sprintf "Acc(%s)" path
+  | Storage{path; properties}    -> Printf.sprintf "Str(%s)" path
+  | Subscriber{access_id; selector; push} -> Printf.sprintf "Sub(%s)" selector
+
+let string_of_entity_id eid = match eid with
+  | Yaks -> "yaks"
+  | AccessId s -> s
+  | StorageId s -> s
+  | SubscriberId i -> Int64.to_string i
+  | Auto -> "auto"
+
+let string_of_message msg = 
+  match msg with
+  | Create{cid; entity; entity_id} ->
+    Printf.sprintf "#%Ld Create(%s, %s)" cid (string_of_entity entity) (string_of_entity_id entity_id)
+  | Dispose{cid; entity_id} ->
+    Printf.sprintf "#%Ld Dispose(%s)" cid (string_of_entity_id entity_id)
+  | Get{cid; entity_id; key} ->
+    Printf.sprintf "#%Ld Get(%s)" cid key
+  | Put{cid; access_id; key; value} ->
+    Printf.sprintf "#%Ld Put(%s, %s)" cid key value
+  | Patch{cid; access_id; key; value} ->
+    Printf.sprintf "#%Ld Patch(%s, %s)" cid key value
+  | Remove{cid; access_id; key} ->
+    Printf.sprintf "#%Ld Remove(%s)" cid key
+  | Notify{cid; sid; values} ->
+    Printf.sprintf "#%Ld Notify(%s)" cid (string_of_entity_id sid)
+  | Values{cid; values} ->
+    Printf.sprintf "#%Ld Values(...)" cid
+  | Error{cid; reason} ->
+    Printf.sprintf "#%Ld Error(%d)" cid reason
+  | Ok{cid; entity_id} ->
+    Printf.sprintf "#%Ld Ok(%s)" cid (string_of_entity_id entity_id)
+
+let string_of_values values =
+  values
+  |> List.map (fun {key; value} -> Printf.sprintf "{ %s , %s }\n" key (Lwt_bytes.to_string value))
+  |> String.concat "\n"
+  |> Printf.sprintf "{\n%s\n}\n"
+

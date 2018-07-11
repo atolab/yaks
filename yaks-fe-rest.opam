@@ -17,7 +17,6 @@ depends: [
   "jbuilder"  
   "yaks_core"
   "yaks_codec"
-  "atdgen"
 ]
 
 available: [ocaml-version >= "4.03.0"]

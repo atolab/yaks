@@ -3,14 +3,14 @@ open Yaks_core
 open Yaks_event
 open Cohttp
 open Cohttp_lwt_unix
+open Lwt
 
 
-type config = { port : int; stream_len : int }
+type config = { port : int}
 
 type t = {
   cfg: config;
   request_sink: event_sink;
-  reply_sink: event_sink;
   stop: unit Lwt.t;
   stopper: unit Lwt.u;
   mutable request_counter: int64;
@@ -37,78 +37,36 @@ let query_get_opt query name =
   List.find_opt (fun (n, v) -> n = name) query >>= fun (_, v) -> Some(v)
 
 let query_to_string query =
-  List.map (fun (n,v) -> n^"="^(String.concat "," v)) query |> String.concat "&"
+  List.map (fun (n,v) -> Printf.sprintf "%s=%s" n (String.concat "," v)) query
+  |> String.concat "&"
 
-
-let string_of_property : property -> string =
-  fun p ->p.key^"="^p.value
-
-let string_of_properties p =
-  String.concat ""
-    [ "["; List.map string_of_property p |> String.concat ","; "]"]
-
-
-let string_of_entity e = match e with
-  | Access{path; cache_size} -> "Acc("^path^")"
-  | Storage{path; properties}    -> "Str("^path^")"
-  | Subscriber{access_id; selector; push} -> "Sub("^selector^")"
-
-let string_of_entity_id eid = match eid with
-  | Yaks -> "yaks"
-  | AccessId s -> s
-  | StorageId s -> s
-  | SubscriberId i -> Int64.to_string i
-  | Auto -> "auto"
-
-let string_of_message msg = 
-  match msg with
-  | Create{cid; entity; entity_id} ->
-    "#"^(Int64.to_string cid)^" Create("^(string_of_entity_id entity_id)^":"^(string_of_entity entity)^")"
-  | Dispose{cid; entity_id} ->
-    "#"^(Int64.to_string cid)^" Dispose("^(string_of_entity_id entity_id)^")"
-  | Get{cid; entity_id; key} ->
-    "#"^(Int64.to_string cid)^" Get("^key^")"
-  | Put{cid; access_id; key; value} ->
-    "#"^(Int64.to_string cid)^" Put("^key^", "^value^")"
-  | Patch{cid; access_id; key; value} ->
-    "#"^(Int64.to_string cid)^" Patch("^key^", "^value^")"
-  | Remove{cid; access_id; key} ->
-    "#"^(Int64.to_string cid)^" Get("^key^")"
-  | Notify{cid; sid; values} ->
-    "#"^(Int64.to_string cid)^" Notify("^(string_of_entity_id sid)^")"
-  | Values{cid; values} ->
-    "#"^(Int64.to_string cid)^" Values(...)"
-  | Error{cid; reason} ->
-    "#"^(Int64.to_string cid)^" Error("^(string_of_int reason)^")"
-  | Ok{cid; entity_id} ->
-    "#"^(Int64.to_string cid)^" Ok("^(string_of_entity_id entity_id)^")"
-
-let string_of_values values =
-  String.concat "" [
-    "{\n";
-    values |> List.map (fun {key; value} ->
-        String.concat "" ["{ "; key; " , "; Lwt_bytes.to_string value;" }\n";])
-    |> String.concat "\n";
-    "}\n";
-  ]
 
 let properties_of_query =
   List.map (fun (k, v):property -> {key=k; value=(String.concat "," v)}) 
 
 
 let push_to_engine sink msg on_reply =
-  let _ = Logs_lwt.debug (fun m -> m "   send to engine %s" (string_of_message
-                                                               msg)) in
+  let%lwt _ = Logs_lwt.debug (fun m -> m "   send to engine %s" (string_of_message msg)) in
   let (promise, resolver) = Lwt.wait () in
   let event_handler = fun reply ->
-    let _ = Logs_lwt.debug (fun m -> m "   recv from engine %s" (string_of_message
-                                                                   reply)) in
+    let%lwt _ = Logs_lwt.debug (fun m -> m "   recv from engine %s" (string_of_message reply)) in
     on_reply reply |> Lwt.wakeup_later resolver |> Lwt.return
   in
   let open Lwt in
   EventStream.Sink.push (EventWithHandler (msg, event_handler)) sink >>= fun _ ->
   promise >>= fun http_reply ->
   http_reply
+
+let push_to_engine sink msg =
+  let%lwt _ = Logs_lwt.debug (fun m -> m "   send to engine %s" (string_of_message msg)) in
+  let (promise, resolver) = Lwt.task () in
+  let on_reply = fun reply ->
+    let%lwt _ = Logs_lwt.debug (fun m -> m "   recv from engine %s" (string_of_message reply)) in
+    Lwt.return (Lwt.wakeup_later resolver reply)
+  in
+  let%lwt _ = EventStream.Sink.push (EventWithHandler (msg, on_reply)) sink in
+  promise
+
 
 
 
@@ -173,83 +131,77 @@ let create_access fe ?id path cache_size =
       entity_id = match id with None -> Auto | Some(i) -> AccessId(i)
     }
   in
-  let on_reply = fun reply -> match reply with
-    | Ok {cid; entity_id=AccessId(aid)} ->
-      let headers = Header.add_list (Header.init()) 
-          [("Location",match id with None -> aid | Some(_) -> ".");
-           ("Set-Cookie",cookie_name_access_id^"="^aid)]
-      in
-      Server.respond_string ~status:`Created ~headers ~body:"" ()
-    | Error {cid; reason=507} ->
-      insufficient_storage cache_size
-    | _ ->
-      unexpected_reply reply
-  in
-  push_to_engine fe.request_sink msg on_reply
+  push_to_engine fe.request_sink msg 
+  >>= function
+  | Ok {cid; entity_id=AccessId(aid)} ->
+    let headers = Header.add_list (Header.init()) 
+        [("Location",match id with None -> aid | Some(_) -> ".");
+         ("Set-Cookie",cookie_name_access_id^"="^aid)]
+    in
+    Server.respond_string ~status:`Created ~headers ~body:"" ()
+  | Error {cid; reason=507} ->
+    insufficient_storage cache_size
+  | x ->
+    unexpected_reply x
 
 let get_access ?id fe =
-  let _ = Logs_lwt.debug (fun m -> m "  get_access %s" (Option.get_or_default id "?")) in
+  let%lwt _ = Logs_lwt.debug (fun m -> m "  get_access %s" (Option.get_or_default id "?")) in
   let msg = Get { 
       cid = next_request_counter fe;
       entity_id = Yaks;
-      (* @AC: Julien, I think that it should be access/id as opposed to accessid 
-         please double check the change below.
-      *)
-      key = Printf.sprintf "access/%s"(Option.get_or_default id "");
+      key = Printf.sprintf "access/%s" (Option.get_or_default id "");
       encoding = Some(`Json)
     }
   in
-  let on_reply = fun reply -> match reply with
-    | Values {cid; encoding=`Json; values} ->
-      Server.respond_string ~status:`OK ~body:(string_of_values values) ()
-    | Error {cid; reason=404} ->
-      access_not_found (Option.get_or_default id "NO_ID!!!")
-    | _ ->
-      unexpected_reply reply
-  in
-  push_to_engine fe.request_sink msg on_reply
+  push_to_engine fe.request_sink msg 
+  >>= function
+  | Values {cid; encoding=`Json; values} ->
+    Server.respond_string ~status:`OK ~body:(string_of_values values) ()
+  | Error {cid; reason=404} ->
+    access_not_found (Option.get_or_default id "NO_ID!!!")
+  | x ->
+    unexpected_reply x
 
 
 let dispose_access fe id =
-  let _ = Logs_lwt.debug (fun m -> m "  dispose_access %s" id) in
+  let%lwt _ = Logs_lwt.debug (fun m -> m "  dispose_access %s" id) in
   let msg = Dispose { 
       cid = next_request_counter fe;
       entity_id = AccessId(id)
     }
   in
-  let on_reply = fun reply -> match reply with
-    | Ok{cid; entity_id=AccessId(xid)} ->
-      Server.respond_string ~status:`No_content ~body:"" ()
-    | Error{cid; reason=404} ->
-      access_not_found id
-    | _ ->
-      unexpected_reply reply
-  in
-  push_to_engine fe.request_sink msg on_reply
+  push_to_engine fe.request_sink msg
+  >>= function
+  | Ok{cid; entity_id=AccessId(xid)} ->
+    Server.respond_string ~status:`No_content ~body:"" ()
+  | Error{cid; reason=404} ->
+    access_not_found id
+  | x ->
+    unexpected_reply x
+
 
 let create_storage fe ?id path properties =
-  let _ = Logs_lwt.debug (fun m -> m "  create_storage %s %s" (Option.get_or_default id "?") path) in
+  let%lwt _ = Logs_lwt.debug (fun m -> m "  create_storage %s %s" (Option.get_or_default id "?") path) in
   let msg = Create { 
       cid = next_request_counter fe;
       entity = Storage {path; properties};
       entity_id = match id with None -> Auto | Some(i) -> StorageId(i)
     }
   in
-  let on_reply = fun reply -> match reply with
-    | Ok {cid; entity_id=StorageId(sid)} ->
-      let headers = Header.add_list (Header.init())
-          [("Location", match id with None -> sid | Some(_) -> ".");
-           ("Set-Cookie",cookie_name_storage_id^"="^sid)] in
-      Server.respond_string ~status:`Created ~headers ~body:"" ()
-    | Error {cid; reason=501} ->
-      unkown_storage_type properties
-    | _ ->
-      unexpected_reply reply
-  in
-  push_to_engine fe.request_sink msg on_reply
+  push_to_engine fe.request_sink msg
+  >>= function
+  | Ok {cid; entity_id=StorageId(sid)} ->
+    let headers = Header.add_list (Header.init())
+        [("Location", match id with None -> sid | Some(_) -> ".");
+         ("Set-Cookie",cookie_name_storage_id^"="^sid)] in
+    Server.respond_string ~status:`Created ~headers ~body:"" ()
+  | Error {cid; reason=501} ->
+    unkown_storage_type properties
+  | x ->
+    unexpected_reply x
 
 let get_storage ?id fe =
-  let _ = Logs_lwt.debug (fun m -> m "  get_storage %s" (Option.get_or_default id "?")) in
+  let%lwt _ = Logs_lwt.debug (fun m -> m "  get_storage %s" (Option.get_or_default id "?")) in
   let msg = Get { 
       cid = next_request_counter fe;
       entity_id = Yaks;
@@ -257,54 +209,51 @@ let get_storage ?id fe =
       encoding = Some(`Json)
     }
   in
-  let on_reply = fun reply -> match reply with
-    | Values {cid; encoding=`Json; values} ->
-      Server.respond_string ~status:`OK ~body:(string_of_values values) ()
-    | Error {cid; reason=404} ->
-      storage_not_found (Option.get_or_default id "NO_ID!!!")
-    | _ ->
-      unexpected_reply reply
-  in
-  push_to_engine fe.request_sink msg on_reply
+  push_to_engine fe.request_sink msg
+  >>= function
+  | Values {cid; encoding=`Json; values} ->
+    Server.respond_string ~status:`OK ~body:(string_of_values values) ()
+  | Error {cid; reason=404} ->
+    storage_not_found (Option.get_or_default id "NO_ID!!!")
+  | x ->
+    unexpected_reply x
 
 let dispose_storage fe id =
-  let _ = Logs_lwt.debug (fun m -> m "  dispose_storage %s" id) in
+  let%lwt _ = Logs_lwt.debug (fun m -> m "  dispose_storage %s" id) in
   let msg = Dispose { 
       cid = next_request_counter fe;
       entity_id = StorageId(id)
     }
   in
-  let on_reply = fun reply -> match reply with
-    | Ok {cid; entity_id=StorageId(sid)} ->
-      Server.respond_string ~status:`No_content ~body:"" ()
-    | Error {cid; reason=404} ->
-      storage_not_found id
-    | _ ->
-      unexpected_reply reply
-  in
-  push_to_engine fe.request_sink msg on_reply
+  push_to_engine fe.request_sink msg
+  >>= function
+  | Ok {cid; entity_id=StorageId(sid)} ->
+    Server.respond_string ~status:`No_content ~body:"" ()
+  | Error {cid; reason=404} ->
+    storage_not_found id
+  | x ->
+    unexpected_reply x
 
 let subscribe fe access_id selector =
-  let _ = Logs_lwt.debug (fun m -> m "  subscribe %s %s" access_id selector) in
+  let%lwt _ = Logs_lwt.debug (fun m -> m "  subscribe %s %s" access_id selector) in
   let msg = Create { 
       cid = next_request_counter fe;
       entity = Subscriber {access_id; selector; push=false};
       entity_id = Auto
     }
   in
-  let on_reply = fun reply -> match reply with
-    | Ok {cid; entity_id=SubscriberId(sid)} ->
-      let headers = Header.add_list (Header.init()) [("Location",Int64.to_string sid);] in
-      Server.respond_string ~status:`Created ~headers ~body:"" ()
-    | Error {cid; reason=412} ->
-      access_not_found access_id
-    | _ ->
-      unexpected_reply reply
-  in
-  push_to_engine fe.request_sink msg on_reply
+  push_to_engine fe.request_sink msg
+  >>= function
+  | Ok {cid; entity_id=SubscriberId(sid)} ->
+    let headers = Header.add_list (Header.init()) [("Location",Int64.to_string sid);] in
+    Server.respond_string ~status:`Created ~headers ~body:"" ()
+  | Error {cid; reason=412} ->
+    access_not_found access_id
+  | x ->
+    unexpected_reply x
 
 let get_subscriptions fe access_id =
-  let _ = Logs_lwt.debug (fun m -> m "  get_subscriptions %s" access_id) in
+  let%lwt _ = Logs_lwt.debug (fun m -> m "  get_subscriptions %s" access_id) in
   let msg = Get { 
       cid = next_request_counter fe;
       entity_id = Yaks;
@@ -312,33 +261,31 @@ let get_subscriptions fe access_id =
       encoding = Some(`Json)
     }
   in
-  let on_reply = fun reply -> match reply with
-    | Values {cid; encoding=`Json; values} ->
-      Server.respond_string ~status:`OK ~body:(string_of_values values) ()
-    | Error {cid; reason=404} ->
-      access_not_found access_id
-    | _ ->
-      unexpected_reply reply
-  in
-  push_to_engine fe.request_sink msg on_reply
+  push_to_engine fe.request_sink msg
+  >>= function
+  | Values {cid; encoding=`Json; values} ->
+    Server.respond_string ~status:`OK ~body:(string_of_values values) ()
+  | Error {cid; reason=404} ->
+    access_not_found access_id
+  | x ->
+    unexpected_reply x
 
 
 let unsubscribe fe access_id sub_id =
-  let _ = Logs_lwt.debug (fun m -> m "  unsubscribe %s %Ld" access_id sub_id) in
+  let%lwt _ = Logs_lwt.debug (fun m -> m "  unsubscribe %s %Ld" access_id sub_id) in
   let msg = Dispose { 
       cid = next_request_counter fe;
       entity_id = SubscriberId(sub_id)
     }
   in
-  let on_reply = fun reply -> match reply with
-    | Ok {cid; entity_id=SubscriberId(sid)} ->
-      Server.respond_string ~status:`No_content ~body:"" ()
-    | Error {cid; reason=404} ->
-      access_not_found access_id
-    | _ ->
-      unexpected_reply reply
-  in
-  push_to_engine fe.request_sink msg on_reply
+  push_to_engine fe.request_sink msg
+  >>= function
+  | Ok {cid; entity_id=SubscriberId(sid)} ->
+    Server.respond_string ~status:`No_content ~body:"" ()
+  | Error {cid; reason=404} ->
+    access_not_found access_id
+  | x ->
+    unexpected_reply x
 
 (**********************************)
 (*      Key/Value operations      *)
@@ -347,7 +294,7 @@ let unsubscribe fe access_id sub_id =
 let status_ok = `Ok
 
 let get_key_value fe access_id selector =
-  let _ = Logs_lwt.debug (fun m -> m "  get_key_value %s %s" access_id selector) in
+  let%lwt _ = Logs_lwt.debug (fun m -> m "  get_key_value %s %s" access_id selector) in
   let msg = Get { 
       cid = next_request_counter fe;
       entity_id = AccessId(access_id);
@@ -355,18 +302,17 @@ let get_key_value fe access_id selector =
       encoding = None
     }
   in
-  let on_reply = fun reply -> match reply with
-    | Values {cid; values} ->
-      Server.respond_string ~status:`OK ~body:(string_of_values values) ()
-    | Error {cid; reason=404} ->
-      no_matching_key selector
-    | _ ->
-      unexpected_reply reply
-  in
-  push_to_engine fe.request_sink msg on_reply
+  push_to_engine fe.request_sink msg
+  >>= function
+  | Values {cid; values} ->
+    Server.respond_string ~status:`OK ~body:(string_of_values values) ()
+  | Error {cid; reason=404} ->
+    no_matching_key selector
+  | x ->
+    unexpected_reply x
 
 let put_key_value fe access_id selector value =
-  let _ = Logs_lwt.debug (fun m -> m "  put_key_value %s %s" access_id selector) in
+  let%lwt _ = Logs_lwt.debug (fun m -> m "  put_key_value %s %s" access_id selector) in
   let msg = Put { 
       cid = next_request_counter fe;
       access_id = AccessId(access_id);
@@ -374,18 +320,17 @@ let put_key_value fe access_id selector value =
       value
     }
   in
-  let on_reply = fun reply -> match reply with
-    | Ok {cid; _} ->
-      Server.respond_string ~status:`No_content ~body:"" ()
-    | Error {cid; reason=404} ->
-      no_matching_key selector
-    | _ ->
-      unexpected_reply reply
-  in
-  push_to_engine fe.request_sink msg on_reply
+  push_to_engine fe.request_sink msg
+  >>= function
+  | Ok {cid; _} ->
+    Server.respond_string ~status:`No_content ~body:"" ()
+  | Error {cid; reason=404} ->
+    no_matching_key selector
+  | x ->
+    unexpected_reply x
 
 let put_delta_key_value fe access_id selector delta_value =
-  let _ = Logs_lwt.debug (fun m -> m "  put_delta_key_value %s %s" access_id selector) in
+  let%lwt _ = Logs_lwt.debug (fun m -> m "  put_delta_key_value %s %s" access_id selector) in
   let msg = Patch { 
       cid = next_request_counter fe;
       access_id = AccessId(access_id);
@@ -393,33 +338,31 @@ let put_delta_key_value fe access_id selector delta_value =
       value=delta_value
     }
   in
-  let on_reply = fun reply -> match reply with
-    | Ok {cid; _} ->
-      Server.respond_string ~status:`No_content ~body:"" ()
-    | Error {cid; reason=404} ->
-      no_matching_key selector
-    | _ ->
-      unexpected_reply reply
-  in
-  push_to_engine fe.request_sink msg on_reply
+  push_to_engine fe.request_sink msg
+  >>= function
+  | Ok {cid; _} ->
+    Server.respond_string ~status:`No_content ~body:"" ()
+  | Error {cid; reason=404} ->
+    no_matching_key selector
+  | x ->
+    unexpected_reply x
 
 let remove_key_value fe access_id selector =
-  let _ = Logs_lwt.debug (fun m -> m "  put_delta_key_value %s %s" access_id selector) in
+  let%lwt _ = Logs_lwt.debug (fun m -> m "  put_delta_key_value %s %s" access_id selector) in
   let msg = Remove { 
       cid = next_request_counter fe;
       access_id = AccessId(access_id);
       key = selector;
     }
   in
-  let on_reply = fun reply -> match reply with
-    | Ok {cid; _} ->
-      Server.respond_string ~status:`No_content ~body:"" ()
-    | Error {cid; reason=404} ->
-      no_matching_key selector
-    | _ ->
-      unexpected_reply reply
-  in
-  push_to_engine fe.request_sink msg on_reply
+  push_to_engine fe.request_sink msg
+  >>= function
+  | Ok {cid; _} ->
+    Server.respond_string ~status:`No_content ~body:"" ()
+  | Error {cid; reason=404} ->
+    no_matching_key selector
+  | x ->
+    unexpected_reply x
 
 
 
@@ -536,7 +479,7 @@ let execute_http_request fe req body =
   let path = uri |> Uri.path  in
   let query = uri |> Uri.query in
   let headers = req |> Request.headers in
-  let _ = Logs_lwt.debug (fun m -> m "HTTP req: %s %s?%s with headers: %s" (Code.string_of_method meth) path (query_to_string query) (Header.to_string headers))
+  let%lwt _ = Logs_lwt.debug (fun m -> m "HTTP req: %s %s?%s with headers: %s" (Code.string_of_method meth) path (query_to_string query) (Header.to_string headers))
   in
   if path = "/" then
     empty_path
@@ -548,18 +491,17 @@ let execute_http_request fe req body =
 
 
 let create cfg request_sink = 
-  let _ = Logs_lwt.debug (fun m -> m "Socket-FE-REST preparing HTTP server") in
-  let reply_src, reply_sink = EventStream.create cfg.stream_len in
+  let _ = Logs_lwt.debug (fun m -> m "REST-FE preparing HTTP server") in
   let stop, stopper = Lwt.wait () in
-  { cfg; request_sink; reply_sink; stop; stopper; request_counter=0L }
+  { cfg; request_sink; stop; stopper; request_counter=0L }
 
 let start fe =
-  let _ = Logs_lwt.debug (fun m -> m "Socket-FE-REST starting HTTP server on port %d" fe.cfg.port) in
+  let _ = Logs_lwt.debug (fun m -> m "REST-FE starting HTTP server on port %d" fe.cfg.port) in
   let callback _conn req body = execute_http_request fe req body in
   Server.create ~stop:fe.stop ~mode:(`TCP (`Port fe.cfg.port)) (Server.make ~callback ())
 
 
 let stop fe =
-  let _ = Logs_lwt.debug (fun m -> m "Socket-FE-REST stopping HTTP server") in
+  let _ = Logs_lwt.debug (fun m -> m "REST-FE stopping HTTP server") in
   Lwt.wakeup_later fe.stopper ()
 
