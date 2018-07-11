@@ -12,7 +12,7 @@
 	</parent>
 
 	<artifactId>yaks-driver-rest</artifactId>
-	<packaging>pom</packaging>
+	<packaging>jar</packaging>
 	<name>Yaks API implementation in Java</name>
 
 	<dependencies>
