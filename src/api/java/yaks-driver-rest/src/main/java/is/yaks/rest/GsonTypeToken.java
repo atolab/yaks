@@ -15,9 +15,7 @@ public class GsonTypeToken {
 	public final Type MAP_KV = new TypeToken<HashMap<String, ?>>() {}.getType();
 	public final Type MAP_SELECTOR_BY_SUBS = new TypeToken<HashMap<String, String>>() {}.getType();
 
-	private GsonTypeToken() 
-	{		
-	}
+	private GsonTypeToken(){}
 
     private static class GsonTypeTokenHolder
     {

@@ -1,5 +1,6 @@
 package is.yaks.rest;
 
+import java.lang.reflect.Constructor;
 import java.net.HttpURLConnection;
 import java.util.HashMap;
 import java.util.Map;
@@ -67,7 +68,9 @@ public class AccessImpl extends Utils implements Access {
 			ClientResponse response = wr
 					.cookie(new Cookie("is.yaks.access",accessId))
 					.type(MediaType.APPLICATION_JSON_TYPE)
-					.put(ClientResponse.class, value);
+					.put(
+							ClientResponse.class, 
+							config.getGson().toJson(value));
 
 			switch (response.getStatus()) {
 			case HttpURLConnection.HTTP_NO_CONTENT:
@@ -110,17 +113,17 @@ public class AccessImpl extends Utils implements Access {
 	}
 
 	@Override
-	public Future<Map<Selector, byte[]>> get(Selector selector) {
+	public Future<Map<String, byte[]>> get(Selector selector) {
 		WebResource wr = config.getClient()
 				.resource(config.getYaksUrl())
 				.path(selector.path);
-		CompletableFuture<Map<Selector, byte[]>> completableFuture = CompletableFuture.supplyAsync(() -> {
+		CompletableFuture<Map<String, byte[]>> completableFuture = CompletableFuture.supplyAsync(() -> {
 			ClientResponse response = wr				
 					.type(MediaType.APPLICATION_JSON_TYPE)
 					.get(ClientResponse.class);	
 
 			if(response.getStatus() == HttpURLConnection.HTTP_OK) {	
-				Map<Selector, byte[]> map = config.getGson().fromJson(
+				Map<String, byte[]> map = config.getGson().fromJson(
 						response.getEntity(String.class), 
 						gsonTypes.MAP_KV); //TODO change MAP_KV
 				return map;
@@ -134,11 +137,11 @@ public class AccessImpl extends Utils implements Access {
 	}
 
 	@Override
-	public <T> Future<Map<Selector, T>> get(Selector selector, Class<T> c) {
+	public <T> Future<Map<String, T>> get(Selector selector, Class<T> c) {
 		WebResource wr = config.getClient()
 				.resource(config.getYaksUrl())
 				.path(selector.path);
-		Future<Map<Selector, T>> completableFuture = CompletableFuture.supplyAsync(() -> {
+		Future<Map<String, T>> completableFuture = CompletableFuture.supplyAsync(() -> {
 			ClientResponse response = wr				
 					.type(MediaType.APPLICATION_JSON_TYPE)
 					.get(ClientResponse.class);	
@@ -147,8 +150,8 @@ public class AccessImpl extends Utils implements Access {
 			System.out.println("\n@@@ data @@@\n" + data+"\n@@@@@@\n");
 			
 			if(response.getStatus() == HttpURLConnection.HTTP_OK) {				
-				Map<Selector, T> ret = (Map<Selector, T>) config.getGson().fromJson(data, c);				
-				return ret;		
+				T ret = config.getGson().fromJson(data, c);
+				return (Map<String, T>)ret;		
 			} else {
 				fail("Access<V> get NOT OK: " + response.getStatus());				
 				return null;

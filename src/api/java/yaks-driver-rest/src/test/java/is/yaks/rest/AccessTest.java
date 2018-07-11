@@ -32,7 +32,7 @@ public class AccessTest {
 
 	@Test
 	public void yaksCreateAccessTest() throws InterruptedException, ExecutionException {		
-		Future<Access> futureAccess = yaks.createAccess("//residence-1/house1", 100000L, Encoding.JSON);
+		Future<Access> futureAccess = yaks.createAccess("//residence-1/house-access-1", 100000L, Encoding.JSON);
 		Assert.assertNotNull(futureAccess);		
 		Access access = futureAccess.get();
 		if(access instanceof AccessImpl) {
@@ -44,12 +44,12 @@ public class AccessTest {
 
 	@Test
 	public void yaksCreateAccessTestWithId() throws InterruptedException, ExecutionException {
-		Future<Access> futureAccess = yaks.createAccess("house-id-10", "//residence-1/house10", 100000L, Encoding.JSON);
+		Future<Access> futureAccess = yaks.createAccess("house-access-2", "//residence-1/house10", 100000L, Encoding.JSON);
 		Assert.assertNotNull(futureAccess);
 		Access access = futureAccess.get();
 		if(access instanceof AccessImpl) {
 			AccessImpl accessImpl = (AccessImpl)access;
-			Assert.assertEquals("Bad id", "house-id-10", accessImpl.getAccessId());
+			Assert.assertEquals("Bad id", "house-access-2", accessImpl.getAccessId());
 			Assert.assertEquals("Bad cache", 100000L, accessImpl.getCacheSize());
 		}
 
@@ -66,7 +66,7 @@ public class AccessTest {
 
 	@Test
 	public void yaksGetAccessByIdTest() throws InterruptedException, ExecutionException {
-		Future<Access> futureHouseId10 = yaks.getAccess("house-id-10");
+		Future<Access> futureHouseId10 = yaks.getAccess("house-access-2");
 		Access houseId10 = futureHouseId10.get();
 		Assert.assertNotNull(houseId10);		
 		if(houseId10 instanceof AccessImpl) {
@@ -77,7 +77,7 @@ public class AccessTest {
 
 	@Test
 	public void yaksSubscribeTest() throws InterruptedException, ExecutionException {
-		Future<Access> futureHouseId10 = yaks.getAccess("house-id-10");
+		Future<Access> futureHouseId10 = yaks.getAccess("house-access-2");
 		Access houseId10 = futureHouseId10.get(); 
 		Assert.assertNotNull(houseId10);		
 		Future<Long> futureSubId = houseId10.subscribe(Selector.path("//residence-1/house10"));
@@ -88,7 +88,7 @@ public class AccessTest {
 
 	//@Test
 	public void yaksGetSubscriptionsTest() throws InterruptedException, ExecutionException {
-		Future<Access> futureHouseId10 = yaks.getAccess("house-id-10");
+		Future<Access> futureHouseId10 = yaks.getAccess("house-access-2");
 		Access houseId10 = futureHouseId10.get();
 		Future<Map<String, Selector>> futureSubs = houseId10.getSubscriptions();		
 		Map<String, Selector> subs = futureSubs.get();

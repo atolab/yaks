@@ -63,12 +63,12 @@ public interface Access {
    /**
     * Returns a map of the Selector/values matching the specified Selector.
     */
-   public Future<Map<Selector, byte[]>> get(Selector selector);
+   public Future<Map<String, byte[]>> get(Selector selector);
    
    /**
     * Returns a map of the Selector/values matching the specified Selector.
     */
-   public <T> Future<Map<Selector, T>> get(Selector selector, Class<T> c);
+   public <T> Future<Map<String, T>> get(Selector selector, Class<T> c);
    
    /**
     * Close the current Access connection.
