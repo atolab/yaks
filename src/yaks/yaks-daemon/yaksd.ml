@@ -25,7 +25,7 @@ let yaksd () =
   let engine = Engine.create  ecfg in 
   let sockfecfg = Yaks_fe_sock.{ iface = "127.0.0.1"; port = 8448; backlog = 10; bufsize = 64000; stream_len = 32 } in   
   let sockfe = Yaks_fe_sock.create sockfecfg (Engine.event_sink engine) in
-  let restfecfg = Yaks_fe_rest.{ port = 8000; stream_len = 32 } in   
+  let restfecfg = Yaks_fe_rest.{ port = 8000 } in
   let restfe = Yaks_fe_rest.create restfecfg (Engine.event_sink engine) in
   Lwt.join [Engine.start engine; Yaks_fe_sock.start sockfe; Yaks_fe_rest.start restfe]
 
