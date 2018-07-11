@@ -7,6 +7,7 @@ import java.util.concurrent.Future;
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
+import org.junit.Test;
 
 import is.yaks.Access;
 import is.yaks.Selector;
@@ -20,7 +21,6 @@ public class KeysValuesTest {
 	Yaks yaks;
 	public static final Logger LOG = LoggerFactory.getLogger(KeysValuesTest.class);
 	
-	@SuppressWarnings("unchecked")
 	@Before
 	public void init() {
 		String[] args = {"http://127.0.0.1/json/index.php"};		
@@ -28,7 +28,7 @@ public class KeysValuesTest {
 		Assert.assertTrue(yaks instanceof YaksImpl);		
 	}
 	
-	//@Test
+	@Test
 	public void accessPutTest() throws InterruptedException, ExecutionException {
 		Future<Access> futureHouseId10 = yaks.getAccess("house-id-10");
 		Assert.assertNotNull(futureHouseId10);
@@ -44,7 +44,7 @@ public class KeysValuesTest {
 		Assert.assertNotNull(put);
 	}
 	
-	//@Test
+	@Test
 	public void accessDeltaPutTest() throws InterruptedException, ExecutionException {
 		Future<Access> futureHouseId10 = yaks.getAccess("house-id-10");
 		Assert.assertNotNull(futureHouseId10);
@@ -58,7 +58,7 @@ public class KeysValuesTest {
 		Assert.assertNotNull(deltaPut);
 	}
 	
-	//@Test
+	@Test
 	public void accessGetTest() throws InterruptedException, ExecutionException {
 		Future<Access> futureHouseId10 = yaks.getAccess("house-id-10");
 		Assert.assertNotNull(futureHouseId10);
