@@ -16,7 +16,7 @@ public class Utils {
 
 	public String uniqueID = Utils.stringify(UUID.randomUUID().toString());
 	public static final Logger LOG = LoggerFactory.getLogger(Utils.class);
-	protected GsonTypeToken<?> gsonTypes = GsonTypeToken.getInstance();
+	protected GsonTypeToken gsonTypes = GsonTypeToken.getInstance();
 	protected YaksConfiguration config = YaksConfiguration.getInstance();
 	
 	public String getUuid() {

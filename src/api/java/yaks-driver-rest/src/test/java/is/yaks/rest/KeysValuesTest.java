@@ -71,6 +71,19 @@ public class KeysValuesTest {
 		System.out.println(map);
 	}
 	
+	@Test
+	public void accessGetWithClassTest() throws InterruptedException, ExecutionException {
+		Future<Access> futureHouseId10 = yaks.getAccess("house-id-10");
+		Assert.assertNotNull(futureHouseId10);
+
+		Access houseId10 = futureHouseId10.get();
+		Assert.assertNotNull(houseId10);
+
+		Future<Map<Selector, Object>> futureGet = houseId10.get(Selector.path("//residence-1/house-id-10"), Object.class);
+		Map<Selector, Object> map = futureGet.get();
+		System.out.println("\n@@@ test @@@\n"+map+"\n@@@@@@\n");
+	}
+	
 	@After
 	public void stop() {				
 	}

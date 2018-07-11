@@ -25,12 +25,12 @@ public interface Access {
     * Notice that if the Selector is not yet associated with a value in the store
     * the delta will be inserted as a full value.
     */   
-   public Future<Access> deltaPut(Selector Selector, Object delta);
+   public Future<Access> deltaPut(Selector selector, Object delta);
    
    /**
     * Removes the Selector from the store, if present.
     */
-   public Future<Access> remove(Selector Selector);
+   public Future<Access> remove(Selector selector);
    
    /**
     * Inserts a new association between a Selector and a computation function.
@@ -68,7 +68,7 @@ public interface Access {
    /**
     * Returns a map of the Selector/values matching the specified Selector.
     */
-   public <T> Future<Map<Selector, T>> get(Selector Selector, Class c);
+   public <T> Future<Map<Selector, T>> get(Selector selector, Class<T> c);
    
    /**
     * Close the current Access connection.
