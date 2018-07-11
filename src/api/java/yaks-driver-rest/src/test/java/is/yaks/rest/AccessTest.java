@@ -33,13 +33,13 @@ public class AccessTest {
 	@Test
 	public void yaksCreateAccessTest() throws InterruptedException, ExecutionException {		
 		Future<Access> futureAccess = yaks.createAccess("//residence-1/house1", 100000L, Encoding.JSON);
-		Assert.assertNotNull(futureAccess);
-		
+		Assert.assertNotNull(futureAccess);		
 		Access access = futureAccess.get();
 		if(access instanceof AccessImpl) {
 			AccessImpl accessImpl = (AccessImpl)access;
+			System.out.println(accessImpl.toString());
 			Assert.assertNotNull(accessImpl.getAccessId());
-			Assert.assertNotNull(accessImpl.getPath());
+			Assert.assertNotNull(accessImpl.getScopePath());
 		}
 	}
 	
@@ -72,7 +72,7 @@ public class AccessTest {
 		Access houseId10 = futureHouseId10.get();
 		Assert.assertNotNull(houseId10);		
 		if(houseId10 instanceof AccessImpl) {
-			Assert.assertTrue(((AccessImpl) houseId10).getPath().size()>0);
+			Assert.assertNotNull(((AccessImpl) houseId10).getScopePath());
 		}
 	}
 	

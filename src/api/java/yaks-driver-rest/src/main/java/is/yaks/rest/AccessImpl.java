@@ -2,9 +2,7 @@ package is.yaks.rest;
 
 import java.net.HttpURLConnection;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.Map;
-import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Future;
 import java.util.function.Function;
@@ -32,7 +30,7 @@ public class AccessImpl extends Utils implements Access {
 
 	@Expose(serialize = true, deserialize = true)
 	@SerializedName(value="path", alternate={"scopePath"})
-	private Set<String> path = new HashSet<String>();	
+	private String scopePath;	
 
 
 	@Expose(serialize = true, deserialize = true)
@@ -43,70 +41,23 @@ public class AccessImpl extends Utils implements Access {
 	//@SerializedName(value="subscriptions", alternate={"subs","subsId"})
 	private Map<String,Selector> subscriptions = new HashMap<String, Selector>();
 
+	private String location;
+
 	// called when loading rest data from Yaks
 	public AccessImpl() {}
 
 	//create access
 	public AccessImpl(String scopePath, long cacheSize) {		
-		Client client = config.getClient();		
-		String yaksUrl = config.getYaksUrl();
-		WebResource wr = client.resource(yaksUrl);
-
-		ClientResponse response = wr.path("/yaks/access")
-				.queryParam("path", scopePath)
-				.queryParam("cacheSize", cacheSize + "")
-				.post(ClientResponse.class);
-
-		LOG.info(response.getEntity(String.class));
-
-		switch (response.getStatus()) {
-		case HttpURLConnection.HTTP_CREATED :			
-			MultivaluedMap<String, String> headers = response.getHeaders();			
-			accessId = getCookieData(headers, "Set-Cookie", "is.yaks.access");
-			path.add(getCookie(headers, "Location"));			
-			this.cacheSize = cacheSize;			
-			LOG.info("CREATE ({}:AccessImpl {location:\"{}\", cacheSize:\"{}\"})", getAccessId(), path, this.cacheSize);			
-			break;
-		case HttpURLConnection.HTTP_FORBIDDEN:
-		case HttpsURLConnection.HTTP_BAD_REQUEST:
-		case 507: //507 (Insufficient Storage): if requested cacheSize is too large
-		default:
-			fail("Access creation failed with code : " + response.getStatus());
-		}	
-
+		this.scopePath = scopePath;
+		this.cacheSize = cacheSize;
 	}
 
 	//create access
-	public AccessImpl(String id, String scopePath, long cacheSize) {
-		Client client = config.getClient();		
-		String yaksUrl = config.getYaksUrl();
-		ClientResponse response = client.resource(yaksUrl)
-				.path("/yaks/access/"+id)
-				.queryParam("path", scopePath)
-				.queryParam("cacheSize", cacheSize + "")
-				.put(ClientResponse.class);
-
-		LOG.info(response.getEntity(String.class));
-		MultivaluedMap<String, String> headers;
-
-		switch (response.getStatus()) {
-		case HttpURLConnection.HTTP_OK:
-			headers = response.getHeaders();			
-			accessId = getCookieData(headers, "Set-Cookie", "is.yaks.access");			
-			this.cacheSize = cacheSize;
-			break;
-		case HttpURLConnection.HTTP_CREATED :
-			headers = response.getHeaders();						
-			accessId = getCookieData(headers, "Set-Cookie", "is.yaks.access");			
-			path.add(getCookie(headers, "Location"));
-			this.cacheSize = cacheSize;			
-			break;
-		case HttpURLConnection.HTTP_FORBIDDEN:
-		case HttpsURLConnection.HTTP_BAD_REQUEST:
-		case 507: //507 (Insufficient Storage): if requested cacheSize is too large
-		default:
-			fail("Access creation failed with code : " + response.getStatus());
-		}		
+	public AccessImpl(String accessId, String scopePath, long cacheSize) {
+		this.accessId = accessId;
+		this.scopePath = scopePath;
+		this.cacheSize = cacheSize;
+		/**/
 	}
 
 	@Override
@@ -284,14 +235,6 @@ public class AccessImpl extends Utils implements Access {
 		this.cacheSize = cacheSize;
 	}
 
-	public Set<String> getPath() {
-		return path;
-	}
-
-	public void setPath(Set<String> path) {
-		this.path = path;
-	}
-
 	public void setAccessId(String accessId) {		
 		this.accessId = accessId;
 	}
@@ -300,10 +243,17 @@ public class AccessImpl extends Utils implements Access {
 		return accessId;
 	}
 
-	@Override
-	public String toString() {	
-		return "{id:"+ getAccessId()+", cache:" + getCacheSize() + ", path:" + getPath()+"}";
+	public String getScopePath() {
+		return scopePath;
 	}
 
-	
+	public void setLocation(String location) {
+		this.location = location;		
+	}
+
+	@Override
+	public String toString() {	
+		return "{id:"+ getAccessId()+", cache:" + getCacheSize() + ", scopePath:" + scopePath+"}";
+	}
+
 }
