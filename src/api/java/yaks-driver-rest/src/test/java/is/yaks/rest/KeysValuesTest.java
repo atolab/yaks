@@ -29,7 +29,7 @@ public class KeysValuesTest {
 		Assert.assertTrue(yaks instanceof YaksImpl);		
 	}
 	
-	@Test
+	//@Test
 	public void accessPutStringTest() throws InterruptedException, ExecutionException {
 		Future<Access> futureHouseId10 = yaks.getAccess("house-access-2");
 		Access houseId10 = futureHouseId10.get();
@@ -55,14 +55,10 @@ public class KeysValuesTest {
 		Assert.assertNotNull(put);
 	}
 
-	
 	//@Test
 	public void accessDeltaPutTest() throws InterruptedException, ExecutionException {
 		Future<Access> futureHouseId10 = yaks.getAccess("house-access-2");
-		Assert.assertNotNull(futureHouseId10);
-
 		Access houseId10 = futureHouseId10.get();
-		Assert.assertNotNull(houseId10);
 		
 		String value = "{\"name\":\"door-room\"}";
 		Future<Access> futureDeltaPut = houseId10.deltaPut(Selector.path("//residence-1/house-id-10"), value);
@@ -70,32 +66,27 @@ public class KeysValuesTest {
 		Assert.assertNotNull(deltaPut);
 	}
 	
-	//@Test
+	@Test
 	public void accessGetTest() throws InterruptedException, ExecutionException {
 		Future<Access> futureHouseId10 = yaks.getAccess("house-access-2");
-		Assert.assertNotNull(futureHouseId10);
-
 		Access houseId10 = futureHouseId10.get();
-		Assert.assertNotNull(houseId10);
 
 		Future<Map<String, byte[]>> futureGet = houseId10.get(Selector.path("//residence-1/house-id-10"));
 		Map<String, byte[]> map = futureGet.get();
-		System.out.println(map);
+		Assert.assertNotNull(map);
 	}
-	
-	
 	
 	//@Test
 	public void accessGetWithClassTest() throws InterruptedException, ExecutionException {
-		Future<Access> futureHouseId10 = yaks.getAccess("house-id-10");
-		Assert.assertNotNull(futureHouseId10);
-
+		Future<Access> futureHouseId10 = yaks.getAccess("house-access-2");
 		Access houseId10 = futureHouseId10.get();
-		Assert.assertNotNull(houseId10);
 
-		Future<Map<String, String>> futureGet = houseId10.get(Selector.path("//residence-1/house-id-10"), String.class);
-		Map<String, String> map = futureGet.get();
-		System.out.println("\n@@@ test @@@\n"+map+"\n@@@@@@\n");
+		Future<Map<String, Foo>> futureGet = houseId10.get(Selector.path("//residence-1/house-id-10"), Foo.class);
+		Map<String, Foo> map = futureGet.get();
+		
+		map.forEach( (key,obj)->{
+			System.out.println(key + "+++" + obj.getClass().getName());
+		});
 	}
 	
 	@After

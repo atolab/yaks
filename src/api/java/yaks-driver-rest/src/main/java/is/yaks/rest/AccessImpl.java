@@ -2,7 +2,9 @@ package is.yaks.rest;
 
 import java.lang.reflect.Constructor;
 import java.net.HttpURLConnection;
+import java.util.Collection;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Future;
@@ -30,7 +32,6 @@ public class AccessImpl extends Utils implements Access {
 	@Expose(serialize = true, deserialize = true)
 	@SerializedName(value="path", alternate={"scopePath"})
 	private String scopePath;	
-
 
 	@Expose(serialize = true, deserialize = true)
 	@SerializedName(value="cacheSize", alternate={"cache","size"})
@@ -68,9 +69,8 @@ public class AccessImpl extends Utils implements Access {
 			ClientResponse response = wr
 					.cookie(new Cookie("is.yaks.access",accessId))
 					.type(MediaType.APPLICATION_JSON_TYPE)
-					.put(
-							ClientResponse.class, 
-							config.getGson().toJson(value));
+					.put(ClientResponse.class, 
+						config.getGson().toJson(value));
 
 			switch (response.getStatus()) {
 			case HttpURLConnection.HTTP_NO_CONTENT:
@@ -97,7 +97,9 @@ public class AccessImpl extends Utils implements Access {
 			ClientResponse response = wr
 					.cookie(new Cookie("is.yaks.access", accessId))
 					.type(MediaType.APPLICATION_JSON_TYPE)
-					.method("PATCH", ClientResponse.class, delta);
+					.method("PATCH", 
+							ClientResponse.class, 
+							config.getGson().toJson(delta));
 
 			switch (response.getStatus()) {
 			case HttpURLConnection.HTTP_NO_CONTENT:
@@ -125,7 +127,7 @@ public class AccessImpl extends Utils implements Access {
 			if(response.getStatus() == HttpURLConnection.HTTP_OK) {	
 				Map<String, byte[]> map = config.getGson().fromJson(
 						response.getEntity(String.class), 
-						gsonTypes.MAP_KV); //TODO change MAP_KV
+						gsonTypes.MAP_KV);
 				return map;
 			} else {
 				fail("Access<V> get NOT OK: " + response.getStatus());				
@@ -147,11 +149,17 @@ public class AccessImpl extends Utils implements Access {
 					.get(ClientResponse.class);	
 
 			String data = response.getEntity(String.class);
-			System.out.println("\n@@@ data @@@\n" + data+"\n@@@@@@\n");
 			
-			if(response.getStatus() == HttpURLConnection.HTTP_OK) {				
-				T ret = config.getGson().fromJson(data, c);
-				return (Map<String, T>)ret;		
+			if(response.getStatus() == HttpURLConnection.HTTP_OK) {
+				Map<String, String> jsonMap = config.getGson().fromJson(data, Map.class);				
+				Map<String, T> ret = new HashMap<String, T>();
+				
+				jsonMap.forEach( (key, value) -> {
+					T x = config.getGson().fromJson((String)value, c);
+					ret.put(key, x);
+				});
+				
+				return ret;		
 			} else {
 				fail("Access<V> get NOT OK: " + response.getStatus());				
 				return null;
