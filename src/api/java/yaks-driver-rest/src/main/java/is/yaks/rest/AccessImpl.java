@@ -1,17 +1,13 @@
 package is.yaks.rest;
 
-import java.lang.reflect.Constructor;
 import java.net.HttpURLConnection;
-import java.util.Collection;
 import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.TimeoutException;
 import java.util.function.Function;
+import java.util.stream.Collectors;
 
 import javax.ws.rs.core.Cookie;
 import javax.ws.rs.core.MediaType;
@@ -73,7 +69,7 @@ public class AccessImpl extends Utils implements Access {
 					.cookie(new Cookie("is.yaks.access",accessId))
 					.type(MediaType.APPLICATION_JSON_TYPE)
 					.put(ClientResponse.class, 
-						config.getGson().toJson(value));
+							config.getGson().toJson(value));
 
 			switch (response.getStatus()) {
 			case HttpURLConnection.HTTP_NO_CONTENT:
@@ -116,61 +112,70 @@ public class AccessImpl extends Utils implements Access {
 		return completableFuture;
 	}
 
+
 	@Override
 	public Future<Map<String, byte[]>> get(Selector selector) {
-		WebResource wr = config.getClient()
-				.resource(config.getYaksUrl())
-				.path(selector.path);
 		CompletableFuture<Map<String, byte[]>> completableFuture = CompletableFuture.supplyAsync(() -> {
+			WebResource wr = config.getClient()
+					.resource(config.getYaksUrl())
+					.path(selector.path);
+
 			ClientResponse response = wr				
-					.type(MediaType.APPLICATION_JSON_TYPE)
+					.accept(MediaType.APPLICATION_JSON_TYPE)
+					.cookie(new Cookie("is.yaks.access", accessId))
 					.get(ClientResponse.class);	
 
-			if(response.getStatus() == HttpURLConnection.HTTP_OK) {	
+			switch (response.getStatus()) {
+			case HttpURLConnection.HTTP_OK:				
 				Map<String, byte[]> map = config.getGson().fromJson(
 						response.getEntity(String.class), 
 						gsonTypes.MAP_KV);
 				return map;
-			} else {
-				fail("Access<V> get NOT OK: " + response.getStatus());				
+			case HttpURLConnection.HTTP_NOT_FOUND:
+			case HttpURLConnection.HTTP_BAD_REQUEST:
+			case HttpURLConnection.HTTP_PRECON_FAILED:
+			default:
+				fail("Fail to get data map corresponding to selector:\ncode: " + response.getStatus()
+					+"\nbody: "+response.getEntity(String.class));				
 				return null;
 			}
 		});
-
 		return completableFuture;
 	}
+
 
 	@Override
 	public <T> Future<Map<String, T>> get(Selector selector, Class<T> c) {
-		WebResource wr = config.getClient()
-				.resource(config.getYaksUrl())
-				.path(selector.path);
-
 		Future<Map<String, T>> completableFuture = CompletableFuture.supplyAsync(() -> {
+			WebResource wr = config.getClient()
+					.resource(config.getYaksUrl())
+					.path(selector.path);
 			ClientResponse response = wr				
-					.type(MediaType.APPLICATION_JSON_TYPE)
-					.get(ClientResponse.class);	
-
-			String data = response.getEntity(String.class);
-			
-			if(response.getStatus() == HttpURLConnection.HTTP_OK) {
-				Map<String, String> jsonMap = config.getGson().fromJson(data, Map.class);				
-				Map<String, T> ret = new HashMap<String, T>();
-				
-				jsonMap.forEach( (key, value) -> {
-					T x = config.getGson().fromJson((String)value, c);
-					ret.put(key, x);
-				});
-				
-				return ret;		
-			} else {
-				fail("Access<V> get NOT OK: " + response.getStatus());				
+					.accept(MediaType.APPLICATION_JSON_TYPE)
+					.cookie(new Cookie("is.yaks.access", accessId))
+					.get(ClientResponse.class);
+			String data = response.getEntity(String.class);			
+			switch (response.getStatus()) {
+			case HttpURLConnection.HTTP_OK:
+				Map<String, String> jsonMap = config.getGson().fromJson(data, gsonTypes.MAP_KV);
+				Map<String, T> map = jsonMap.entrySet()
+					.parallelStream()
+					.collect(Collectors.toMap(
+							entry -> String.valueOf(entry.getKey()), 
+							entry -> config.getGson().fromJson(String.valueOf(entry.getValue()), c)));
+				return map;	
+			case HttpURLConnection.HTTP_NOT_FOUND:
+			case HttpURLConnection.HTTP_BAD_REQUEST:
+			case HttpURLConnection.HTTP_PRECON_FAILED:
+			default:
+				fail("Fail to get data map corresponding to selector:\ncode: " + response.getStatus()
+					+"\nbody: " + data);				
 				return null;
 			}
 		});
-
 		return completableFuture;
 	}
+
 
 	@Override
 	public void dispose() {		
@@ -191,11 +196,11 @@ public class AccessImpl extends Utils implements Access {
 				case HttpURLConnection.HTTP_NOT_FOUND:			
 				default:
 					fail("Access dispose failed with\n code: " + response.getStatus()
-							+ "\nbody: " + response.getEntity(String.class));								
+					+ "\nbody: " + response.getEntity(String.class));								
 				}
 			}			
 		});
-		
+
 		try {
 			futureDispose.get(5, TimeUnit.SECONDS);
 		} catch (Exception e) {

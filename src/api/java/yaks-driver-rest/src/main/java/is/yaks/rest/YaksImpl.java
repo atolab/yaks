@@ -44,7 +44,7 @@ public class YaksImpl extends Utils implements Yaks {
 		config.setYaksUrl(yaksUrl);
 		webResource = config.getClient().resource(config.getYaksUrl());
 
-		onShutdown();
+		registerShutdownHook();
 	}
 
 
@@ -321,7 +321,7 @@ public class YaksImpl extends Utils implements Yaks {
     }
 
 
-	private void onShutdown() {
+	private void registerShutdownHook() {
 		Runtime.getRuntime().addShutdownHook(new Thread() {
 			@Override
 			public void run() {				

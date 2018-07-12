@@ -40,7 +40,6 @@ public class KeysValuesTest {
 		Assert.assertNotNull(put);
 	}
 
-
 	//@Test
 	public void accessPutObjectTest() throws InterruptedException, ExecutionException {
 		Future<Access> futureHouseId10 = yaks.getAccess("access-id-2");
@@ -73,7 +72,7 @@ public class KeysValuesTest {
 		Assert.assertNotNull(map);
 	}
 	
-	//@Test
+	@Test
 	public void accessGetWithClassTest() throws InterruptedException, ExecutionException {
 		Future<Access> futureHouseId10 = yaks.getAccess("access-id-2");
 		Access houseId10 = futureHouseId10.get();
