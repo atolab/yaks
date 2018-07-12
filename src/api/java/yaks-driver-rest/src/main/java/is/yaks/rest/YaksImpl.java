@@ -204,7 +204,7 @@ public class YaksImpl extends Utils implements Yaks {
 				String location = getCookie(headers, "Location");
 				String storageId = getCookieData(headers, "Set-Cookie", "is.yaks.storage");
 				assert storageId != null && location != null;
-				StorageImpl storage = new StorageImpl(location, storageId);
+				StorageImpl storage = new StorageImpl(storageId, location);
 				storageById.put(storageId, storage);				
 				return storage;				
 			case HttpURLConnection.HTTP_OK:				
@@ -246,7 +246,7 @@ public class YaksImpl extends Utils implements Yaks {
 				String location = getCookie(headers, "Location");
 				String storageId = getCookieData(headers, "Set-Cookie", "is.yaks.storage");	
 				assert storageId != null && location != null;
-				StorageImpl storage = new StorageImpl(location, storageId);
+				StorageImpl storage = new StorageImpl(storageId, location);
 				storageById.put(storageId, storage);				
 				return storage;				
 			case HttpURLConnection.HTTP_OK:				

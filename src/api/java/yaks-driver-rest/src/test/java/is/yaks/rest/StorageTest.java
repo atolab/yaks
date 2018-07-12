@@ -37,7 +37,7 @@ public class StorageTest {
 	}
 	
 	
-	@Test
+	//@Test
 	public void yaksCreateStorageWithId() throws InterruptedException, ExecutionException {
 		Properties options = new Properties();
 		options.put("options1", "OPT1");
@@ -46,6 +46,12 @@ public class StorageTest {
 		Future<Storage> futureStorage = yaks.createStorage("storage-id-1", "//residence-1/storage-1", options);
 		Storage storage = futureStorage.get();
 		Assert.assertNotNull(storage);
+	}
+	
+	@Test
+	public void storagesDisposeTest() throws InterruptedException, ExecutionException {				
+		Storage storage = new StorageImpl("storage-id-1", "//residence-1/storage-1");
+		storage.dispose();
 	}
 
 

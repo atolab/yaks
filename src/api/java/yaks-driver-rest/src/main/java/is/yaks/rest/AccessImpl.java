@@ -21,7 +21,6 @@ import com.google.gson.annotations.Expose;
 import com.google.gson.annotations.SerializedName;
 import com.sun.jersey.api.client.ClientResponse;
 import com.sun.jersey.api.client.WebResource;
-import com.sun.jersey.core.header.MediaTypes;
 
 import is.yaks.Access;
 import is.yaks.Selector;
