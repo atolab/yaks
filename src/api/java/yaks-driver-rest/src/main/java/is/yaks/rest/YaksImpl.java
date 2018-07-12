@@ -20,7 +20,6 @@ import com.sun.jersey.core.util.MultivaluedMapImpl;
 
 import is.yaks.Access;
 import is.yaks.Encoding;
-import is.yaks.Selector;
 import is.yaks.Storage;
 import is.yaks.Yaks;
 import is.yaks.rest.utils.Utils;
@@ -129,9 +128,9 @@ public class YaksImpl extends Utils implements Yaks {
 
 
 	@Override
-	public Future<List<String>> getAccess() {
-		WebResource wr = webResource.path("/yaks/access");
+	public Future<List<String>> getAccess() {		
 		Future<List<String>> completableFuture = CompletableFuture.supplyAsync(() -> {
+			WebResource wr = webResource.path("/yaks/access");
 			ClientResponse response = wr
 					.accept(MediaType.APPLICATION_JSON_TYPE)
 					.get(ClientResponse.class);

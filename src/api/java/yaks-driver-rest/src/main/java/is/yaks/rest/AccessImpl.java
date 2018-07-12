@@ -179,14 +179,13 @@ public class AccessImpl extends Utils implements Access {
 
 
 	@Override
-	public void dispose() {		
-		WebResource wr = config.getClient()
-				.resource(config.getYaksUrl())
-				.path("/yaks/access/"+accessId);
-
-		CompletableFuture<Void> futureDispose = CompletableFuture.runAsync(new Runnable() {
+	public void dispose() {
+		CompletableFuture<Void> futureDispose = CompletableFuture.runAsync(new Runnable() {			
 			@Override
 			public void run() {
+				WebResource wr = config.getClient()
+						.resource(config.getYaksUrl())
+						.path("/yaks/access/"+accessId);
 				ClientResponse response = wr					
 						.accept(MediaType.APPLICATION_JSON_TYPE)
 						.delete(ClientResponse.class);
@@ -238,11 +237,11 @@ public class AccessImpl extends Utils implements Access {
 
 	@Override
 	public Future<Long> subscribe(Selector selector) {
-		WebResource wr = config.getClient()
-				.resource(config.getYaksUrl())
-				.path("/yaks/access/"+accessId+"/subs")
-				.queryParam("selector", selector.path);
 		Future<Long> completableFuture = CompletableFuture.supplyAsync(() -> {
+			WebResource wr = config.getClient()
+					.resource(config.getYaksUrl())
+					.path("/yaks/access/"+accessId+"/subs")
+					.queryParam("selector", selector.path);
 			ClientResponse response = wr.post(ClientResponse.class);
 			switch (response.getStatus()) {
 			case HttpURLConnection.HTTP_CREATED:
