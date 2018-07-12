@@ -60,16 +60,15 @@ public class AccessImpl extends Utils implements Access {
 
 	@Override
 	public Future<Access> put(Selector selector, Object value){
-		WebResource wr = config.getClient()
-				.resource(config.getYaksUrl())
-				.path(selector.path);
-
 		CompletableFuture<Access> completableFuture = CompletableFuture.supplyAsync(() -> {
+			WebResource wr = config.getClient()
+					.resource(config.getYaksUrl())
+					.path(selector.path);			
 			ClientResponse response = wr
-					.cookie(new Cookie("is.yaks.access",accessId))
+					.cookie(new Cookie("is.yaks.access",accessId))					
 					.type(MediaType.APPLICATION_JSON_TYPE)
-					.put(ClientResponse.class, 
-							config.getGson().toJson(value));
+					.accept(MediaType.APPLICATION_JSON_TYPE)
+					.put(ClientResponse.class, config.getGson().toJson(value));
 
 			switch (response.getStatus()) {
 			case HttpURLConnection.HTTP_NO_CONTENT:
@@ -77,8 +76,8 @@ public class AccessImpl extends Utils implements Access {
 			case HttpURLConnection.HTTP_BAD_REQUEST:
 			case HttpURLConnection.HTTP_PRECON_FAILED:
 			default:
-
-				fail("Access<V> put NOT OK: " + response.getStatus() + "\n" + response.getEntity(String.class));
+				fail("Failed to put data :\ncode: " + response.getStatus()
+				+"\nbody: "+response.getEntity(String.class));		
 				return null;				
 			}			
 		});
@@ -88,13 +87,14 @@ public class AccessImpl extends Utils implements Access {
 
 	@Override
 	public Future<Access> deltaPut(Selector selector, Object delta) {
-		WebResource wr = config.getClient()
-				.resource(config.getYaksUrl())
-				.path(selector.path);
 		CompletableFuture<Access> completableFuture = CompletableFuture.supplyAsync(() -> {
+			WebResource wr = config.getClient()
+					.resource(config.getYaksUrl())
+					.path(selector.path);
 			ClientResponse response = wr
 					.cookie(new Cookie("is.yaks.access", accessId))
 					.type(MediaType.APPLICATION_JSON_TYPE)
+					.accept(MediaType.APPLICATION_JSON_TYPE)
 					.method("PATCH", 
 							ClientResponse.class, 
 							config.getGson().toJson(delta));
@@ -105,7 +105,8 @@ public class AccessImpl extends Utils implements Access {
 			case HttpURLConnection.HTTP_BAD_REQUEST:
 			case HttpURLConnection.HTTP_PRECON_FAILED:
 			default:
-				fail("Access<V> put NOT OK: " + response.getStatus());
+				fail("Failed to put data :\ncode: " + response.getStatus()
+				+"\nbody: "+response.getEntity(String.class));
 				return null;				
 			}			
 		});
@@ -135,8 +136,8 @@ public class AccessImpl extends Utils implements Access {
 			case HttpURLConnection.HTTP_BAD_REQUEST:
 			case HttpURLConnection.HTTP_PRECON_FAILED:
 			default:
-				fail("Fail to get data map corresponding to selector:\ncode: " + response.getStatus()
-					+"\nbody: "+response.getEntity(String.class));				
+				fail("Failed to get data map corresponding to selector:\ncode: " + response.getStatus()
+				+"\nbody: "+response.getEntity(String.class));				
 				return null;
 			}
 		});
@@ -159,17 +160,17 @@ public class AccessImpl extends Utils implements Access {
 			case HttpURLConnection.HTTP_OK:
 				Map<String, String> jsonMap = config.getGson().fromJson(data, gsonTypes.MAP_KV);
 				Map<String, T> map = jsonMap.entrySet()
-					.parallelStream()
-					.collect(Collectors.toMap(
-							entry -> String.valueOf(entry.getKey()), 
-							entry -> config.getGson().fromJson(String.valueOf(entry.getValue()), c)));
+						.parallelStream()
+						.collect(Collectors.toMap(
+								entry -> String.valueOf(entry.getKey()), 
+								entry -> config.getGson().fromJson(String.valueOf(entry.getValue()), c)));
 				return map;	
 			case HttpURLConnection.HTTP_NOT_FOUND:
 			case HttpURLConnection.HTTP_BAD_REQUEST:
 			case HttpURLConnection.HTTP_PRECON_FAILED:
 			default:
-				fail("Fail to get data map corresponding to selector:\ncode: " + response.getStatus()
-					+"\nbody: " + data);				
+				fail("Failed to get data map corresponding to selector:\ncode: " + response.getStatus()
+				+"\nbody: " + data);				
 				return null;
 			}
 		});
@@ -204,31 +205,55 @@ public class AccessImpl extends Utils implements Access {
 		try {
 			futureDispose.get(5, TimeUnit.SECONDS);
 		} catch (Exception e) {
-			fail("Access fail to dispose " + e.getMessage());
+			fail("Access Failed to dispose " + e.getMessage());
 		}
+	}
+
+	@Override
+	public Future<Access> remove(Selector selector) {
+		CompletableFuture<Access> completableFuture = CompletableFuture.supplyAsync(() -> {
+			WebResource wr = config.getClient()
+					.resource(config.getYaksUrl())
+					.path(selector.path);
+
+			ClientResponse response = wr
+					.type(MediaType.APPLICATION_JSON_TYPE)
+					.accept(MediaType.APPLICATION_JSON_TYPE)
+					.cookie(new Cookie("is.yaks.access", accessId))
+					.delete(ClientResponse.class);	
+
+			switch (response.getStatus()) {
+			case HttpURLConnection.HTTP_NO_CONTENT:
+				return this;			
+			case HttpURLConnection.HTTP_BAD_REQUEST:
+			case HttpURLConnection.HTTP_PRECON_FAILED:
+			default:
+				fail("Failed to get data map corresponding to selector:\ncode: " + response.getStatus()
+				+"\nbody: "+response.getEntity(String.class));				
+				return null;
+			}
+		});
+		return completableFuture;
 	}
 
 	@Override
 	public Future<Long> subscribe(Selector selector) {
 		WebResource wr = config.getClient()
 				.resource(config.getYaksUrl())
-				.path("yaks/access/"+accessId+"/subs")
+				.path("/yaks/access/"+accessId+"/subs")
 				.queryParam("selector", selector.path);
-
 		Future<Long> completableFuture = CompletableFuture.supplyAsync(() -> {
 			ClientResponse response = wr.post(ClientResponse.class);
-
-			//System.out.println(response.getEntity(String.class));
-
 			switch (response.getStatus()) {
 			case HttpURLConnection.HTTP_CREATED:
 				MultivaluedMap<String, String> headers = response.getHeaders();
-				String subPath = getCookie(headers, "Location");
-				subscriptions.put(subPath, selector);
-				return new Long(subPath);
+				String location = getCookie(headers, "Location");
+				subscriptions.put(location, selector);
+				return new Long(location);
 			case HttpURLConnection.HTTP_PRECON_FAILED:
 			default:
-				fail("Access<V> put NOT OK: " + response.getStatus() + "\n" + response.getEntity(String.class));
+				fail("Failed to subscribe to selector:\ncode: " + response.getStatus()
+				+"\nbody: "+response.getEntity(String.class));				
 				return null;				
 			}			
 		});
@@ -236,38 +261,71 @@ public class AccessImpl extends Utils implements Access {
 	}
 
 	@Override
+	public void unsubscribe(long subscriptionId) {
+		CompletableFuture<Void> completableFuture = CompletableFuture.runAsync( new Runnable() {
+
+			@Override
+			public void run() {
+				WebResource wr = config.getClient()
+						.resource(config.getYaksUrl())
+						.path("/yaks/access/"+accessId+"/subs/"+subscriptionId);
+
+				ClientResponse response = wr
+						.type(MediaType.APPLICATION_JSON_TYPE)
+						.accept(MediaType.APPLICATION_JSON_TYPE)
+						.delete(ClientResponse.class);	
+
+				switch (response.getStatus()) {
+				case HttpURLConnection.HTTP_NO_CONTENT:
+					return;			
+				case HttpURLConnection.HTTP_NOT_FOUND:
+				default:
+					fail("Failed to unsubscribe:\ncode: " + response.getStatus()
+					+"\nbody: "+response.getEntity(String.class));				
+					return;
+				}
+			}
+		});
+
+		try {
+			completableFuture.get(5, TimeUnit.SECONDS);
+		} catch (Exception e) {
+			fail("Access Failed to unsubscribe " + e.getMessage());
+		}
+	}
+
+	@Override
 	public Future<Map<String, Selector>> getSubscriptions() {
 		WebResource wr = config.getClient()
 				.resource(config.getYaksUrl())
-				.path("yaks/access/"+accessId+"/subs");
+				.path("/yaks/access/"+accessId+"/subs");
 
 		CompletableFuture<Map<String, Selector>> completableFuture = CompletableFuture.supplyAsync(() -> {
 			ClientResponse response = wr				
 					.type(MediaType.APPLICATION_JSON_TYPE)
+					.accept(MediaType.APPLICATION_JSON_TYPE)
 					.get(ClientResponse.class);	
 
 			switch (response.getStatus()) {
 			case HttpURLConnection.HTTP_OK:				
 				Map<String, String> map = config.getGson().fromJson(
 						response.getEntity(String.class), 
-						gsonTypes.MAP_SELECTOR_BY_SUBS);				
-				map.forEach( (idSub, selectorPath) -> subscriptions.put(idSub, Selector.path(selectorPath)) );
-
+						gsonTypes.MAP_SELECTOR_BY_SUBS);
+				subscriptions.putAll(
+						map.entrySet().parallelStream().collect(Collectors.toMap(
+								p -> String.valueOf(p.getKey()), 
+								p -> Selector.path(p.getValue())))
+						);				
 				return subscriptions;
 			default:
 			case HttpURLConnection.HTTP_NOT_FOUND:
-				fail("No subscriptions with specified id exists " + response.getStatus());				
+				fail("Failed to get subscrition list :\ncode: " + response.getStatus()
+				+"\nbody: "+response.getEntity(String.class));					
 				return null;
 			}
 		});
 
 		return completableFuture;
-	}
-
-	@Override
-	public Future<Access> remove(Selector selector) {
-		// TODO Auto-generated method stub
-		return null;
 	}
 
 	@Override
@@ -277,15 +335,8 @@ public class AccessImpl extends Utils implements Access {
 	}
 
 	@Override
-	public void unsubscribe(long sid) {
-		// TODO Auto-generated method stub
-
-	}
-
-	@Override
 	public void close() {
 		// TODO Auto-generated method stub
-
 	}
 
 	public long getCacheSize() {

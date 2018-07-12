@@ -56,9 +56,9 @@ public interface Access {
    public Future<Map<String, Selector>> getSubscriptions();
 
    /**
-    * Remove the subscription.
+    * Removes a previously registered subscription with the specified selector.
     */
-   public void unsubscribe(long sid);
+   public void unsubscribe(long subscriptionId);
 
    /**
     * Returns a map of the Selector/values matching the specified Selector.

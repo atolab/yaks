@@ -29,7 +29,6 @@ public class AccessTest {
 		Assert.assertTrue(yaks instanceof YaksImpl);		
 	}
 
-
 	//@Test
 	public void yaksCreateAccessTest() throws InterruptedException, ExecutionException {		
 		Future<Access> futureAccess = yaks.createAccess("//residence-1/house-access-1", 100000L, Encoding.JSON);
@@ -42,7 +41,6 @@ public class AccessTest {
 		}
 	}
 
-
 	//@Test
 	public void yaksCreateAccessTestWithId() throws InterruptedException, ExecutionException {
 		Future<Access> futureAccess = yaks.createAccess("access-id-1", "//residence-1/house10", 100000L, Encoding.JSON);
@@ -54,9 +52,7 @@ public class AccessTest {
 			Assert.assertEquals("Bad id", "access-id-1", accessImpl.getAccessId());
 			Assert.assertEquals("Bad cache", 100000L, accessImpl.getCacheSize());
 		}
-
 	}
-
 
 	//@Test
 	public void yaksGetAccessTest() throws InterruptedException, ExecutionException {
@@ -88,20 +84,24 @@ public class AccessTest {
 
 	//@Test
 	public void yaksSubscribeTest() throws InterruptedException, ExecutionException {
-		Future<Access> futureHouseId10 = yaks.getAccess("access-id-1");
-		Access houseId10 = futureHouseId10.get(); 
-		Assert.assertNotNull(houseId10);		
-		Future<Long> futureSubId = houseId10.subscribe(Selector.path("//residence-1/house10"));
+		AccessImpl access = new AccessImpl("access-id-1", "//residence-1/house10", 10000L);
+		Future<Long> futureSubId = access.subscribe(Selector.path("//residence-1/house10"));
 		Long subId = futureSubId.get();
 		Assert.assertTrue(subId>0);
+	}
+	
+	
+	@Test
+	public void yaksUnsubscribeTest() throws InterruptedException, ExecutionException {
+		AccessImpl access = new AccessImpl("access-id-1", "//residence-1/house10", 10000L);
+		access.unsubscribe(511512);
 	}
 
 
 	//@Test
 	public void yaksGetSubscriptionsTest() throws InterruptedException, ExecutionException {
-		Future<Access> futureHouseId10 = yaks.getAccess("access-id-1");
-		Access houseId10 = futureHouseId10.get();
-		Future<Map<String, Selector>> futureSubs = houseId10.getSubscriptions();		
+		AccessImpl access = new AccessImpl("access-id-1", "//residence-1/house10", 10000L);		
+		Future<Map<String, Selector>> futureSubs = access.getSubscriptions();		
 		Map<String, Selector> subs = futureSubs.get();
 		System.out.println(subs);		
 	}
