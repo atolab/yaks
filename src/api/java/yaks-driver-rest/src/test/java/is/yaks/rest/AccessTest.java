@@ -75,7 +75,12 @@ public class AccessTest {
 			System.out.println(houseId10);
 		}
 	}
-
+	
+	@Test
+	public void yaksDisposeTest() throws InterruptedException, ExecutionException {				
+		AccessImpl access = new AccessImpl("access-id-1", "//residence-1/house10", 10000L);
+		access.dispose();
+	}
 
 	//@Test
 	public void yaksSubscribeTest() throws InterruptedException, ExecutionException {

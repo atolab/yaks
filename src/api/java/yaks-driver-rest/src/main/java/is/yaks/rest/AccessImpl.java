@@ -7,7 +7,10 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.function.Function;
 
 import javax.ws.rs.core.Cookie;
@@ -18,6 +21,7 @@ import com.google.gson.annotations.Expose;
 import com.google.gson.annotations.SerializedName;
 import com.sun.jersey.api.client.ClientResponse;
 import com.sun.jersey.api.client.WebResource;
+import com.sun.jersey.core.header.MediaTypes;
 
 import is.yaks.Access;
 import is.yaks.Selector;
@@ -92,7 +96,6 @@ public class AccessImpl extends Utils implements Access {
 		WebResource wr = config.getClient()
 				.resource(config.getYaksUrl())
 				.path(selector.path);
-
 		CompletableFuture<Access> completableFuture = CompletableFuture.supplyAsync(() -> {
 			ClientResponse response = wr
 					.cookie(new Cookie("is.yaks.access", accessId))
@@ -143,6 +146,7 @@ public class AccessImpl extends Utils implements Access {
 		WebResource wr = config.getClient()
 				.resource(config.getYaksUrl())
 				.path(selector.path);
+
 		Future<Map<String, T>> completableFuture = CompletableFuture.supplyAsync(() -> {
 			ClientResponse response = wr				
 					.type(MediaType.APPLICATION_JSON_TYPE)
@@ -171,7 +175,34 @@ public class AccessImpl extends Utils implements Access {
 
 	@Override
 	public void dispose() {		
-		// TODO Auto-generated method stub
+		WebResource wr = config.getClient()
+				.resource(config.getYaksUrl())
+				.path("/yaks/access/"+accessId);
+
+		CompletableFuture<Void> futureDispose = CompletableFuture.runAsync(new Runnable() {
+			@Override
+			public void run() {
+
+				ClientResponse response = wr					
+						.accept(MediaType.APPLICATION_JSON_TYPE)
+						.delete(ClientResponse.class);
+
+				switch (response.getStatus()) {
+				case HttpURLConnection.HTTP_NO_CONTENT:
+					break;				
+				case HttpURLConnection.HTTP_NOT_FOUND:			
+				default:
+					fail("Access dispose failed with code: " + response.getStatus()
+							+ "\nbody: " + response.getEntity(String.class));								
+				}
+			}			
+		});
+		
+		try {
+			futureDispose.get(5, TimeUnit.SECONDS);
+		} catch (InterruptedException | ExecutionException | TimeoutException e) {
+			fail("Access fail to dispose " + e.getMessage());
+		}
 	}
 
 	@Override

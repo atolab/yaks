@@ -41,7 +41,7 @@ public class KeysValuesTest {
 	}
 
 
-	@Test
+	//@Test
 	public void accessPutObjectTest() throws InterruptedException, ExecutionException {
 		Future<Access> futureHouseId10 = yaks.getAccess("access-id-2");
 		Access houseId10 = futureHouseId10.get();
@@ -85,5 +85,7 @@ public class KeysValuesTest {
 	}
 	
 	@After
-	public void stop() {}
+	public void stop() {
+		yaks = null;
+	}
 }
