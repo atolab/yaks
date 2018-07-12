@@ -82,21 +82,25 @@ public interface Yaks {
     */
    public Future<Access> getAccess(String id);
 
+   /**
+    * Creates an Storage with a scope path and some options for its creation. 
+    * A Storage id will be created by Yaks and returned as a cookie.
+    */
+   public Future<Storage> createStorage(String path, Properties option);
    
    /**
-    * Creates a Storage in the global key/value store.
+    * Creates an Storage with the specified id, a scope path and some options for its creation. 
+    * If not already existing, the Storage will be created by Yaks and the id returned as a cookie. 
+    * If already existing, the id of the existing Storage will be returned
     * 
     * @param id The Storage identifier
     * @param path The prefix of the key space managed by the Storage.
     * @param option Options to pass to the Storage implementation (e.g. back-end configuration)
     */
-   public Storage createStorage(String id, Selector path, Properties option);
-   
-   /**
-    * Finds an existing Storage with a specified identifier.
-    * Null is returned if not found.
-    */
-   public Storage resolveStorage(String id);
+   public Future<Storage> createStorage(String id, Selector path, Properties option);
+
+
+
 
    
 }

@@ -16,6 +16,7 @@ import javax.ws.rs.core.MultivaluedMap;
 
 import com.sun.jersey.api.client.ClientResponse;
 import com.sun.jersey.api.client.WebResource;
+import com.sun.jersey.core.util.MultivaluedMapImpl;
 
 import is.yaks.Access;
 import is.yaks.Encoding;
@@ -28,6 +29,7 @@ public class YaksImpl extends Utils implements Yaks {
 
 	private WebResource webResource;
 	private Map<String, Access> accessById = new HashMap<String, Access>();
+	private Map<String, Storage> storageById = new HashMap<String, Storage>();
 
 	public YaksImpl(String... args) {
 		if(args.length == 0) {
@@ -85,7 +87,6 @@ public class YaksImpl extends Utils implements Yaks {
 	@Override
 	public Future<Access> createAccess (String id, String scopePath, long cacheSize, Encoding encoding){
 		CompletableFuture<Access> completableFuture = CompletableFuture.supplyAsync(() -> {
-
 			switch (encoding) {
 			case JSON:
 			default:
@@ -96,9 +97,7 @@ public class YaksImpl extends Utils implements Yaks {
 				.accept(MediaType.APPLICATION_JSON_TYPE)
 				.put(ClientResponse.class);
 
-				LOG.info(response.getEntity(String.class));
 				MultivaluedMap<String, String> headers;
-
 				switch (response.getStatus()) {
 				case HttpURLConnection.HTTP_OK:
 					headers = response.getHeaders();			
@@ -185,15 +184,38 @@ public class YaksImpl extends Utils implements Yaks {
 
 
 	@Override
-	public Storage createStorage(String id, Selector path, Properties option) {
-		// TODO Auto-generated method stub
-		return null;
+	public Future<Storage> createStorage(String id, Selector path, Properties option) {
+		Future<Storage> completableFuture = CompletableFuture.supplyAsync(() -> {			
+			MultivaluedMap<String, String> mapOptions = new MultivaluedMapImpl();			
+			option.forEach( (key, value) -> mapOptions.add(String.valueOf(key), String.valueOf(value)));			
+			WebResource wr = webResource.path("/yaks/storages")
+					.queryParam("path", path.path)
+					.queryParams(mapOptions);
+			
+			ClientResponse response = wr
+					.accept(MediaType.APPLICATION_JSON_TYPE)
+					.post(ClientResponse.class);
+			String data = response.getEntity(String.class);
+			switch (response.getStatus()) {
+			case HttpURLConnection.HTTP_CREATED:
+				StorageImpl storage = new StorageImpl();
+				storageById.put(id, storage);				
+				return storage;
+			case HttpURLConnection.HTTP_NOT_IMPLEMENTED:
+			case HttpURLConnection.HTTP_FORBIDDEN:
+			case HttpURLConnection.HTTP_BAD_REQUEST:
+			default:
+				fail("Yaks instance failed to create storage with id:\ncode: "+response.getStatus()+"\n" 
+						+ "body: "+data);
+				return null;
+			}
+		});
+		return completableFuture;
 	}
 
-
 	@Override
-	public Storage resolveStorage(String id) {
-		// TODO Auto-generated method stub
+	public Future<Storage> createStorage(String path, Properties option){
+		//TODO
 		return null;
 	}
 

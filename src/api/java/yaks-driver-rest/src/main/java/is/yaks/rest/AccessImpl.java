@@ -200,7 +200,7 @@ public class AccessImpl extends Utils implements Access {
 		
 		try {
 			futureDispose.get(5, TimeUnit.SECONDS);
-		} catch (InterruptedException | ExecutionException | TimeoutException e) {
+		} catch (Exception e) {
 			fail("Access fail to dispose " + e.getMessage());
 		}
 	}
