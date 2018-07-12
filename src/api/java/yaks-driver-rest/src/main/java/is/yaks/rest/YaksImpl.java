@@ -102,6 +102,7 @@ public class YaksImpl extends Utils implements Yaks {
 				case HttpURLConnection.HTTP_OK:
 					headers = response.getHeaders();			
 					String accessId = getCookieData(headers, "Set-Cookie", "is.yaks.access");				
+					assert accessId != null;
 					AccessImpl access = new AccessImpl(id, scopePath, cacheSize);
 					accessById.put(accessId, access);
 					return access;
@@ -184,22 +185,33 @@ public class YaksImpl extends Utils implements Yaks {
 
 
 	@Override
-	public Future<Storage> createStorage(String id, Selector path, Properties option) {
+	public Future<Storage> createStorage(String path, Properties option){
 		Future<Storage> completableFuture = CompletableFuture.supplyAsync(() -> {			
 			MultivaluedMap<String, String> mapOptions = new MultivaluedMapImpl();			
 			option.forEach( (key, value) -> mapOptions.add(String.valueOf(key), String.valueOf(value)));			
 			WebResource wr = webResource.path("/yaks/storages")
-					.queryParam("path", path.path)
+					.queryParam("path", path)
 					.queryParams(mapOptions);
 			
 			ClientResponse response = wr
 					.accept(MediaType.APPLICATION_JSON_TYPE)
 					.post(ClientResponse.class);
 			String data = response.getEntity(String.class);
+			
+			MultivaluedMap<String, String> headers = response.getHeaders();
 			switch (response.getStatus()) {
-			case HttpURLConnection.HTTP_CREATED:
-				StorageImpl storage = new StorageImpl();
-				storageById.put(id, storage);				
+			case HttpURLConnection.HTTP_CREATED:				
+				String location = getCookie(headers, "Location");
+				String storageId = getCookieData(headers, "Set-Cookie", "is.yaks.storage");
+				assert storageId != null && location != null;
+				StorageImpl storage = new StorageImpl(location, storageId);
+				storageById.put(storageId, storage);				
+				return storage;				
+			case HttpURLConnection.HTTP_OK:				
+				storageId = getCookieData(headers, "Set-Cookie", "is.yaks.storage");
+				assert storageId != null;
+				storage = new StorageImpl(storageId);
+				storageById.put(storageId, storage);				
 				return storage;
 			case HttpURLConnection.HTTP_NOT_IMPLEMENTED:
 			case HttpURLConnection.HTTP_FORBIDDEN:
@@ -213,11 +225,100 @@ public class YaksImpl extends Utils implements Yaks {
 		return completableFuture;
 	}
 
+
 	@Override
-	public Future<Storage> createStorage(String path, Properties option){
-		//TODO
-		return null;
+	public Future<Storage> createStorage(String id, String path, Properties option) {
+		Future<Storage> completableFuture = CompletableFuture.supplyAsync(() -> {			
+			MultivaluedMap<String, String> mapOptions = new MultivaluedMapImpl();			
+			option.forEach( (key, value) -> mapOptions.add(String.valueOf(key), String.valueOf(value)));			
+			WebResource wr = webResource.path("/yaks/storages/"+id)
+					.queryParam("path", path)
+					.queryParams(mapOptions);
+			
+			ClientResponse response = wr
+					.accept(MediaType.APPLICATION_JSON_TYPE)
+					.post(ClientResponse.class);
+			String data = response.getEntity(String.class);
+			
+			MultivaluedMap<String, String> headers = response.getHeaders();
+			switch (response.getStatus()) {
+			case HttpURLConnection.HTTP_CREATED:				
+				String location = getCookie(headers, "Location");
+				String storageId = getCookieData(headers, "Set-Cookie", "is.yaks.storage");	
+				assert storageId != null && location != null;
+				StorageImpl storage = new StorageImpl(location, storageId);
+				storageById.put(storageId, storage);				
+				return storage;				
+			case HttpURLConnection.HTTP_OK:				
+				storageId = getCookieData(headers, "Set-Cookie", "is.yaks.storage");
+				assert storageId != null;
+				storage = new StorageImpl(storageId);
+				storageById.put(id, storage);				
+				return storage;
+			case HttpURLConnection.HTTP_NOT_IMPLEMENTED:
+			case HttpURLConnection.HTTP_FORBIDDEN:
+			case HttpURLConnection.HTTP_BAD_REQUEST:
+			default:
+				fail("Yaks instance failed to create storage with id:\ncode: "+response.getStatus()+"\n" 
+						+ "body: "+data);
+				return null;
+			}
+		});
+		return completableFuture;
 	}
+	
+
+	public Future<List<String>> getStorage(){
+		WebResource wr = webResource.path("/yaks/storages");
+		Future<List<String>> completableFuture = CompletableFuture.supplyAsync(() -> {
+			ClientResponse response = wr
+					.accept(MediaType.APPLICATION_JSON_TYPE)
+					.get(ClientResponse.class);
+
+			if (response.getStatus() == HttpURLConnection.HTTP_OK) {
+				List<String> idList = config.getGson().fromJson(
+						response.getEntity(String.class),
+						gsonTypes.COLLECTION_ACCESS_ID);
+
+				return idList;
+			} else {
+				fail("Yaks instance failed to getStorage():\ncode: "+response.getStatus()+"\n" 
+						+ "body: "+response.getEntity(String.class));
+				return null;
+			}
+		});
+		return completableFuture;
+	}
+
+
+	public Future<Storage> getStorage(String storageId){
+		Storage ret = storageById.get(storageId);
+		if(ret != null) {
+			return CompletableFuture.completedFuture(ret);
+		}
+		Future<Storage> completableFuture = CompletableFuture.supplyAsync(() ->{
+			WebResource wr = webResource.path("/yaks/storages/"+storageId);				
+			ClientResponse response = wr
+					.accept(MediaType.APPLICATION_JSON_TYPE)
+					.get(ClientResponse.class);
+			String data = response.getEntity(String.class);
+			switch (response.getStatus()) {
+			case HttpURLConnection.HTTP_OK:
+				StorageImpl storage = config.getGson().fromJson(
+						data,
+						gsonTypes.ACCESS_DATA);
+				assert storage != null;
+				storageById.put(storageId, storage);				
+				return storage;
+			case HttpURLConnection.HTTP_NOT_FOUND:
+			default:
+				fail("Yaks instance failed to getStorage("+storageId+"):\ncode: "+response.getStatus()+"\n" 
+						+ "body: "+data);
+				return null;
+			}
+		});
+		return completableFuture;
+    }
 
 
 	private void onShutdown() {

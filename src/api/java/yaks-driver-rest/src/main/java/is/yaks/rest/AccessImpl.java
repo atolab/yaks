@@ -182,7 +182,6 @@ public class AccessImpl extends Utils implements Access {
 		CompletableFuture<Void> futureDispose = CompletableFuture.runAsync(new Runnable() {
 			@Override
 			public void run() {
-
 				ClientResponse response = wr					
 						.accept(MediaType.APPLICATION_JSON_TYPE)
 						.delete(ClientResponse.class);
@@ -192,7 +191,7 @@ public class AccessImpl extends Utils implements Access {
 					break;				
 				case HttpURLConnection.HTTP_NOT_FOUND:			
 				default:
-					fail("Access dispose failed with code: " + response.getStatus()
+					fail("Access dispose failed with\n code: " + response.getStatus()
 							+ "\nbody: " + response.getEntity(String.class));								
 				}
 			}			

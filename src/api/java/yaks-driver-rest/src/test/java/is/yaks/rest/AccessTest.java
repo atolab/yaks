@@ -2,23 +2,19 @@ package is.yaks.rest;
 
 import java.util.List;
 import java.util.Map;
-import java.util.Properties;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
 
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
-import org.junit.Test;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import is.yaks.Access;
 import is.yaks.Encoding;
 import is.yaks.Selector;
-import is.yaks.Storage;
 import is.yaks.Yaks;
-
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 public class AccessTest {
 
@@ -32,6 +28,7 @@ public class AccessTest {
 		Assert.assertTrue(yaks instanceof YaksImpl);		
 	}
 
+
 	//@Test
 	public void yaksCreateAccessTest() throws InterruptedException, ExecutionException {		
 		Future<Access> futureAccess = yaks.createAccess("//residence-1/house-access-1", 100000L, Encoding.JSON);
@@ -43,6 +40,7 @@ public class AccessTest {
 			Assert.assertNotNull(accessImpl.getLocation());
 		}
 	}
+
 
 	//@Test
 	public void yaksCreateAccessTestWithId() throws InterruptedException, ExecutionException {
@@ -57,6 +55,7 @@ public class AccessTest {
 		}
 
 	}
+
 
 	//@Test
 	public void yaksGetAccessTest() throws InterruptedException, ExecutionException {
@@ -77,23 +76,14 @@ public class AccessTest {
 			System.out.println(houseId10);
 		}
 	}
-	
+
+
 	//@Test
 	public void yaksDisposeTest() throws InterruptedException, ExecutionException {				
 		AccessImpl access = new AccessImpl("access-id-1", "//residence-1/house10", 10000L);
 		access.dispose();
 	}
-	
-	@Test
-	public void yaksCreateStorage() throws InterruptedException, ExecutionException {
-		Properties options = new Properties();
-		options.put("options1", "OPT1");
-		options.put("options2", "OPT2");
-		options.put("options3", "OPT3");
-		Future<Storage> futureStorage = yaks.createStorage("storage-id-1", Selector.path("//residence-1/storage-1"), options);
-		Storage storage = futureStorage.get();
-		Assert.assertNotNull(storage);
-	}
+
 
 	//@Test
 	public void yaksSubscribeTest() throws InterruptedException, ExecutionException {
