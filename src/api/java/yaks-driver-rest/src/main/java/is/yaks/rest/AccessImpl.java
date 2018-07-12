@@ -260,6 +260,40 @@ public class AccessImpl extends Utils implements Access {
 	}
 
 	@Override
+	public Future<Map<String, Selector>> getSubscriptions() {
+		WebResource wr = config.getClient()
+				.resource(config.getYaksUrl())
+				.path("/yaks/access/"+accessId+"/subs");
+	
+		CompletableFuture<Map<String, Selector>> completableFuture = CompletableFuture.supplyAsync(() -> {
+			ClientResponse response = wr				
+					.type(MediaType.APPLICATION_JSON_TYPE)
+					.accept(MediaType.APPLICATION_JSON_TYPE)
+					.get(ClientResponse.class);	
+	
+			switch (response.getStatus()) {
+			case HttpURLConnection.HTTP_OK:				
+				Map<String, String> map = config.getGson().fromJson(
+						response.getEntity(String.class), 
+						gsonTypes.MAP_SELECTOR_BY_SUBS);
+				subscriptions.putAll(
+						map.entrySet().parallelStream().collect(Collectors.toMap(
+								p -> String.valueOf(p.getKey()), 
+								p -> Selector.path(p.getValue())))
+						);				
+				return subscriptions;
+			default:
+			case HttpURLConnection.HTTP_NOT_FOUND:
+				fail("Failed to get subscrition list :\ncode: " + response.getStatus()
+				+"\nbody: "+response.getEntity(String.class));					
+				return null;
+			}
+		});
+	
+		return completableFuture;
+	}
+
+	@Override
 	public void unsubscribe(long subscriptionId) {
 		CompletableFuture<Void> completableFuture = CompletableFuture.runAsync( new Runnable() {
 
@@ -294,40 +328,6 @@ public class AccessImpl extends Utils implements Access {
 	}
 
 	@Override
-	public Future<Map<String, Selector>> getSubscriptions() {
-		WebResource wr = config.getClient()
-				.resource(config.getYaksUrl())
-				.path("/yaks/access/"+accessId+"/subs");
-
-		CompletableFuture<Map<String, Selector>> completableFuture = CompletableFuture.supplyAsync(() -> {
-			ClientResponse response = wr				
-					.type(MediaType.APPLICATION_JSON_TYPE)
-					.accept(MediaType.APPLICATION_JSON_TYPE)
-					.get(ClientResponse.class);	
-
-			switch (response.getStatus()) {
-			case HttpURLConnection.HTTP_OK:				
-				Map<String, String> map = config.getGson().fromJson(
-						response.getEntity(String.class), 
-						gsonTypes.MAP_SELECTOR_BY_SUBS);
-				subscriptions.putAll(
-						map.entrySet().parallelStream().collect(Collectors.toMap(
-								p -> String.valueOf(p.getKey()), 
-								p -> Selector.path(p.getValue())))
-						);				
-				return subscriptions;
-			default:
-			case HttpURLConnection.HTTP_NOT_FOUND:
-				fail("Failed to get subscrition list :\ncode: " + response.getStatus()
-				+"\nbody: "+response.getEntity(String.class));					
-				return null;
-			}
-		});
-
-		return completableFuture;
-	}
-
-	@Override
 	public void eval(Selector selector, Function<Selector, Object> computation) {
 		// TODO Auto-generated method stub
 
@@ -342,10 +342,6 @@ public class AccessImpl extends Utils implements Access {
 		return cacheSize;
 	}
 
-	public void setCacheSize(long cacheSize) {
-		this.cacheSize = cacheSize;
-	}
-
 	public void setAccessId(String accessId) {		
 		this.accessId = accessId;
 	}
@@ -354,21 +350,13 @@ public class AccessImpl extends Utils implements Access {
 		return accessId;
 	}
 
-	public String getScopePath() {
-		return scopePath;
-	}
-
 	public void setLocation(String location) {
 		this.location = location;		
 	}
 
-	public String getLocation() {
-		return location;
-	}
-
 	@Override
 	public String toString() {	
-		return "{id:"+ getAccessId()+", cache:" + getCacheSize() + ", scopePath:" + scopePath+", location: "+location+"}";
+		return "{id:"+ accessId+", cache:" + cacheSize + ", scopePath:" + scopePath+", location: "+location+"}";
 	}
 
 }

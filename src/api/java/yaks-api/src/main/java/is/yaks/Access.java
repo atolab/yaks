@@ -33,14 +33,6 @@ public interface Access {
    public Future<Access> remove(Selector selector);
    
    /**
-    * Inserts a new association between a Selector and a computation function.
-    * This computation function will be called for each get(Selector) operation
-    * with a Selector that matches the Selector specified in this eval(Selector,f) operation,
-    * and the result of this function will be returned in the result of the get operation.
-    */
-   public void eval(Selector selector, Function<Selector, Object> computation);
-   
-   /**
     * Subscribes to the keys matching with the selector
     * 
     * @return the subscription identifier
@@ -81,4 +73,12 @@ public interface Access {
     * Notice that it is NOT possible to re-open this connection calling the Yaks.resolve() operation.
     */
    public void dispose();
+
+/**
+    * Inserts a new association between a Selector and a computation function.
+    * This computation function will be called for each get(Selector) operation
+    * with a Selector that matches the Selector specified in this eval(Selector,f) operation,
+    * and the result of this function will be returned in the result of the get operation.
+    */
+   public void eval(Selector selector, Function<Selector, Object> computation);
 }

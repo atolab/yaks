@@ -36,8 +36,7 @@ public class AccessTest {
 		Access access = futureAccess.get();
 		if(access instanceof AccessImpl) {
 			AccessImpl accessImpl = (AccessImpl)access;			
-			Assert.assertNotNull(accessImpl.getAccessId());
-			Assert.assertNotNull(accessImpl.getLocation());
+			Assert.assertNotNull(accessImpl.getAccessId());			
 		}
 	}
 
