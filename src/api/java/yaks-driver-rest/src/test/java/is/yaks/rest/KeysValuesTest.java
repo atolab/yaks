@@ -24,27 +24,26 @@ public class KeysValuesTest {
 	
 	@Before
 	public void init() {
-		String[] args = {"http://127.0.0.1/json/index.php"};		
+		String[] args = {"http://localhost:8000"};		
 		yaks = Yaks.getInstance("is.yaks.rest.YaksImpl", KeysValuesTest.class.getClassLoader(), args);
 		Assert.assertTrue(yaks instanceof YaksImpl);		
 	}
 	
 	//@Test
 	public void accessPutStringTest() throws InterruptedException, ExecutionException {
-		Future<Access> futureHouseId10 = yaks.getAccess("house-access-2");
+		Future<Access> futureHouseId10 = yaks.getAccess("access-id-2");
 		Access houseId10 = futureHouseId10.get();
-		
 		String value = "{\"name\":\"door-kitchen-1\"}";
-		houseId10.put(Selector.path("//residence-1/house-id-10"), value);
-		
+		houseId10.put(Selector.path("//residence-1/house-id-10"), value);		
 		Future<Access> futurePut = houseId10.put(Selector.path("//residence-1/house-id-10"), value);
 		Access put = futurePut.get();
 		Assert.assertNotNull(put);
 	}
 
+
 	@Test
 	public void accessPutObjectTest() throws InterruptedException, ExecutionException {
-		Future<Access> futureHouseId10 = yaks.getAccess("house-access-2");
+		Future<Access> futureHouseId10 = yaks.getAccess("access-id-2");
 		Access houseId10 = futureHouseId10.get();
 		
 		Foo foo = new Foo();
@@ -57,20 +56,18 @@ public class KeysValuesTest {
 
 	//@Test
 	public void accessDeltaPutTest() throws InterruptedException, ExecutionException {
-		Future<Access> futureHouseId10 = yaks.getAccess("house-access-2");
-		Access houseId10 = futureHouseId10.get();
-		
+		Future<Access> futureHouseId10 = yaks.getAccess("access-id-2");
+		Access houseId10 = futureHouseId10.get();		
 		String value = "{\"name\":\"door-room\"}";
 		Future<Access> futureDeltaPut = houseId10.deltaPut(Selector.path("//residence-1/house-id-10"), value);
 		Access deltaPut = futureDeltaPut.get();
 		Assert.assertNotNull(deltaPut);
 	}
 	
-	@Test
+	//@Test
 	public void accessGetTest() throws InterruptedException, ExecutionException {
-		Future<Access> futureHouseId10 = yaks.getAccess("house-access-2");
+		Future<Access> futureHouseId10 = yaks.getAccess("access-id-2");
 		Access houseId10 = futureHouseId10.get();
-
 		Future<Map<String, byte[]>> futureGet = houseId10.get(Selector.path("//residence-1/house-id-10"));
 		Map<String, byte[]> map = futureGet.get();
 		Assert.assertNotNull(map);
@@ -78,12 +75,10 @@ public class KeysValuesTest {
 	
 	//@Test
 	public void accessGetWithClassTest() throws InterruptedException, ExecutionException {
-		Future<Access> futureHouseId10 = yaks.getAccess("house-access-2");
+		Future<Access> futureHouseId10 = yaks.getAccess("access-id-2");
 		Access houseId10 = futureHouseId10.get();
-
 		Future<Map<String, Foo>> futureGet = houseId10.get(Selector.path("//residence-1/house-id-10"), Foo.class);
-		Map<String, Foo> map = futureGet.get();
-		
+		Map<String, Foo> map = futureGet.get();		
 		map.forEach( (key,obj)->{
 			System.out.println(key + "+++" + obj.getClass().getName());
 		});

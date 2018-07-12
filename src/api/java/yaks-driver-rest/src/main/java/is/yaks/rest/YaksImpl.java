@@ -55,8 +55,9 @@ public class YaksImpl extends Utils implements Yaks {
 				ClientResponse response = webResource.path("/yaks/access")
 				.queryParam("path", scopePath)
 				.queryParam("cacheSize", cacheSize + "")
+				.accept(MediaType.APPLICATION_JSON_TYPE)
 				.post(ClientResponse.class);
-
+				
 				switch (response.getStatus()) {
 				case HttpURLConnection.HTTP_CREATED :			
 					MultivaluedMap<String, String> headers = response.getHeaders();			
@@ -71,7 +72,8 @@ public class YaksImpl extends Utils implements Yaks {
 				case HttpsURLConnection.HTTP_BAD_REQUEST:
 				case 507: //507 (Insufficient Storage): if requested cacheSize is too large
 				default:
-					fail("Access creation failed with code : " + response.getStatus());
+					fail("Access creation failed, code: " + response.getStatus() + "\n" 
+						+ "body: " + response.getEntity(String.class));
 					return null;
 				}
 			}
@@ -91,6 +93,7 @@ public class YaksImpl extends Utils implements Yaks {
 				.path("/yaks/access/"+id)
 				.queryParam("path", scopePath)
 				.queryParam("cacheSize", cacheSize + "")
+				.accept(MediaType.APPLICATION_JSON_TYPE)
 				.put(ClientResponse.class);
 
 				LOG.info(response.getEntity(String.class));
@@ -115,7 +118,8 @@ public class YaksImpl extends Utils implements Yaks {
 				case HttpsURLConnection.HTTP_BAD_REQUEST:
 				case 507: //507 (Insufficient Storage): if requested cacheSize is too large
 				default:
-					fail("Can create access from id:"+id+", scopePath:"+scopePath+" and cacheSize:"+cacheSize);
+					fail("Access creation with id "+id+" failed, code: " + response.getStatus() + "\n" 
+							+ "body: " + response.getEntity(String.class));
 					return null;
 				}
 			}
@@ -127,9 +131,9 @@ public class YaksImpl extends Utils implements Yaks {
 	@Override
 	public Future<List<String>> getAccess() {
 		WebResource wr = webResource.path("/yaks/access");
-		Future<List<String>> completableFuture = CompletableFuture.supplyAsync(() ->{
+		Future<List<String>> completableFuture = CompletableFuture.supplyAsync(() -> {
 			ClientResponse response = wr
-					.type(MediaType.APPLICATION_JSON_TYPE)
+					.accept(MediaType.APPLICATION_JSON_TYPE)
 					.get(ClientResponse.class);
 
 			if (response.getStatus() == HttpURLConnection.HTTP_OK) {
@@ -139,7 +143,8 @@ public class YaksImpl extends Utils implements Yaks {
 
 				return idList;
 			} else {
-				fail("Yaks instance, failed to getAccess()");
+				fail("Yaks instance failed to getAccess():\ncode: "+response.getStatus()+"\n" 
+						+ "body: "+response.getEntity(String.class));
 				return null;
 			}
 		});
@@ -154,16 +159,12 @@ public class YaksImpl extends Utils implements Yaks {
 		if(ret != null) {
 			return CompletableFuture.completedFuture(ret);
 		}
-
 		Future<Access> completableFuture = CompletableFuture.supplyAsync(() ->{
 			WebResource wr = webResource.path("/yaks/access/"+accessId);				
 			ClientResponse response = wr
-					.type(MediaType.APPLICATION_JSON_TYPE)
+					.accept(MediaType.APPLICATION_JSON_TYPE)
 					.get(ClientResponse.class);
-
 			String data = response.getEntity(String.class);
-			//System.out.println(data);
-
 			switch (response.getStatus()) {
 			case HttpURLConnection.HTTP_OK:
 				AccessImpl access = config.getGson().fromJson(
@@ -174,7 +175,8 @@ public class YaksImpl extends Utils implements Yaks {
 				return access;
 			case HttpURLConnection.HTTP_NOT_FOUND:
 			default:
-				fail("Yaks instance failed to getAccess("+accessId+")");
+				fail("Yaks instance failed to getAccess("+accessId+"):\ncode: "+response.getStatus()+"\n" 
+						+ "body: "+data);
 				return null;
 			}
 		});

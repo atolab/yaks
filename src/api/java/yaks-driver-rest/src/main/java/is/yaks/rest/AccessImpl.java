@@ -170,6 +170,11 @@ public class AccessImpl extends Utils implements Access {
 	}
 
 	@Override
+	public void dispose() {		
+		// TODO Auto-generated method stub
+	}
+
+	@Override
 	public Future<Long> subscribe(Selector selector) {
 		WebResource wr = config.getClient()
 				.resource(config.getYaksUrl())
@@ -241,11 +246,6 @@ public class AccessImpl extends Utils implements Access {
 	public void unsubscribe(long sid) {
 		// TODO Auto-generated method stub
 
-	}
-
-	@Override
-	public void dispose() {		
-		// TODO Auto-generated method stub
 	}
 
 	@Override
