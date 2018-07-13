@@ -43,8 +43,6 @@ public class AccessTest {
 	//@Test
 	public void yaksCreateAccessTestWithId() throws InterruptedException, ExecutionException {
 		Future<Access> futureAccess = yaks.createAccess("access-id-1", "//residence-1/house10", 100000L, Encoding.JSON);
-
-		Assert.assertNotNull(futureAccess);
 		Access access = futureAccess.get();
 		if(access instanceof AccessImpl) {
 			AccessImpl accessImpl = (AccessImpl)access;
@@ -56,7 +54,6 @@ public class AccessTest {
 	//@Test
 	public void yaksGetAccessTest() throws InterruptedException, ExecutionException {
 		Future<List<String>> futureListAccess = yaks.getAccess();
-		Assert.assertNotNull(futureListAccess);		
 		List<String> listAccess = futureListAccess.get();		
 		Assert.assertTrue(listAccess.size()>0);		
 		System.out.println(listAccess);
@@ -65,11 +62,11 @@ public class AccessTest {
 
 	//@Test
 	public void yaksGetAccessByIdTest() throws InterruptedException, ExecutionException {
-		Future<Access> futureHouseId10 = yaks.getAccess("access-id-1");
-		Access houseId10 = futureHouseId10.get();
-		Assert.assertNotNull(houseId10);		
-		if(houseId10 instanceof AccessImpl) {
-			System.out.println(houseId10);
+		Future<Access> futureAccess = yaks.getAccess("access-id-1");
+		Access access = futureAccess.get();
+		Assert.assertNotNull(access);		
+		if(access instanceof AccessImpl) {
+			System.out.println(access);
 		}
 	}
 
@@ -90,7 +87,7 @@ public class AccessTest {
 	}
 	
 	
-	@Test
+	//@Test
 	public void yaksUnsubscribeTest() throws InterruptedException, ExecutionException {
 		AccessImpl access = new AccessImpl("access-id-1", "//residence-1/house10", 10000L);
 		access.unsubscribe(511512);

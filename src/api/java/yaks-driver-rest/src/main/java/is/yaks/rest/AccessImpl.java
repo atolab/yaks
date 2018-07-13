@@ -264,18 +264,18 @@ public class AccessImpl extends Utils implements Access {
 		WebResource wr = config.getClient()
 				.resource(config.getYaksUrl())
 				.path("/yaks/access/"+accessId+"/subs");
-	
+
 		CompletableFuture<Map<String, Selector>> completableFuture = CompletableFuture.supplyAsync(() -> {
 			ClientResponse response = wr				
 					.type(MediaType.APPLICATION_JSON_TYPE)
 					.accept(MediaType.APPLICATION_JSON_TYPE)
 					.get(ClientResponse.class);	
-	
+
 			switch (response.getStatus()) {
 			case HttpURLConnection.HTTP_OK:				
 				Map<String, String> map = config.getGson().fromJson(
 						response.getEntity(String.class), 
-						gsonTypes.MAP_SELECTOR_BY_SUBS);
+						gsonTypes.MAP_KV_STRING);
 				subscriptions.putAll(
 						map.entrySet().parallelStream().collect(Collectors.toMap(
 								p -> String.valueOf(p.getKey()), 
@@ -289,7 +289,7 @@ public class AccessImpl extends Utils implements Access {
 				return null;
 			}
 		});
-	
+
 		return completableFuture;
 	}
 

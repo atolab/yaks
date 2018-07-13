@@ -58,13 +58,13 @@ public class YaksImpl extends Utils implements Yaks {
 				.queryParam("cacheSize", cacheSize + "")
 				.accept(MediaType.APPLICATION_JSON_TYPE)
 				.post(ClientResponse.class);
-				
+
 				switch (response.getStatus()) {
 				case HttpURLConnection.HTTP_CREATED :			
 					MultivaluedMap<String, String> headers = response.getHeaders();			
 					String accessId = getCookieData(headers, "Set-Cookie", "is.yaks.access");
 					String location = getCookie(headers, "Location");
-					assert accessId != null && location != null;
+					assert !String.valueOf(accessId).isEmpty() && !String.valueOf(location).isEmpty();
 					AccessImpl access = new AccessImpl(accessId, scopePath, cacheSize);
 					access.setLocation(location);
 					accessById.put(accessId, access);
@@ -74,7 +74,7 @@ public class YaksImpl extends Utils implements Yaks {
 				case 507: //507 (Insufficient Storage): if requested cacheSize is too large
 				default:
 					fail("Access creation failed, code: " + response.getStatus() + "\n" 
-						+ "body: " + response.getEntity(String.class));
+							+ "body: " + response.getEntity(String.class));
 					return null;
 				}
 			}
@@ -101,8 +101,8 @@ public class YaksImpl extends Utils implements Yaks {
 				case HttpURLConnection.HTTP_OK:
 					headers = response.getHeaders();			
 					String accessId = getCookieData(headers, "Set-Cookie", "is.yaks.access");				
-					assert accessId != null;
-					AccessImpl access = new AccessImpl(id, scopePath, cacheSize);
+					assert !String.valueOf(accessId).isEmpty();
+					AccessImpl access = new AccessImpl(accessId, scopePath, cacheSize);
 					accessById.put(accessId, access);
 					return access;
 				case HttpURLConnection.HTTP_CREATED :
@@ -138,7 +138,7 @@ public class YaksImpl extends Utils implements Yaks {
 			if (response.getStatus() == HttpURLConnection.HTTP_OK) {
 				List<String> idList = config.getGson().fromJson(
 						response.getEntity(String.class),
-						gsonTypes.COLLECTION_ACCESS_ID);
+						gsonTypes.COLLECTION_ID);
 
 				return idList;
 			} else {
@@ -168,7 +168,7 @@ public class YaksImpl extends Utils implements Yaks {
 			case HttpURLConnection.HTTP_OK:
 				AccessImpl access = config.getGson().fromJson(
 						data,
-						gsonTypes.ACCESS_DATA);
+						gsonTypes.ACCESS);
 				access.setAccessId(accessId);
 				accessById.put(access.getAccessId(), access);				
 				return access;
@@ -191,24 +191,24 @@ public class YaksImpl extends Utils implements Yaks {
 			WebResource wr = webResource.path("/yaks/storages")
 					.queryParam("path", path)
 					.queryParams(mapOptions);
-			
+
 			ClientResponse response = wr
 					.accept(MediaType.APPLICATION_JSON_TYPE)
 					.post(ClientResponse.class);
 			String data = response.getEntity(String.class);
-			
+
 			MultivaluedMap<String, String> headers = response.getHeaders();
 			switch (response.getStatus()) {
 			case HttpURLConnection.HTTP_CREATED:				
 				String location = getCookie(headers, "Location");
 				String storageId = getCookieData(headers, "Set-Cookie", "is.yaks.storage");
-				assert storageId != null && location != null;
+				assert !String.valueOf(storageId).isEmpty() && !String.valueOf(location).isEmpty();
 				StorageImpl storage = new StorageImpl(storageId, location);
 				storageById.put(storageId, storage);				
 				return storage;				
 			case HttpURLConnection.HTTP_OK:				
 				storageId = getCookieData(headers, "Set-Cookie", "is.yaks.storage");
-				assert storageId != null;
+				assert !String.valueOf(storageId).isEmpty();
 				storage = new StorageImpl(storageId);
 				storageById.put(storageId, storage);				
 				return storage;
@@ -233,24 +233,24 @@ public class YaksImpl extends Utils implements Yaks {
 			WebResource wr = webResource.path("/yaks/storages/"+id)
 					.queryParam("path", path)
 					.queryParams(mapOptions);
-			
+
 			ClientResponse response = wr
 					.accept(MediaType.APPLICATION_JSON_TYPE)
 					.post(ClientResponse.class);
 			String data = response.getEntity(String.class);
-			
+
 			MultivaluedMap<String, String> headers = response.getHeaders();
 			switch (response.getStatus()) {
 			case HttpURLConnection.HTTP_CREATED:				
 				String location = getCookie(headers, "Location");
 				String storageId = getCookieData(headers, "Set-Cookie", "is.yaks.storage");	
-				assert storageId != null && location != null;
+				assert !String.valueOf(storageId).isEmpty() && !String.valueOf(location).isEmpty();
 				StorageImpl storage = new StorageImpl(storageId, location);
 				storageById.put(storageId, storage);				
 				return storage;				
 			case HttpURLConnection.HTTP_OK:				
 				storageId = getCookieData(headers, "Set-Cookie", "is.yaks.storage");
-				assert storageId != null;
+				assert !String.valueOf(storageId).isEmpty();
 				storage = new StorageImpl(storageId);
 				storageById.put(id, storage);				
 				return storage;
@@ -265,7 +265,7 @@ public class YaksImpl extends Utils implements Yaks {
 		});
 		return completableFuture;
 	}
-	
+
 
 	public Future<List<String>> getStorage(){
 		WebResource wr = webResource.path("/yaks/storages");
@@ -277,7 +277,7 @@ public class YaksImpl extends Utils implements Yaks {
 			if (response.getStatus() == HttpURLConnection.HTTP_OK) {
 				List<String> idList = config.getGson().fromJson(
 						response.getEntity(String.class),
-						gsonTypes.COLLECTION_ACCESS_ID);
+						gsonTypes.COLLECTION_ID);
 
 				return idList;
 			} else {
@@ -305,7 +305,7 @@ public class YaksImpl extends Utils implements Yaks {
 			case HttpURLConnection.HTTP_OK:
 				StorageImpl storage = config.getGson().fromJson(
 						data,
-						gsonTypes.ACCESS_DATA);
+						gsonTypes.ACCESS);
 				assert storage != null;
 				storageById.put(storageId, storage);				
 				return storage;
@@ -317,7 +317,7 @@ public class YaksImpl extends Utils implements Yaks {
 			}
 		});
 		return completableFuture;
-    }
+	}
 
 
 	private void registerShutdownHook() {
