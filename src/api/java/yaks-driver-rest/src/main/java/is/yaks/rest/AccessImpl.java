@@ -22,7 +22,10 @@ import is.yaks.Access;
 import is.yaks.Selector;
 import is.yaks.rest.utils.Utils;
 
-public class AccessImpl extends Utils implements Access {
+public class AccessImpl implements Access {	
+
+	private YaksConfiguration config = YaksConfiguration.getInstance();
+	private GsonTypeToken gsonTypes = GsonTypeToken.getInstance();
 
 	@Expose(serialize = true, deserialize = true)
 	@SerializedName(value="accessId", alternate={"id"})
@@ -76,7 +79,7 @@ public class AccessImpl extends Utils implements Access {
 			case HttpURLConnection.HTTP_BAD_REQUEST:
 			case HttpURLConnection.HTTP_PRECON_FAILED:
 			default:
-				fail("Failed to put data :\ncode: " + response.getStatus()
+				Utils.fail("Failed to put data :\ncode: " + response.getStatus()
 				+"\nbody: "+response.getEntity(String.class));		
 				return null;				
 			}			
@@ -105,7 +108,7 @@ public class AccessImpl extends Utils implements Access {
 			case HttpURLConnection.HTTP_BAD_REQUEST:
 			case HttpURLConnection.HTTP_PRECON_FAILED:
 			default:
-				fail("Failed to put data :\ncode: " + response.getStatus()
+				Utils.fail("Failed to put data :\ncode: " + response.getStatus()
 				+"\nbody: "+response.getEntity(String.class));
 				return null;				
 			}			
@@ -136,7 +139,7 @@ public class AccessImpl extends Utils implements Access {
 			case HttpURLConnection.HTTP_BAD_REQUEST:
 			case HttpURLConnection.HTTP_PRECON_FAILED:
 			default:
-				fail("Failed to get data map corresponding to selector:\ncode: " + response.getStatus()
+				Utils.fail("Failed to get data map corresponding to selector:\ncode: " + response.getStatus()
 				+"\nbody: "+response.getEntity(String.class));				
 				return null;
 			}
@@ -169,7 +172,7 @@ public class AccessImpl extends Utils implements Access {
 			case HttpURLConnection.HTTP_BAD_REQUEST:
 			case HttpURLConnection.HTTP_PRECON_FAILED:
 			default:
-				fail("Failed to get data map corresponding to selector:\ncode: " + response.getStatus()
+				Utils.fail("Failed to get data map corresponding to selector:\ncode: " + response.getStatus()
 				+"\nbody: " + data);				
 				return null;
 			}
@@ -195,7 +198,7 @@ public class AccessImpl extends Utils implements Access {
 					break;				
 				case HttpURLConnection.HTTP_NOT_FOUND:			
 				default:
-					fail("Access dispose failed with\n code: " + response.getStatus()
+					Utils.fail("Access dispose failed with\n code: " + response.getStatus()
 					+ "\nbody: " + response.getEntity(String.class));								
 				}
 			}			
@@ -204,7 +207,7 @@ public class AccessImpl extends Utils implements Access {
 		try {
 			futureDispose.get(5, TimeUnit.SECONDS);
 		} catch (Exception e) {
-			fail("Access Failed to dispose " + e.getMessage());
+			Utils.fail("Access Failed to dispose " + e.getMessage());
 		}
 	}
 
@@ -227,7 +230,7 @@ public class AccessImpl extends Utils implements Access {
 			case HttpURLConnection.HTTP_BAD_REQUEST:
 			case HttpURLConnection.HTTP_PRECON_FAILED:
 			default:
-				fail("Failed to get data map corresponding to selector:\ncode: " + response.getStatus()
+				Utils.fail("Failed to get data map corresponding to selector:\ncode: " + response.getStatus()
 				+"\nbody: "+response.getEntity(String.class));				
 				return null;
 			}
@@ -246,12 +249,12 @@ public class AccessImpl extends Utils implements Access {
 			switch (response.getStatus()) {
 			case HttpURLConnection.HTTP_CREATED:
 				MultivaluedMap<String, String> headers = response.getHeaders();
-				String location = getCookie(headers, "Location");
+				String location = Utils.getCookie(headers, "Location");
 				subscriptions.put(location, selector);
 				return new Long(location);
 			case HttpURLConnection.HTTP_PRECON_FAILED:
 			default:
-				fail("Failed to subscribe to selector:\ncode: " + response.getStatus()
+				Utils.fail("Failed to subscribe to selector:\ncode: " + response.getStatus()
 				+"\nbody: "+response.getEntity(String.class));				
 				return null;				
 			}			
@@ -284,7 +287,7 @@ public class AccessImpl extends Utils implements Access {
 				return subscriptions;
 			default:
 			case HttpURLConnection.HTTP_NOT_FOUND:
-				fail("Failed to get subscrition list :\ncode: " + response.getStatus()
+				Utils.fail("Failed to get subscrition list :\ncode: " + response.getStatus()
 				+"\nbody: "+response.getEntity(String.class));					
 				return null;
 			}
@@ -313,7 +316,7 @@ public class AccessImpl extends Utils implements Access {
 					return;			
 				case HttpURLConnection.HTTP_NOT_FOUND:
 				default:
-					fail("Failed to unsubscribe:\ncode: " + response.getStatus()
+					Utils.fail("Failed to unsubscribe:\ncode: " + response.getStatus()
 					+"\nbody: "+response.getEntity(String.class));				
 					return;
 				}
@@ -323,7 +326,7 @@ public class AccessImpl extends Utils implements Access {
 		try {
 			completableFuture.get(5, TimeUnit.SECONDS);
 		} catch (Exception e) {
-			fail("Access Failed to unsubscribe " + e.getMessage());
+			Utils.fail("Access Failed to unsubscribe " + e.getMessage());
 		}
 	}
 

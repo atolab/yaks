@@ -35,8 +35,8 @@ public class StorageTest {
 		Storage storage = futureStorage.get();
 		Assert.assertNotNull(storage);
 	}
-	
-	
+
+
 	//@Test
 	public void yaksCreateStorageWithId() throws InterruptedException, ExecutionException {
 		Properties options = new Properties();

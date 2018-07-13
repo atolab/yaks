@@ -14,13 +14,15 @@ import is.yaks.rest.utils.Utils;
 
 public class StorageImpl extends Utils implements Storage {
 
+	private YaksConfiguration config = YaksConfiguration.getInstance();
+	private GsonTypeToken gsonTypes = GsonTypeToken.getInstance();
+
 	private String location;
-	private String storageId;
-	
+	private String storageId;	
 
 	public StorageImpl() {
 	}
-	
+
 	public StorageImpl(String storageId, String location) {
 		this.location = location;
 		this.storageId = storageId;
@@ -40,7 +42,7 @@ public class StorageImpl extends Utils implements Storage {
 				WebResource wr = config.getClient()
 						.resource(config.getYaksUrl())
 						.path("/yaks/storages/"+storageId);
-				
+
 				ClientResponse response = wr					
 						.accept(MediaType.APPLICATION_JSON_TYPE)
 						.delete(ClientResponse.class);
@@ -51,11 +53,11 @@ public class StorageImpl extends Utils implements Storage {
 				case HttpURLConnection.HTTP_NOT_FOUND:			
 				default:
 					fail("Storage dispose failed with\n code: " + response.getStatus()
-							+ "\nbody: " + response.getEntity(String.class));								
+					+ "\nbody: " + response.getEntity(String.class));								
 				}
 			}			
 		});
-		
+
 		try {
 			futureDispose.get(5, TimeUnit.SECONDS);
 		} catch (Exception e) {
