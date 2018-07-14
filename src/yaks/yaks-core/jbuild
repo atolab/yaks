@@ -4,6 +4,6 @@
  ((name            yaks_core)
   (public_name     yaks-core)
   (wrapped     false)
-  (libraries       (apero-core apero-net yaks-codec lwt lwt.unix logs logs.lwt ppx_deriving.show ppx_deriving.ord))
+  (libraries       (apero-core apero-net biniou lwt lwt.unix logs logs.lwt ppx_deriving.show ppx_deriving.ord))
   (preprocess
     (pps (ppx_deriving.show ppx_deriving.ord lwt_ppx)))))

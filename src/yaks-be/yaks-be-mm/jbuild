@@ -1,8 +1,8 @@
 (jbuild_version 1)
 
 (library
- ((name            yaks_fe_sock)
-  (public_name     yaks-fe-sock)
+ ((name            yaks_be_mm)
+  (public_name     yaks-be-mm)
   (wrapped     false)
   (libraries       (apero-core apero-net yaks-core  lwt lwt.unix logs logs.lwt ppx_deriving.show ppx_deriving.ord))
   (preprocess
