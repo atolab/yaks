@@ -2,6 +2,8 @@ open Yaks_core
 open Yaks_event
 open Types_signatures
 open Mm_types
+open Lwt.Infix
+
 
 type tuple = { key: string; value: Lwt_bytes.t }
 
@@ -114,7 +116,6 @@ module StoreMap = Map.Make(struct type t = string let compare = compare end)
 
 type t = {
   cfg: string;
-  sink: event_sink;
   stores : (MemStore.t) StoreMap.t
 }
 
@@ -135,214 +136,166 @@ let check_if_storage_exists sid mm_be =
 let update_storage sid storage mm_be = 
   { mm_be with stores = StoreMap.add sid storage mm_be.stores} 
 
+let get_state state =
+  match state with 
+  | Some s -> s
+  | None -> 
+    ignore @@ Logs_lwt.debug (fun m -> m "[MM] State is not present! This is an error!");
+    failwith "Error state must be present"
 
-open Actor
-let memory_actor current_state = Actor.spawn ~state:current_state (fun self state from ->
+open Actor.Actor
+let memory_actor current_state = spawn ~state:(Some current_state) (fun self state from ->
     function
     | Create cmsg ->
       ignore @@ Logs_lwt.debug (fun m -> m "[MM] Received create");
-      ignore @@ match state with
-      | Some current_state -> 
-        let reponse,new_state = 
-          match cmsg.entity_id with
+      let current_state = get_state state in
+      let myaddr = addr self in
+      let reponse, new_state = 
+        match cmsg.entity_id with
           | StorageId s -> 
-            ignore @@ Logs_lwt.debug (fun m -> m "[MM] Creating storage with ID %s" s);
-            let ns = create_store s current_state in
-            Ok{cid = cmsg.cid; entity_id = s }, ns
+              ignore @@ Logs_lwt.debug (fun m -> m "[MM] Creating storage with ID %s" s);
+              let ns = create_store s current_state in
+              Ok{cid = cmsg.cid; entity_id = StorageId s }, ns
           | _ -> 
             ignore @@ Logs_lwt.debug (fun m -> m "[MM] Wrong formatted message, entity_identifier is not StorageId");
             Error {cid = cmsg.cid; reason = (-1) }, current_state
-        in
-        maybe_send from new_state reponse >>= continue self new_state
-      | None -> 
-        ignore @@ Logs_lwt.debug (fun m -> m "[MM] State is not present! This is an error!");
-        let r = Error {cid = cmsg.cid; reason = (-3) } in
-        maybe_send from None r >>= continue self None
-
+      in
+      maybe_send from (Some myaddr) reponse >>= continue self (Some new_state)
     | Dispose dmsg ->
       ignore @@ Logs_lwt.debug (fun m -> m "[MM] Received dispose");
-      ignore @@ match state with
-      | Some current_state -> 
-        let reponse,new_state = 
-          match dmsg.entity_id with
-          | StorageId s -> 
-            ignore @@ Logs_lwt.debug (fun m -> m "[MM] Disposing storage with ID %s" s);
-            let ns = dispose_store s current_state in
-            Ok {cid = dmsg.cid; entity_id = s }, ns
-          | _ -> 
-            ignore @@ Logs_lwt.debug (fun m -> m "[MM] Wrong formatted message, entity_identifier is not StorageId");
-            Error {cid = dmsg.cid; reason = (-1) }, current_state
-          in
-          maybe_send from new_state reponse >>= continue self new_state
-      | None -> 
-        ignore @@ Logs_lwt.debug (fun m -> m "[MM] State is not present! This is an error!");
-        let r = Error {cid = cmsg.cid; reason = (-3) } in
-        maybe_send from None r >>= continue self None
-
+      let current_state = get_state state in
+      let myaddr = addr self in
+      let reponse,new_state = 
+        match dmsg.entity_id with
+        | StorageId s -> 
+          ignore @@ Logs_lwt.debug (fun m -> m "[MM] Disposing storage with ID %s" s);
+          let ns = dispose_store s current_state in
+          Ok {cid = dmsg.cid; entity_id = StorageId s }, ns
+        | _ -> 
+          ignore @@ Logs_lwt.debug (fun m -> m "[MM] Wrong formatted message, entity_identifier is not StorageId");
+          Error {cid = dmsg.cid; reason = (-1) }, current_state
+      in
+      maybe_send from (Some myaddr) reponse >>= continue self (Some new_state)
     | Get gmsg ->
       ignore @@ Logs_lwt.debug (fun m -> m "[MM] Received get");
-      ignore @@ match state with
-      | Some current_state -> 
-        let reponse,new_state = 
-          match gmsg.entity_id with
-          | StorageId s -> 
-            ignore @@ Logs_lwt.debug (fun m -> m "[MM] Getting with ID %s checking if storage exists" s);
-            match check_if_storage_exists with
-            | true -> 
-              ignore @@ Logs_lwt.debug (fun m -> m "[MM] Storage ID %s exists" s);
-              let storage = StoreMap.find s current_state.stores in
-              let values = 
-                match MemStore.get gmsg.key storage with
-                | Some vs -> List.map (fun (k,v) -> tuple(SKey.to_string k,v)) vs
-                | None -> []
-              in
-              Values{cid = gmsg.cid, entity_id = s; values }, current_state
-            | false -> 
-              ignore @@ Logs_lwt.debug (fun m -> m "[MM] Storage with ID %s does not exists!" s);
-              Error {cid = gmsg.cid; reason = (-2) }, current_state
-          | _ -> 
-            ignore @@ Logs_lwt.debug (fun m -> m "[MM] Wrong formatted message, entity_identifier is not StorageId");
-            Error {cid = gmsg.cid; reason = (-1) }, current_state
-          in
-          maybe_send from new_state reponse >>= continue self new_state
-      | None -> 
-        ignore @@ Logs_lwt.debug (fun m -> m "[MM] State is not present! This is an error!");
-        let r = Error {cid = cmsg.cid; reason = (-3) } in
-        maybe_send from None r >>= continue self None
+      let current_state = get_state state in
+      let myaddr = addr self in
+      let reponse,new_state = 
+        match gmsg.entity_id with
+        | StorageId s -> 
+          ignore @@ Logs_lwt.debug (fun m -> m "[MM] Getting with ID %s checking if storage exists" s);
+          match check_if_storage_exists s current_state with
+          | true -> 
+            ignore @@ Logs_lwt.debug (fun m -> m "[MM] Storage ID %s exists" s);
+            let storage = StoreMap.find s current_state.stores in
+            let values = 
+              match MemStore.get gmsg.key storage with
+              | Some vs -> List.map (fun (k,v) -> { key = SKey.to_string k; value = v }) vs
+              | None -> []
+            in
+            Values{cid = gmsg.cid; encoding = `String ; values }, current_state
+          | false -> 
+            ignore @@ Logs_lwt.debug (fun m -> m "[MM] Storage with ID %s does not exists!" s);
+            Error {cid = gmsg.cid; reason = (-2) }, current_state
+        | _ -> 
+          ignore @@ Logs_lwt.debug (fun m -> m "[MM] Wrong formatted message, entity_identifier is not StorageId");
+          Error {cid = gmsg.cid; reason = (-1) }, current_state
+        in
+        maybe_send from (Some myaddr) reponse >>= continue self (Some new_state)
+
     | Put put_msg ->
       ignore @@ Logs_lwt.debug (fun m -> m "[MM] Received Put");
-      ignore @@ match state with
-      | Some current_state -> 
-        let reponse,new_state = 
-          match put_msg.entity_id with
-          | StorageId s -> 
-            ignore @@ Logs_lwt.debug (fun m -> m "[MM] Putting with ID %s checking if storage exists" s);
-            match check_if_storage_exists with
-            | true -> 
-              ignore @@ Logs_lwt.debug (fun m -> m "[MM] Storage ID %s exists" s);
-              let storage = StoreMap.find s state.stores in
-              let new_storage = MemStore.put put_msg.key (BValue.of_string put_msg.value) storage in
-              let ns = update_storage s new_storage state in
-              Ok{cid = put_msg.cid, entity_id = s}, ns
-            | false -> 
-              ignore @@ Logs_lwt.debug (fun m -> m "[MM] Storage with ID %s does not exists!" s);
-              Error {cid = put_msg.cid; reason = (-2) }, state
-          | _ -> 
-            ignore @@ Logs_lwt.debug (fun m -> m "[MM] Wrong formatted message, entity_identifier is not StorageId");
-            Error {cid = put_msg.cid; reason = (-1) }, state
-        in
-        maybe_send from new_state reponse >>= continue self new_state
-      | None -> 
-        ignore @@ Logs_lwt.debug (fun m -> m "[MM] State is not present! This is an error!");
-        let r = Error {cid = cmsg.cid; reason = (-3) } in
-        maybe_send from None r >>= continue self None
+      let current_state = get_state state in
+      let myaddr = addr self in
+      let reponse,new_state = 
+        match put_msg.access_id with
+        | StorageId s -> 
+          ignore @@ Logs_lwt.debug (fun m -> m "[MM] Putting with ID %s checking if storage exists" s);
+          match check_if_storage_exists s current_state with
+          | true -> 
+            ignore @@ Logs_lwt.debug (fun m -> m "[MM] Storage ID %s exists" s);
+            let storage = StoreMap.find s current_state.stores in
+            let new_storage = MemStore.put put_msg.key (BValue.of_string put_msg.value) storage in
+            let ns = update_storage s new_storage current_state in
+            Ok{cid = put_msg.cid; entity_id = StorageId s}, ns
+          | false -> 
+            ignore @@ Logs_lwt.debug (fun m -> m "[MM] Storage with ID %s does not exists!" s);
+            Error {cid = put_msg.cid; reason = (-2) }, current_state
+        | _ -> 
+          ignore @@ Logs_lwt.debug (fun m -> m "[MM] Wrong formatted message, entity_identifier is not StorageId");
+          Error {cid = put_msg.cid; reason = (-1) }, current_state
+      in
+      maybe_send from (Some myaddr) reponse >>= continue self (Some new_state)
 
     | Patch patch_msg ->
       ignore @@ Logs_lwt.debug (fun m -> m "[MM] Received Patch");
-      ignore @@ match state with
-      | Some current_state -> 
-        let reponse,new_state = 
-          match patch_msg.entity_id with
-          | StorageId s -> 
-            ignore @@ Logs_lwt.debug (fun m -> m "[MM] Patching with ID %s checking if storage exists" s);
-            match check_if_storage_exists with
-            | true -> 
-              ignore @@ Logs_lwt.debug (fun m -> m "[MM] Storage ID %s exists" s);
-              let storage = StoreMap.find s state.stores in
-              let new_storage = MemStore.dput patch_msg.key (BValue.of_string patch_msg.value) storage in
-              let ns = update_storage s new_storage state in
-              Ok{cid = patch_msg.cid, entity_id = s}, ns
-            | false -> 
-              ignore @@ Logs_lwt.debug (fun m -> m "[MM] Storage with ID %s does not exists!" s);
-              Error {cid = patch_msg.cid; reason = (-2) }, state
-          | _ -> 
-            ignore @@ Logs_lwt.debug (fun m -> m "[MM] Wrong formatted message, entity_identifier is not StorageId");
-            Error {cid = patch_msg.cid; reason = (-1) }, state
-        in
-        maybe_send from new_state reponse >>= continue self new_state
-      | None -> 
-        ignore @@ Logs_lwt.debug (fun m -> m "[MM] State is not present! This is an error!");
-        let r = Error {cid = cmsg.cid; reason = (-3) } in
-        maybe_send from None r >>= continue self None
+      let current_state = get_state state in
+      let myaddr = addr self in
+      let reponse,new_state = 
+        match patch_msg.access_id with
+        | StorageId s -> 
+          ignore @@ Logs_lwt.debug (fun m -> m "[MM] Patching with ID %s checking if storage exists" s);
+          match check_if_storage_exists s current_state with
+          | true -> 
+            ignore @@ Logs_lwt.debug (fun m -> m "[MM] Storage ID %s exists" s);
+            let storage = StoreMap.find s current_state.stores in
+            let new_storage = MemStore.dput patch_msg.key (BValue.of_string patch_msg.value) storage in
+            let ns = update_storage s new_storage current_state in
+            Ok{cid = patch_msg.cid; entity_id = StorageId s}, ns
+          | false -> 
+            ignore @@ Logs_lwt.debug (fun m -> m "[MM] Storage with ID %s does not exists!" s);
+            Error {cid = patch_msg.cid; reason = (-2) }, current_state
+        | _ -> 
+        ignore @@ Logs_lwt.debug (fun m -> m "[MM] Wrong formatted message, entity_identifier is not StorageId");
+        Error {cid = patch_msg.cid; reason = (-1) }, current_state
+      in
+      maybe_send from (Some myaddr) reponse >>= continue self (Some new_state)
 
     | Remove rmsg ->
       ignore @@ Logs_lwt.debug (fun m -> m "[MM] Received Patch");
-      ignore @@ match state with
-      | Some current_state -> 
-        let reponse,new_state = 
-          match rmsg.entity_id with
-          | StorageId s -> 
-            ignore @@ Logs_lwt.debug (fun m -> m "[MM] Patching with ID %s checking if storage exists" s);
-            match check_if_storage_exists with
-            | true -> 
-              ignore @@ Logs_lwt.debug (fun m -> m "[MM] Storage ID %s exists" s);
-              let storage = StoreMap.find s state.stores in
-              let new_storage = MemStore.remove rmsg.key storage in
-              let ns = update_storage s new_storage state in
-              Ok{cid = rmsg.cid, entity_id = s}, ns
-            | false -> 
-              ignore @@ Logs_lwt.debug (fun m -> m "[MM] Storage with ID %s does not exists!" s);
-              Error {cid = rmsg.cid; reason = (-2) }, state
-          | _ -> 
-            ignore @@ Logs_lwt.debug (fun m -> m "[MM] Wrong formatted message, entity_identifier is not StorageId");
-            Error {cid = rmsg.cid; reason = (-1) }, state
-        in
-        maybe_send from new_state reponse >>= continue self new_state
-      | None -> 
-        ignore @@ Logs_lwt.debug (fun m -> m "[MM] State is not present! This is an error!");
-        let r = Error {cid = cmsg.cid; reason = (-3) } in
-        maybe_send from None r >>= continue self None
+      let current_state = get_state state in
+      let myaddr = addr self in
+      let reponse,new_state = 
+        match rmsg.access_id with
+        | StorageId s -> 
+          ignore @@ Logs_lwt.debug (fun m -> m "[MM] Patching with ID %s checking if storage exists" s);
+          match check_if_storage_exists s current_state with
+          | true -> 
+            ignore @@ Logs_lwt.debug (fun m -> m "[MM] Storage ID %s exists" s);
+            let storage = StoreMap.find s current_state.stores in
+            let new_storage = MemStore.remove rmsg.key storage in
+            let ns = update_storage s new_storage current_state in
+            Ok{cid = rmsg.cid; entity_id = StorageId s}, ns
+          | false -> 
+            ignore @@ Logs_lwt.debug (fun m -> m "[MM] Storage with ID %s does not exists!" s);
+            Error {cid = rmsg.cid; reason = (-2) }, current_state
+        | _ -> 
+          ignore @@ Logs_lwt.debug (fun m -> m "[MM] Wrong formatted message, entity_identifier is not StorageId");
+          Error {cid = rmsg.cid; reason = (-1) }, current_state
+      in
+      maybe_send from (Some myaddr) reponse >>= continue self (Some new_state)
+
     | Notify nmsg ->
-      ignore @@ match state with
-      | Some current_state -> 
-          ignore @@ Logs_lwt.debug (fun m -> m "[MM] Received Notify doing nothing");
-          true >>= continue self state
-      | None -> 
-        ignore @@ Logs_lwt.debug (fun m -> m "[MM] State is not present! This is an error!");
-        let r = Error {cid = cmsg.cid; reason = (-3) } in
-        maybe_send from None r >>= continue self None
+        ignore @@ Logs_lwt.debug (fun m -> m "[MM] Received Notify doing nothing");
+        continue self state true
     | Values vmsg ->
-      ignore @@ match state with
-      | Some current_state -> 
-          ignore @@ Logs_lwt.debug (fun m -> m "[MM] Received Values doing nothing");
-          true >>= continue self state
-      | None -> 
-        ignore @@ Logs_lwt.debug (fun m -> m "[MM] State is not present! This is an error!");
-        let r = Error {cid = cmsg.cid; reason = (-3) } in
-        maybe_send from None r >>= continue self None
+      ignore @@ Logs_lwt.debug (fun m -> m "[MM] Received Values doing nothing");
+        continue self state true
     | Ok ok_msg ->
-      ignore @@ match state with
-      | Some current_state -> 
-          ignore @@ Logs_lwt.debug (fun m -> m "[MM] Received Ok doing nothing");
-          true >>= continue self state
-      | None -> 
-        ignore @@ Logs_lwt.debug (fun m -> m "[MM] State is not present! This is an error!");
-        let r = Error {cid = cmsg.cid; reason = (-3) } in
-        maybe_send from None r >>= continue self None
+       ignore @@ Logs_lwt.debug (fun m -> m "[MM] Received Ok doing nothing");
+        continue self state true
     | Error err ->
-      ignore @@ match state with
-      | Some current_state -> 
-          ignore @@ Logs_lwt.debug (fun m -> m "[MM] Received Error doing nothing");
-          true >>= continue self state
-      | None -> 
-        ignore @@ Logs_lwt.debug (fun m -> m "[MM] State is not present! This is an error!");
-        let r = Error {cid = cmsg.cid; reason = (-3) } in
-        maybe_send from None r >>= continue self None
+      ignore @@ Logs_lwt.debug (fun m -> m "[MM] Received Error doing nothing");
+      continue self state true
     | _ -> 
-      ignore @@ match state with
-      | Some current_state -> 
-          ignore @@ Logs_lwt.debug (fun m -> m "[MM] Received unkown message");
-          maybe_send from state r >>= continue self state
-      | None -> 
-        ignore @@ Logs_lwt.debug (fun m -> m "[MM] State is not present! This is an error!");
-        let r = Error {cid = cmsg.cid; reason = (-3) } in
-        maybe_send from None r >>= continue self None
+      ignore @@ Logs_lwt.debug (fun m -> m "[MM] Received unkown message");
+      continue self state true
+
   )
 
 
-let create () = 
+let create cfg = 
   ignore @@ Logs_lwt.debug (fun m -> m "MainMemory-BE Creating stores map");
-  let init_state = StoreMap.empty in
-  (* {stores = StoreMap.empty; cfg; sink} in *)
-  let mm_actor,mm_loop = memory_actor current_state in
+  let init_state = {stores = StoreMap.empty; cfg} in
+  let mm_actor,mm_loop = memory_actor init_state in
   mm_actor,mm_loop
