@@ -1,7 +1,7 @@
 open Lwt
 open Lwt.Infix
 open Yaks_core
-open Yaks_codec.Codec.Bin
+(* open Yaks_codec.Codec.Bin *)
 open Yaks_fe_sock
 open Cmdliner
 

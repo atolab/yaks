@@ -3,6 +3,6 @@
 (executable
  ((name            yaksd)
  (modules (yaksd))
-  (libraries (lwt lwt.unix yaks-core yaks-codec yaks-fe-sock yaks-fe-rest atdgen logs logs.fmt logs.cli fmt fmt.cli fmt.tty cmdliner))
+  (libraries (lwt lwt.unix yaks-core biniou yaks-fe-sock yaks-fe-rest atdgen logs logs.fmt logs.cli fmt fmt.cli fmt.tty cmdliner))
   (preprocess
     (pps (lwt_ppx ppx_deriving.show ppx_deriving.ord)))))
