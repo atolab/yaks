@@ -14,8 +14,8 @@ public class AccessImpl implements Access {
 	private is.yaks.rest.AccessImpl syncAccess;
 
 	//create access
-	public AccessImpl(String accessId, String scopePath, long cacheSize) {
-		syncAccess = new is.yaks.rest.AccessImpl(accessId, Path.ofString(scopePath), cacheSize);
+	public AccessImpl(String accessId, Path scopePath, long cacheSize) {
+		syncAccess = new is.yaks.rest.AccessImpl(accessId, scopePath, cacheSize);
 	}
 
 	@Override

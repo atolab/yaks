@@ -2,12 +2,12 @@ package is.yaks.rest;
 
 import java.util.Map;
 import java.util.concurrent.ExecutionException;
-import java.util.concurrent.Future;
 
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
-import org.junit.Test;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import is.yaks.Access;
 import is.yaks.Path;
@@ -16,9 +16,6 @@ import is.yaks.Yaks;
 import is.yaks.rest.async.AccessImpl;
 import is.yaks.rest.async.YaksImpl;
 import is.yaks.rest.foo.Foo;
-
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 public class KeysValuesTest {
 
@@ -34,7 +31,7 @@ public class KeysValuesTest {
 	
 	//@Test
 	public void accessPutStringTest() throws InterruptedException, ExecutionException {
-		Access access = (Access) new AccessImpl("access-id-2", "//residence-1/house-id-10", 10000L);
+		Access access = (Access) new AccessImpl("access-id-2", Path.ofString("//residence-1/house-id-10"), 10000L);
 		String value = "{\"name\":\"door-kitchen-1\"}";		
 		Access res = access.put(Selector.ofString("//residence-1/house-id-10"), value);		
 		Assert.assertNotNull(res);
@@ -42,14 +39,14 @@ public class KeysValuesTest {
 
 	//@Test
 	public void accessPutObjectTest() throws InterruptedException, ExecutionException {		
-		Access access = (Access) new AccessImpl("access-id-2", "//residence-1/house-id-10", 10000L);		
+		Access access = (Access) new AccessImpl("access-id-2", Path.ofString("//residence-1/house-id-10"), 10000L);		
 		Access put = access.put(Selector.ofString("//residence-1/house-id-10"), new Foo());		
 		Assert.assertNotNull(put);
 	}
 
 	//@Test
 	public void accessDeltaPutTest() throws InterruptedException, ExecutionException {
-		Access access = (Access) new AccessImpl("access-id-2", "//residence-1/house-id-10", 10000L);		
+		Access access = (Access) new AccessImpl("access-id-2", Path.ofString("//residence-1/house-id-10"), 10000L);		
 		String value = "{\"name\":\"door-room\"}";
 		Access deltaPut = access.deltaPut(Selector.ofString("//residence-1/house-id-10"), value);		
 		Assert.assertNotNull(deltaPut);
@@ -57,7 +54,7 @@ public class KeysValuesTest {
 	
 	//@Test
 	public void accessRemoveWithSelectorTest() throws InterruptedException, ExecutionException {
-		Access access = (Access) new AccessImpl("accessid2", "//residence-1/house-id-10", 10000L);
+		Access access = (Access) new AccessImpl("accessid2", Path.ofString("//residence-1/house-id-10"), 10000L);
 		Access futureAccess = access.remove(Selector.ofString("//residence-1/house-id-10"));		
 		Assert.assertNotNull(futureAccess);
 	}
