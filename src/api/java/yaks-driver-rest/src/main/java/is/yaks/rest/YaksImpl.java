@@ -34,6 +34,7 @@ public class YaksImpl implements Yaks {
 	private YaksConfiguration config = YaksConfiguration.getInstance();
 	private GsonTypeToken gsonTypes = GsonTypeToken.getInstance();
 
+
 	public YaksImpl(String... args) {
 		if(args.length == 0) {
 			System.out.println("Usage: <yaksUrl>");
@@ -133,7 +134,7 @@ public class YaksImpl implements Yaks {
 		if (response.getStatus() == HttpURLConnection.HTTP_OK) {
 			List<String> idList = config.getGson().fromJson(
 					response.getEntity(String.class),
-					gsonTypes.COLLECTION_ID);
+					gsonTypes .COLLECTION_ID);
 
 			return idList;
 		} else {
@@ -158,7 +159,7 @@ public class YaksImpl implements Yaks {
 		String data = response.getEntity(String.class);
 		switch (response.getStatus()) {
 		case HttpURLConnection.HTTP_OK:
-			AccessImpl access = config.getGson().fromJson(
+			Access access = config.getGson().fromJson(
 					data,
 					gsonTypes.ACCESS);			
 			accessById.put(id, access);				

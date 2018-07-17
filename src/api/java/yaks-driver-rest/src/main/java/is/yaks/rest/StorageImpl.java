@@ -51,4 +51,12 @@ public class StorageImpl implements Storage {
 
 		}
 	}
+
+	public String getLocation() {
+		return location;
+	}
+
+	public String getStorageId() {
+		return storageId;
+	}
 }

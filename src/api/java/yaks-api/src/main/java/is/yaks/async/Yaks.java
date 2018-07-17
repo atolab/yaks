@@ -5,11 +5,9 @@ import java.lang.reflect.InvocationTargetException;
 import java.util.List;
 import java.util.Properties;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.Future;
 
 import is.yaks.Encoding;
 import is.yaks.Path;
-import is.yaks.Storage;
 
 /**
  * Yaks API entrypoint.

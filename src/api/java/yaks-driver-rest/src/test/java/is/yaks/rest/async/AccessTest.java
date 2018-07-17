@@ -86,8 +86,9 @@ public class AccessTest {
 
 	//@Test
 	public void yaksGetSubscriptionsTest() throws InterruptedException, ExecutionException {
-		Access futureAccess = new AccessImpl("access-id-1", Path.ofString("//residence-1/house10"), 10000L);
-		CompletableFuture<Map<String, Selector>> futureSubs = futureAccess.getSubscriptions();
+		CompletableFuture<Access> futureAccess = yaks.createAccess("access-id-1", Path.ofString("//residence-1/house10"), 100000L, Encoding.JSON);
+		Access access = futureAccess.get();
+		CompletableFuture<Map<String, Selector>> futureSubs = access.getSubscriptions();
 		Map<String, Selector> subs = futureSubs.get();
 		Assert.assertNotNull(subs);
 		Assert.assertTrue(subs.size()>0);		

@@ -2,7 +2,6 @@ package is.yaks.rest;
 
 import java.util.Properties;
 import java.util.concurrent.ExecutionException;
-import java.util.concurrent.Future;
 
 import org.junit.After;
 import org.junit.Assert;
@@ -51,8 +50,12 @@ public class StorageTest {
 
 
 	//@Test
-	public void storagesDisposeTest() throws InterruptedException, ExecutionException {				
-		Storage storage = new StorageImpl("storage-id-1", "//residence-1/storage-1");
+	public void storagesDisposeTest() throws InterruptedException, ExecutionException {
+		Properties options = new Properties();
+		options.put("options1", "OPT1");
+		options.put("options2", "OPT2");
+		options.put("options3", "OPT3");
+		Storage storage = yaks.createStorage("storage-id-1", Path.ofString("//residence-1/storage-1"), options);
 		storage.dispose();
 	}
 

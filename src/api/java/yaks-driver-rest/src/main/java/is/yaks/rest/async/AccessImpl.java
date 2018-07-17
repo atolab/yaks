@@ -13,15 +13,15 @@ public class AccessImpl implements Access {
 
 	private is.yaks.rest.AccessImpl syncAccess;
 
-	//create access
-	public AccessImpl(String accessId, Path scopePath, long cacheSize) {
-		syncAccess = new is.yaks.rest.AccessImpl(accessId, scopePath, cacheSize);
+	public AccessImpl(is.yaks.rest.AccessImpl access) {
+		syncAccess = access;
 	}
 
 	@Override
 	public CompletableFuture<Access> put(Selector selector, Object value) {
 		CompletableFuture<Access> future = CompletableFuture.supplyAsync(()->{
-			return (Access) syncAccess.put(selector, value);
+			syncAccess = (is.yaks.rest.AccessImpl) syncAccess.put(selector, value);			
+			return this;
 		});
 		return future;
 	}
@@ -29,7 +29,8 @@ public class AccessImpl implements Access {
 	@Override
 	public CompletableFuture<Access> deltaPut(Selector selector, Object delta) {
 		CompletableFuture<Access> future = CompletableFuture.supplyAsync(()->{
-			return (Access) syncAccess.deltaPut(selector, delta);
+			syncAccess = (is.yaks.rest.AccessImpl) syncAccess.deltaPut(selector, delta);
+			return this;
 		});
 		return future;
 	}
@@ -37,7 +38,8 @@ public class AccessImpl implements Access {
 	@Override
 	public CompletableFuture<Access> remove(Selector selector) {
 		CompletableFuture<Access> future = CompletableFuture.supplyAsync(()->{
-			return (Access) syncAccess.remove(selector);
+			syncAccess = (is.yaks.rest.AccessImpl)  syncAccess.remove(selector);
+			return this;
 		});
 		return future;
 	}
@@ -45,7 +47,7 @@ public class AccessImpl implements Access {
 	@Override
 	public CompletableFuture<Long> subscribe(Selector selector) {
 		CompletableFuture<Long> future = CompletableFuture.supplyAsync(()->{
-			return syncAccess.subscribe(selector);
+			return syncAccess.subscribe(selector);			
 		});
 		return future;
 	}

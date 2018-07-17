@@ -10,6 +10,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import is.yaks.Access;
+import is.yaks.Encoding;
 import is.yaks.Path;
 import is.yaks.Selector;
 import is.yaks.Yaks;
@@ -30,8 +31,8 @@ public class KeysValuesTest {
 	}
 	
 	//@Test
-	public void accessPutStringTest() throws InterruptedException, ExecutionException {
-		Access access = (Access) new AccessImpl("access-id-2", Path.ofString("//residence-1/house-id-10"), 10000L);
+	public void accessPutStringTest() throws InterruptedException, ExecutionException {		
+		Access access = yaks.createAccess(Path.ofString("//residence-1/house-id-10"), 10000L, Encoding.JSON);
 		String value = "{\"name\":\"door-kitchen-1\"}";		
 		Access res = access.put(Selector.ofString("//residence-1/house-id-10"), value);		
 		Assert.assertNotNull(res);
@@ -39,14 +40,14 @@ public class KeysValuesTest {
 
 	//@Test
 	public void accessPutObjectTest() throws InterruptedException, ExecutionException {		
-		Access access = (Access) new AccessImpl("access-id-2", Path.ofString("//residence-1/house-id-10"), 10000L);		
+		Access access = yaks.createAccess(Path.ofString("//residence-1/house-id-10"), 10000L, Encoding.JSON);		
 		Access put = access.put(Selector.ofString("//residence-1/house-id-10"), new Foo());		
 		Assert.assertNotNull(put);
 	}
 
 	//@Test
 	public void accessDeltaPutTest() throws InterruptedException, ExecutionException {
-		Access access = (Access) new AccessImpl("access-id-2", Path.ofString("//residence-1/house-id-10"), 10000L);		
+		Access access = yaks.createAccess(Path.ofString("//residence-1/house-id-10"), 10000L, Encoding.JSON);
 		String value = "{\"name\":\"door-room\"}";
 		Access deltaPut = access.deltaPut(Selector.ofString("//residence-1/house-id-10"), value);		
 		Assert.assertNotNull(deltaPut);
@@ -54,7 +55,7 @@ public class KeysValuesTest {
 	
 	//@Test
 	public void accessRemoveWithSelectorTest() throws InterruptedException, ExecutionException {
-		Access access = (Access) new AccessImpl("accessid2", Path.ofString("//residence-1/house-id-10"), 10000L);
+		Access access = yaks.createAccess(Path.ofString("//residence-1/house-id-10"), 10000L, Encoding.JSON);
 		Access futureAccess = access.remove(Selector.ofString("//residence-1/house-id-10"));		
 		Assert.assertNotNull(futureAccess);
 	}

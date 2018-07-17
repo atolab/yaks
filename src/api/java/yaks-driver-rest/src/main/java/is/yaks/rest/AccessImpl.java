@@ -1,9 +1,9 @@
 package is.yaks.rest;
 
+import java.lang.reflect.Type;
 import java.net.HttpURLConnection;
 import java.util.Map;
 import java.util.function.Function;
-import java.util.stream.Collectors;
 
 import javax.ws.rs.core.Cookie;
 import javax.ws.rs.core.MediaType;
@@ -11,6 +11,7 @@ import javax.ws.rs.core.MultivaluedMap;
 
 import com.google.gson.annotations.Expose;
 import com.google.gson.annotations.SerializedName;
+import com.google.gson.reflect.TypeToken;
 import com.sun.jersey.api.client.ClientResponse;
 import com.sun.jersey.api.client.WebResource;
 
@@ -18,14 +19,12 @@ import is.yaks.Access;
 import is.yaks.Listener;
 import is.yaks.Path;
 import is.yaks.Selector;
-import is.yaks.rest.utils.GsonTypeToken;
 import is.yaks.rest.utils.Utils;
 import is.yaks.rest.utils.YaksConfiguration;
 
 public class AccessImpl implements Access {
 
 	private YaksConfiguration config = YaksConfiguration.getInstance();
-	private GsonTypeToken gsonTypes = GsonTypeToken.getInstance();
 
 	@Expose(serialize = true, deserialize = true)
 	@SerializedName(value="accessId", alternate={"id"})
@@ -99,7 +98,6 @@ public class AccessImpl implements Access {
 		WebResource wr = config.getClient()
 				.resource(config.getYaksUrl())
 				.path(selector.toString());
-
 		ClientResponse response = wr
 				.type(MediaType.APPLICATION_JSON_TYPE)
 				.accept(MediaType.APPLICATION_JSON_TYPE)
@@ -125,6 +123,7 @@ public class AccessImpl implements Access {
 				.path("/yaks/access/"+accessId+"/subs")
 				.queryParam("selector", selector.toString());
 		ClientResponse response = wr.post(ClientResponse.class);
+
 		switch (response.getStatus()) {
 		case HttpURLConnection.HTTP_CREATED:
 			MultivaluedMap<String, String> headers = response.getHeaders();
@@ -140,7 +139,7 @@ public class AccessImpl implements Access {
 
 	@Override
 	public <T> Long subscribe(Selector selector, Listener<T> listener) {
-		// TODO Auto-generated method stub
+		// TODO Auto-generated method stub		
 		return null;		
 	}
 
@@ -149,26 +148,17 @@ public class AccessImpl implements Access {
 		WebResource wr = config.getClient()
 				.resource(config.getYaksUrl())
 				.path("/yaks/access/"+accessId+"/subs");
-
 		ClientResponse response = wr				
 				.type(MediaType.APPLICATION_JSON_TYPE)
 				.accept(MediaType.APPLICATION_JSON_TYPE)
 				.get(ClientResponse.class);	
 
 		switch (response.getStatus()) {
-		case HttpURLConnection.HTTP_OK:				
-			Map<String, String> map = config.getGson().fromJson(
+		case HttpURLConnection.HTTP_OK:			
+			Type returnType = new TypeToken<Map<String, Selector>>(){}.getType();
+			return config.getGson().fromJson(
 					response.getEntity(String.class), 
-					gsonTypes.MAP_KV_STRING);
-
-			Map<String, Selector> ret = map.entrySet()
-					.parallelStream()
-					.collect(
-						Collectors.toMap(
-						p -> String.valueOf(p.getKey()), 
-						p -> Selector.ofString((p.getValue()))));
-			return ret;
-
+					returnType);
 		default:
 		case HttpURLConnection.HTTP_NOT_FOUND:
 			Utils.fail("Failed to get subscrition list :\ncode: " + response.getStatus()
@@ -182,7 +172,6 @@ public class AccessImpl implements Access {
 		WebResource wr = config.getClient()
 				.resource(config.getYaksUrl())
 				.path("/yaks/access/"+accessId+"/subs/"+subscriptionId);
-
 		ClientResponse response = wr
 				.type(MediaType.APPLICATION_JSON_TYPE)
 				.accept(MediaType.APPLICATION_JSON_TYPE)
@@ -209,16 +198,12 @@ public class AccessImpl implements Access {
 				.accept(MediaType.APPLICATION_JSON_TYPE)
 				.cookie(new Cookie("is.yaks.access", accessId))
 				.get(ClientResponse.class);
-		String data = response.getEntity(String.class);			
+		
+		String data = response.getEntity(String.class);
 		switch (response.getStatus()) {
 		case HttpURLConnection.HTTP_OK:
-			Map<String, String> jsonMap = config.getGson().fromJson(data, gsonTypes.MAP_KV);
-			Map<Path, T> map = jsonMap.entrySet()
-					.parallelStream()
-					.collect(Collectors.toMap(
-							entry -> Path.ofString(String.valueOf(entry.getKey())), 
-							entry -> config.getGson().fromJson(String.valueOf(entry.getValue()), c)));
-			return map;	
+			Type returnType = new TypeToken<Map<Path, T>>(){}.getType();
+			return config.getGson().fromJson(data, returnType);
 		case HttpURLConnection.HTTP_NOT_FOUND:
 		case HttpURLConnection.HTTP_BAD_REQUEST:
 		case HttpURLConnection.HTTP_PRECON_FAILED:
@@ -238,8 +223,8 @@ public class AccessImpl implements Access {
 				.accept(MediaType.APPLICATION_JSON_TYPE)
 				.cookie(new Cookie("is.yaks.access", accessId))
 				.get(ClientResponse.class);
-		String data = response.getEntity(String.class);			
 		
+		String data = response.getEntity(String.class);
 		switch (response.getStatus()) {
 		case HttpURLConnection.HTTP_OK:			
 			return config.getGson().fromJson(data, c);	
@@ -273,6 +258,7 @@ public class AccessImpl implements Access {
 		ClientResponse response = wr					
 				.accept(MediaType.APPLICATION_JSON_TYPE)
 				.delete(ClientResponse.class);
+		
 		switch (response.getStatus()) {
 		case HttpURLConnection.HTTP_NO_CONTENT:
 			break;				
@@ -281,6 +267,18 @@ public class AccessImpl implements Access {
 			Utils.fail("Access dispose failed with\n code: " + response.getStatus()
 			+ "\nbody: " + response.getEntity(String.class));								
 		}
+	}
+
+	public String getAccessId() {
+		return accessId;
+	}
+
+	public String getScopePath() {
+		return scopePath;
+	}
+
+	public long getCacheSize() {
+		return cacheSize;
 	}
 
 }
