@@ -24,4 +24,10 @@ setup.log
 # merlin generated files
 .merlin
 
-# 
+# Eclipse generated files
+.settings
+.project
+
+# Maven generated files
+target
+

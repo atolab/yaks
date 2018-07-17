@@ -1,48 +1,51 @@
 package is.yaks;
 
 
-import sun.reflect.generics.reflectiveObjects.NotImplementedException;
+import java.util.Map;
 
-@SuppressWarnings("restriction")
+
 public final class Selector implements Comparable<Selector>
 {
 
-	public String path;
+	private String path;
 
-	public Selector() {} //used when reading data [from REST]
-
-	public Selector(String path) {
-		this.path = path;
+	private Selector(String s) throws IllegalArgumentException {
+	   assert s != null;
+	   validateSelectorPath(s);
+		this.path = s;
 	}
 
-	public boolean isPrefix(String prefix, String path){
+  private void validateSelectorPath(String s) throws IllegalArgumentException
+   {
+      // TODO: validate the selector string
+   }
+
+public static Selector ofString(String string) {
+      return new Selector(string);
+   }
+
+  @Override
+   public String toString() { 
+      return path;
+   }
+
+	public Map<String, String> getQuery()
+	{
+	   /// TODO
+	   return null;
+	}
+	
+	
+	public boolean isPrefix(String prefix, String path) {
 		assert prefix != null;
 		assert path != null;        
 		return path.startsWith(prefix);
 	}
 
-	public static Selector path(String path) {		
-		return new Selector(path);
-	}
-
-	public static Selector pathSelector(String path) {
-		// TODO
-		throw new NotImplementedException();
-	}
-
-	public static Selector selector(String string) {
-		// TODO
-		throw new NotImplementedException();
-	}
 
 	@Override
 	public int compareTo(Selector o) {
-		// TODO
-		throw new NotImplementedException();
+		return this.path.compareTo(o.path);
 	}
 
-	@Override
-	public String toString() {	
-		return "selector: " + path;
-	}
 }

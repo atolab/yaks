@@ -1,9 +1,15 @@
-package is.yaks;
+package is.yaks.async;
 
 import java.lang.reflect.Constructor;
 import java.lang.reflect.InvocationTargetException;
 import java.util.List;
 import java.util.Properties;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Future;
+
+import is.yaks.Encoding;
+import is.yaks.Path;
+import is.yaks.Storage;
 
 /**
  * Yaks API entrypoint.
@@ -52,7 +58,7 @@ public interface Yaks {
     * @param scopePath The prefix of the accessible key space (keys outside this root won't be accessible)
     * @param cacheSize The size of the Access cache
     */   
-   public Access createAccess (Path scopePath, long cacheSize, Encoding encoding);
+   public CompletableFuture<Access> createAccess (Path scopePath, long cacheSize, Encoding encoding);
 
    
    /**
@@ -64,13 +70,13 @@ public interface Yaks {
     * @param scopePath The prefix of the accessible key space (keys outside this root won't be accessible)
     * @param cacheSize The size of the Access cache
     */
-   public Access createAccess (String id, Path scopePath, long cacheSize, Encoding encoding);
+   public CompletableFuture<Access> createAccess (String id, Path scopePath, long cacheSize, Encoding encoding);
 
    /**
     * Returns list of existing Access identifiers.
     * 
     */
-   public List<String> getAccess();
+   public CompletableFuture<List<String>> getAccess();
    
 
    /***
@@ -79,41 +85,37 @@ public interface Yaks {
     * @param id
     * @return
     */
-   public Access getAccess(String id);
-
+   public CompletableFuture<Access> getAccess(String id);
 
    /**
     * Creates an Storage with a scope path and some options for its creation. 
     * A Storage id will be created by Yaks and returned as a cookie.
     */
-   public Storage createStorage(Path path, Properties option);
-  
+   public CompletableFuture<Storage> createStorage(Path path, Properties option);
    
    /**
-    * Creates an Storage with the specified id, a scope path and some options for its creation. 
-    * If not already existing, the Storage will be created by Yaks and the id returned as a cookie. 
-    * If already existing, the id of the existing Storage will be returned
+    * Creates a Storage in the global key/value store.
     * 
     * @param id The Storage identifier
     * @param path The prefix of the key space managed by the Storage.
     * @param option Options to pass to the Storage implementation (e.g. back-end configuration)
     */
-   public Storage createStorage(String id, Path path, Properties option);
+   public CompletableFuture<Storage> createStorage(String id, Path path, Properties option);
    
    /**
     * Returns list of existing Storage identifiers.
     * 
     * @return future list of id in string format
     */
-   public List<String> getStorages();
-
+   public CompletableFuture<List<String>> getStorages();
    
    /**
-    * Returns the information details about the Storage with identifier id (if exists)
-    *  
-    * @return future storage corresponding to the specified id
+    * Finds an existing Storage with a specified identifier.
+    * Null is returned if not found.
     */
-   public Storage getStorage(String id);
+   public CompletableFuture<Storage> getStorage(String id);
+
+   
 }
 
 

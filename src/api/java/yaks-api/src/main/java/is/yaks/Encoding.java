@@ -1,5 +1,5 @@
 package is.yaks;
 
 public enum Encoding {
-	JSON, PROTOBUF, AVRO
+	BYTE_BUFFER, JSON, PROTOBUF, AVRO
 }
