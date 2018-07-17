@@ -67,9 +67,13 @@ let push_to_engine sink msg =
   let%lwt _ = EventStream.Sink.push (EventWithHandler (msg, on_reply)) sink in
   promise
 
+let set_cookie key value =
+  let cookie = Cohttp.Cookie.Set_cookie_hdr.make (key, value) in
+  Cohttp.Cookie.Set_cookie_hdr.serialize ~version:`HTTP_1_1 cookie
 
-
-
+let string_of_cookies header =
+  Cookie.Cookie_hdr.extract header |>
+  List.fold_left (fun acc (k, v) -> acc^" , "^k^"="^v) ""
 
 (**********************************)
 (*        Error replies           *)
@@ -136,7 +140,7 @@ let create_access fe ?id path cache_size =
   | Ok {cid; entity_id=AccessId(aid)} ->
     let headers = Header.add_list (Header.init()) 
         [("Location",match id with None -> aid | Some(_) -> ".");
-         ("Set-Cookie",cookie_name_access_id^"="^aid)]
+         (set_cookie cookie_name_access_id aid)]
     in
     Server.respond_string ~status:`Created ~headers ~body:"" ()
   | Error {cid; reason=507} ->
@@ -193,7 +197,7 @@ let create_storage fe ?id path properties =
   | Ok {cid; entity_id=StorageId(sid)} ->
     let headers = Header.add_list (Header.init())
         [("Location", match id with None -> sid | Some(_) -> ".");
-         ("Set-Cookie",cookie_name_storage_id^"="^sid)] in
+         (set_cookie cookie_name_storage_id sid)] in
     Server.respond_string ~status:`Created ~headers ~body:"" ()
   | Error {cid; reason=501} ->
     unkown_storage_type properties
@@ -454,7 +458,12 @@ let execute_control_operation fe meth path query headers body =
 
 
 let execute_data_operation fe meth selector headers body =
-  let access_id = Header.get headers cookie_name_access_id in
+  let open Apero.Option.Infix in
+  let access_id = 
+    Cookie.Cookie_hdr.extract headers
+    |> List.find_opt (fun (key, _) -> key == cookie_name_access_id)
+       >== fun (_, value) -> value
+  in
   match (meth, access_id) with
   | (_, None) ->
     missing_cookie cookie_name_access_id
@@ -471,7 +480,6 @@ let execute_data_operation fe meth selector headers body =
   | _ -> unsupported_operation meth selector
 
 
-
 let execute_http_request fe req body =
   let open Lwt in
   let meth = req |> Request.meth in
@@ -479,7 +487,9 @@ let execute_http_request fe req body =
   let path = uri |> Uri.path  in
   let query = uri |> Uri.query in
   let headers = req |> Request.headers in
-  let%lwt _ = Logs_lwt.debug (fun m -> m "HTTP req: %s %s?%s with headers: %s" (Code.string_of_method meth) path (query_to_string query) (Header.to_string headers))
+  let%lwt _ = Logs_lwt.debug (fun m -> m "HTTP req: %s %s?%s with headers:\n   %sAnd cookies: %s" 
+                                 (Code.string_of_method meth) path (query_to_string query)
+                                 (Header.to_lines headers |> String.concat "   ") (string_of_cookies headers))
   in
   if path = "/" then
     empty_path

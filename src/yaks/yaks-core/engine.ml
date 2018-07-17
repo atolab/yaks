@@ -30,11 +30,11 @@ module Engine = struct
     let rec loop () = 
       match%lwt EventStream.Source.get e.evt_src with
       | Some (EventWithHandler (msg, handler))  ->           
-        (* let%lwt _ = Logs_lwt.debug (fun m -> m "Processing message id = %d " msg.mid) in  *)
+        (* let%lwt _ = Logs_lwt.debug (fun m -> m "Processing message id = %d " msg.cid) in  *)
         process e msg handler >>= loop
 
       | Some (Event msg)  ->           
-        (* let%lwt _ = Logs_lwt.debug (fun m -> m "Processing message id = %d " msg.mid) in  *)
+        (* let%lwt _ = Logs_lwt.debug (fun m -> m "Processing message id = %d " msg.cid) in  *)
         process e msg (fun e -> Lwt.return_unit) >>= loop
 
       | None -> loop ()

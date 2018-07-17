@@ -20,6 +20,12 @@ let setup_log =
   Term.(const setup_log $ Fmt_cli.style_renderer () $ Logs_cli.level ~env ())
 
 
+(* let exec () =
+  let open Actor.Actor in
+  let mm_actor, mm_loop = Yaks_be_mm.create "" in
+  (* let _ = (mm_actor <!> (None, Create { cid=Int64.of_int 112; entity = Storage {path = "/root/home"; properties = [] }; entity_id = StorageId "112" } )) *)
+  let _ = mm_loop in Lwt.return_unit  *)
+
 let yaksd () = 
   let ecfg = Engine.{channel_len = 32 } in
   let engine = Engine.create  ecfg in 
@@ -27,17 +33,12 @@ let yaksd () =
   let sockfe = Yaks_fe_sock.create sockfecfg (Engine.event_sink engine) in
   let restfecfg = Yaks_fe_rest.{ port = 8000 } in
   let restfe = Yaks_fe_rest.create restfecfg (Engine.event_sink engine) in
-  Lwt.join [Engine.start engine; Yaks_fe_sock.start sockfe; Yaks_fe_rest.start restfe]
-
-
-
-let exec () =
-  let open Actor.Actor in
   let mm_actor, mm_loop = Yaks_be_mm.create "" in
-  let _ = (mm_actor <!> (None, Create { cid=Int64.of_int 112; entity = Storage {path = "/root/home"; properties = [] }; entity_id = StorageId "112" } ))
-  in mm_loop 
+  Lwt.join [Engine.start engine; Yaks_fe_sock.start sockfe; Yaks_fe_rest.start restfe; mm_loop ]
+
+
 
 
 let () =  
   let _ = Term.(eval (setup_log, Term.info "tool")) in  
-  Lwt_main.run @@ exec ()
+  Lwt_main.run @@ yaksd ()
