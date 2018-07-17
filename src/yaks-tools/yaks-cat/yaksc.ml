@@ -29,7 +29,7 @@ let write_prompt () =
 
 let process_input sock buf oc line = 
   let%lwt _ = Logs_lwt.debug (fun m -> m "Prcessing: %s" line) in 
-  let msg = { mid = 0; msg = `Request (`AOp (`Get "//test/one"))} in
+  let msg = { cid = 0; msg = `Request (`AOp (`Get "//test/one"))} in
   write_message buf msg; 
   let payload = Lwt_bytes.of_string @@ Bi_outbuf.contents buf in
   let len = Lwt_bytes.length payload in   
