@@ -30,6 +30,14 @@ let yaksd () =
   Lwt.join [Engine.start engine; Yaks_fe_sock.start sockfe; Yaks_fe_rest.start restfe]
 
 
+
+let exec () =
+  let open Actor.Actor in
+  let mm_actor, mm_loop = Yaks_be_mm.create "" in
+  let _ = (mm_actor <!> (None, Create { cid=Int64.of_int 112; entity = Storage {path = "/root/home"; properties = [] }; entity_id = StorageId "112" } ))
+  in mm_loop 
+
+
 let () =  
   let _ = Term.(eval (setup_log, Term.info "tool")) in  
-  Lwt_main.run @@ yaksd ()
+  Lwt_main.run @@ exec ()
