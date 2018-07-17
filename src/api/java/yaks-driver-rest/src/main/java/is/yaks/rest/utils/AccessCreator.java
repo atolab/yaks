@@ -6,7 +6,6 @@ import com.google.gson.InstanceCreator;
 
 import is.yaks.Access;
 import is.yaks.Yaks;
-import is.yaks.rest.AccessImpl;
 
 public class AccessCreator implements InstanceCreator<Access> {
 
@@ -34,7 +33,7 @@ public class AccessCreator implements InstanceCreator<Access> {
 
 	@Override
 	public Access createInstance(Type type) {
-		AccessImpl access = new AccessImpl();	
-		return access;
+		//AccessImpl access = new AccessImpl();	
+		return null;
 	}		
 }

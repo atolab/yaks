@@ -10,8 +10,11 @@ import org.junit.Before;
 import org.junit.Test;
 
 import is.yaks.Access;
+import is.yaks.Path;
 import is.yaks.Selector;
 import is.yaks.Yaks;
+import is.yaks.rest.async.AccessImpl;
+import is.yaks.rest.async.YaksImpl;
 import is.yaks.rest.foo.Foo;
 
 import org.slf4j.Logger;
@@ -31,53 +34,45 @@ public class KeysValuesTest {
 	
 	//@Test
 	public void accessPutStringTest() throws InterruptedException, ExecutionException {
-		Access access = new AccessImpl("access-id-2", "//residence-1/house-id-10", 10000L);
+		Access access = (Access) new AccessImpl("access-id-2", "//residence-1/house-id-10", 10000L);
 		String value = "{\"name\":\"door-kitchen-1\"}";		
-		Future<Access> futurePut = access.put(Selector.path("//residence-1/house-id-10"), value);
-		Access put = futurePut.get();
-		Assert.assertNotNull(put);
+		Access res = access.put(Selector.ofString("//residence-1/house-id-10"), value);		
+		Assert.assertNotNull(res);
 	}
 
 	//@Test
 	public void accessPutObjectTest() throws InterruptedException, ExecutionException {		
-		Access access = new AccessImpl("access-id-2", "//residence-1/house-id-10", 10000L);		
-		Future<Access> futurePut = access.put(Selector.path("//residence-1/house-id-10"), new Foo());
-		Access put = futurePut.get();
+		Access access = (Access) new AccessImpl("access-id-2", "//residence-1/house-id-10", 10000L);		
+		Access put = access.put(Selector.ofString("//residence-1/house-id-10"), new Foo());		
 		Assert.assertNotNull(put);
 	}
 
 	//@Test
 	public void accessDeltaPutTest() throws InterruptedException, ExecutionException {
-		Access access = new AccessImpl("access-id-2", "//residence-1/house-id-10", 10000L);		
+		Access access = (Access) new AccessImpl("access-id-2", "//residence-1/house-id-10", 10000L);		
 		String value = "{\"name\":\"door-room\"}";
-		Future<Access> futureDeltaPut = access.deltaPut(Selector.path("//residence-1/house-id-10"), value);
-		Access deltaPut = futureDeltaPut.get();
+		Access deltaPut = access.deltaPut(Selector.ofString("//residence-1/house-id-10"), value);		
 		Assert.assertNotNull(deltaPut);
 	}
 	
 	//@Test
 	public void accessRemoveWithSelectorTest() throws InterruptedException, ExecutionException {
-		Access access = new AccessImpl("accessid2", "//residence-1/house-id-10", 10000L);
-		Future<Access> futureAccess = access.remove(Selector.path("//residence-1/house-id-10"));
-		access = futureAccess.get();
-		Assert.assertNotNull(access);
+		Access access = (Access) new AccessImpl("accessid2", "//residence-1/house-id-10", 10000L);
+		Access futureAccess = access.remove(Selector.ofString("//residence-1/house-id-10"));		
+		Assert.assertNotNull(futureAccess);
 	}
 	
 	//@Test
 	public void accessGetTest() throws InterruptedException, ExecutionException {
-		Future<Access> futureaccess = yaks.getAccess("access-id-2");
-		Access access = futureaccess.get();
-		Future<Map<String, byte[]>> futureGet = access.get(Selector.path("//residence-1/house-id-10"));
-		Map<String, byte[]> map = futureGet.get();
-		Assert.assertNotNull(map);
+		Access access = (Access) yaks.getAccess("access-id-2");		
+		Foo get = access.get(Path.ofString("//residence-1/house-id-10"), Foo.class);		
+		Assert.assertNotNull(get);
 	}
 	
 	//@Test
 	public void accessGetWithClassTest() throws InterruptedException, ExecutionException {
-		Future<Access> futureaccess = yaks.getAccess("access-id-2");
-		Access access = futureaccess.get();
-		Future<Map<String, Foo>> futureGet = access.get(Selector.path("//residence-1/house-id-10"), Foo.class);
-		Map<String, Foo> map = futureGet.get();		
+		Access access = yaks.getAccess("access-id-2");		
+		Map<Path, Foo> map = access.get(Selector.ofString("//residence-1/house-id-10"), Foo.class);				
 		map.forEach( (key,obj)->{
 			System.out.println(key + "+++" + obj.getClass().getName());
 		});

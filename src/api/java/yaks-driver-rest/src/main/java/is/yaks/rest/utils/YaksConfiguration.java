@@ -1,4 +1,4 @@
-package is.yaks.rest;
+package is.yaks.rest.utils;
 
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;

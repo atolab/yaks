@@ -1,9 +1,11 @@
-package is.yaks.rest;
+package is.yaks.rest.utils;
 
 import java.lang.reflect.Type;
 import java.util.Collection;
 import java.util.HashMap;
 import com.google.gson.reflect.TypeToken;
+
+import is.yaks.rest.async.AccessImpl;
 
 public class GsonTypeToken {
 

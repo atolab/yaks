@@ -11,8 +11,11 @@ import org.junit.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import is.yaks.Path;
 import is.yaks.Storage;
 import is.yaks.Yaks;
+import is.yaks.rest.async.StorageImpl;
+import is.yaks.rest.async.YaksImpl;
 
 public class StorageTest {
 	Yaks yaks;
@@ -31,8 +34,7 @@ public class StorageTest {
 		Properties options = new Properties();
 		options.put("options1", "OPT1");
 		options.put("options2", "OPT2");		
-		Future<Storage> futureStorage = yaks.createStorage("//residence-1/storage-1", options);
-		Storage storage = futureStorage.get();
+		Storage storage = yaks.createStorage(Path.ofString("//residence-1/storage-1"), options);
 		Assert.assertNotNull(storage);
 	}
 
@@ -43,8 +45,7 @@ public class StorageTest {
 		options.put("options1", "OPT1");
 		options.put("options2", "OPT2");
 		options.put("options3", "OPT3");
-		Future<Storage> futureStorage = yaks.createStorage("storage-id-1", "//residence-1/storage-1", options);
-		Storage storage = futureStorage.get();
+		Storage storage = yaks.createStorage("storage-id-1", Path.ofString("//residence-1/storage-1"), options);		
 		Assert.assertNotNull(storage);
 	}
 

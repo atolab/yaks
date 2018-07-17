@@ -7,7 +7,7 @@ public class Path implements Comparable<Path>
    private String path;
 
    private Path(String p) {
-      assert path != null;
+      assert p != null;
       validateSelectorPath(p);
       this.path = p;
    }

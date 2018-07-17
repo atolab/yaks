@@ -16,7 +16,7 @@ public interface Access {
     * 
     * If the selector contains wildcards, the value is set to each existing key matching the selector.
     */
-   public Access put(Selector Selector, Object value);
+   public Access put(Selector selector, Object value);
    
    /**
     * Updates an existing association between a Selector and a value with a delta
@@ -24,12 +24,12 @@ public interface Access {
     * Notice that if the Selector is not yet associated with a value in the store
     * the delta will be inserted as a full value.
     */   
-   public Access deltaPut(Selector Selector, Object delta);
+   public Access deltaPut(Selector selector, Object delta);
    
    /**
     * Removes the Selector from the store, if present.
     */
-   public Access remove(Selector Selector);
+   public Access remove(Selector selector);
    
    /**
     * Subscribes to the keys matching with the selector

@@ -10,7 +10,7 @@ public class Utils {
 
 	public static final Logger LOG = LoggerFactory.getLogger(Utils.class);
 
-	public static String getCookie(MultivaluedMap<String, String> headers, String cookie) {
+	public static String getHeader(MultivaluedMap<String, String> headers, String cookie) {
 		List<String> setCookie = headers.get(cookie);
 		if(setCookie != null && !setCookie.isEmpty()) {
 			String value = setCookie.get(0);
@@ -27,7 +27,7 @@ public class Utils {
 	}
 
 
-	public static String getCookieData(MultivaluedMap<String, String> headers, String cookie, String field) {
+	public static String getValueFromHeaderKey(MultivaluedMap<String, String> headers, String cookie, String field) {
 		List<String> cookieList = headers.get(cookie);		
 		if(cookieList != null && !cookieList.isEmpty()) {
 			String firstCookie = cookieList.get(0);			

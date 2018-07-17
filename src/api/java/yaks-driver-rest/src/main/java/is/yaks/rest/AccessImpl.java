@@ -1,11 +1,7 @@
 package is.yaks.rest;
 
 import java.net.HttpURLConnection;
-import java.util.HashMap;
 import java.util.Map;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.Future;
-import java.util.concurrent.TimeUnit;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
@@ -19,10 +15,14 @@ import com.sun.jersey.api.client.ClientResponse;
 import com.sun.jersey.api.client.WebResource;
 
 import is.yaks.Access;
+import is.yaks.Listener;
+import is.yaks.Path;
 import is.yaks.Selector;
+import is.yaks.rest.utils.GsonTypeToken;
 import is.yaks.rest.utils.Utils;
+import is.yaks.rest.utils.YaksConfiguration;
 
-public class AccessImpl implements Access {	
+public class AccessImpl implements Access {
 
 	private YaksConfiguration config = YaksConfiguration.getInstance();
 	private GsonTypeToken gsonTypes = GsonTypeToken.getInstance();
@@ -39,299 +39,222 @@ public class AccessImpl implements Access {
 	@SerializedName(value="cacheSize", alternate={"cache","size"})
 	private long cacheSize;
 
-	//@Expose(serialize = true, deserialize = true)
-	//@SerializedName(value="subscriptions", alternate={"subs","subsId"})
-	private Map<String,Selector> subscriptions = new HashMap<String, Selector>();
-
-	private String location;
-
-	// called when loading rest data from Yaks
-	public AccessImpl() {}
-
 	//create access
-	public AccessImpl(String scopePath, long cacheSize) {		
-		this.scopePath = scopePath;
-		this.cacheSize = cacheSize;
-	}
-
-	//create access
-	public AccessImpl(String accessId, String scopePath, long cacheSize) {
+	public AccessImpl(String accessId, Path scopePath, long cacheSize) {
 		this.accessId = accessId;
-		this.scopePath = scopePath;
+		this.scopePath = scopePath.toString();
 		this.cacheSize = cacheSize;
 	}
-
+	
 	@Override
-	public Future<Access> put(Selector selector, Object value){
-		CompletableFuture<Access> completableFuture = CompletableFuture.supplyAsync(() -> {
-			WebResource wr = config.getClient()
-					.resource(config.getYaksUrl())
-					.path(selector.path);			
-			ClientResponse response = wr
-					.cookie(new Cookie("is.yaks.access",accessId))					
-					.type(MediaType.APPLICATION_JSON_TYPE)
-					.accept(MediaType.APPLICATION_JSON_TYPE)
-					.put(ClientResponse.class, config.getGson().toJson(value));
+	public Access put(Selector selector, Object value) {
+		WebResource wr = config.getClient()
+				.resource(config.getYaksUrl())
+				.path(selector.toString());			
+		ClientResponse response = wr
+				.cookie(new Cookie("is.yaks.access", accessId))					
+				.type(MediaType.APPLICATION_JSON_TYPE)
+				.accept(MediaType.APPLICATION_JSON_TYPE)
+				.put(ClientResponse.class, config.getGson().toJson(value));
 
-			switch (response.getStatus()) {
-			case HttpURLConnection.HTTP_NO_CONTENT:
-				return this;				
-			case HttpURLConnection.HTTP_BAD_REQUEST:
-			case HttpURLConnection.HTTP_PRECON_FAILED:
-			default:
-				Utils.fail("Failed to put data :\ncode: " + response.getStatus()
-				+"\nbody: "+response.getEntity(String.class));		
-				return null;				
-			}			
-		});
-		return completableFuture;
-	}
-
-
-	@Override
-	public Future<Access> deltaPut(Selector selector, Object delta) {
-		CompletableFuture<Access> completableFuture = CompletableFuture.supplyAsync(() -> {
-			WebResource wr = config.getClient()
-					.resource(config.getYaksUrl())
-					.path(selector.path);
-			ClientResponse response = wr
-					.cookie(new Cookie("is.yaks.access", accessId))
-					.type(MediaType.APPLICATION_JSON_TYPE)
-					.accept(MediaType.APPLICATION_JSON_TYPE)
-					.method("PATCH", 
-							ClientResponse.class, 
-							config.getGson().toJson(delta));
-
-			switch (response.getStatus()) {
-			case HttpURLConnection.HTTP_NO_CONTENT:
-				return this;				
-			case HttpURLConnection.HTTP_BAD_REQUEST:
-			case HttpURLConnection.HTTP_PRECON_FAILED:
-			default:
-				Utils.fail("Failed to put data :\ncode: " + response.getStatus()
-				+"\nbody: "+response.getEntity(String.class));
-				return null;				
-			}			
-		});
-		return completableFuture;
-	}
-
-
-	@Override
-	public Future<Map<String, byte[]>> get(Selector selector) {
-		CompletableFuture<Map<String, byte[]>> completableFuture = CompletableFuture.supplyAsync(() -> {
-			WebResource wr = config.getClient()
-					.resource(config.getYaksUrl())
-					.path(selector.path);
-
-			ClientResponse response = wr				
-					.accept(MediaType.APPLICATION_JSON_TYPE)
-					.cookie(new Cookie("is.yaks.access", accessId))
-					.get(ClientResponse.class);	
-
-			switch (response.getStatus()) {
-			case HttpURLConnection.HTTP_OK:				
-				Map<String, byte[]> map = config.getGson().fromJson(
-						response.getEntity(String.class), 
-						gsonTypes.MAP_KV);
-				return map;
-			case HttpURLConnection.HTTP_NOT_FOUND:
-			case HttpURLConnection.HTTP_BAD_REQUEST:
-			case HttpURLConnection.HTTP_PRECON_FAILED:
-			default:
-				Utils.fail("Failed to get data map corresponding to selector:\ncode: " + response.getStatus()
-				+"\nbody: "+response.getEntity(String.class));				
-				return null;
-			}
-		});
-		return completableFuture;
-	}
-
-
-	@Override
-	public <T> Future<Map<String, T>> get(Selector selector, Class<T> c) {
-		Future<Map<String, T>> completableFuture = CompletableFuture.supplyAsync(() -> {
-			WebResource wr = config.getClient()
-					.resource(config.getYaksUrl())
-					.path(selector.path);
-			ClientResponse response = wr				
-					.accept(MediaType.APPLICATION_JSON_TYPE)
-					.cookie(new Cookie("is.yaks.access", accessId))
-					.get(ClientResponse.class);
-			String data = response.getEntity(String.class);			
-			switch (response.getStatus()) {
-			case HttpURLConnection.HTTP_OK:
-				Map<String, String> jsonMap = config.getGson().fromJson(data, gsonTypes.MAP_KV);
-				Map<String, T> map = jsonMap.entrySet()
-						.parallelStream()
-						.collect(Collectors.toMap(
-								entry -> String.valueOf(entry.getKey()), 
-								entry -> config.getGson().fromJson(String.valueOf(entry.getValue()), c)));
-				return map;	
-			case HttpURLConnection.HTTP_NOT_FOUND:
-			case HttpURLConnection.HTTP_BAD_REQUEST:
-			case HttpURLConnection.HTTP_PRECON_FAILED:
-			default:
-				Utils.fail("Failed to get data map corresponding to selector:\ncode: " + response.getStatus()
-				+"\nbody: " + data);				
-				return null;
-			}
-		});
-		return completableFuture;
-	}
-
-
-	@Override
-	public void dispose() {
-		CompletableFuture<Void> futureDispose = CompletableFuture.runAsync(new Runnable() {			
-			@Override
-			public void run() {
-				WebResource wr = config.getClient()
-						.resource(config.getYaksUrl())
-						.path("/yaks/access/"+accessId);
-				ClientResponse response = wr					
-						.accept(MediaType.APPLICATION_JSON_TYPE)
-						.delete(ClientResponse.class);
-
-				switch (response.getStatus()) {
-				case HttpURLConnection.HTTP_NO_CONTENT:
-					break;				
-				case HttpURLConnection.HTTP_NOT_FOUND:			
-				default:
-					Utils.fail("Access dispose failed with\n code: " + response.getStatus()
-					+ "\nbody: " + response.getEntity(String.class));								
-				}
-			}			
-		});
-
-		try {
-			futureDispose.get(5, TimeUnit.SECONDS);
-		} catch (Exception e) {
-			Utils.fail("Access Failed to dispose " + e.getMessage());
+		switch (response.getStatus()) {
+		case HttpURLConnection.HTTP_NO_CONTENT:
+			return this;				
+		case HttpURLConnection.HTTP_BAD_REQUEST:
+		case HttpURLConnection.HTTP_PRECON_FAILED:
+		default:
+			Utils.fail("Failed to put data :\ncode: " + response.getStatus()
+			+"\nbody: "+response.getEntity(String.class));		
+			return null;				
 		}
 	}
 
 	@Override
-	public Future<Access> remove(Selector selector) {
-		CompletableFuture<Access> completableFuture = CompletableFuture.supplyAsync(() -> {
-			WebResource wr = config.getClient()
-					.resource(config.getYaksUrl())
-					.path(selector.path);
+	public Access deltaPut(Selector selector, Object delta) {
+		WebResource wr = config.getClient()
+				.resource(config.getYaksUrl())
+				.path(selector.toString());
+		ClientResponse response = wr
+				.cookie(new Cookie("is.yaks.access", accessId))
+				.type(MediaType.APPLICATION_JSON_TYPE)
+				.accept(MediaType.APPLICATION_JSON_TYPE)
+				.method("PATCH", 
+						ClientResponse.class, 
+						config.getGson().toJson(delta));
 
-			ClientResponse response = wr
-					.type(MediaType.APPLICATION_JSON_TYPE)
-					.accept(MediaType.APPLICATION_JSON_TYPE)
-					.cookie(new Cookie("is.yaks.access", accessId))
-					.delete(ClientResponse.class);	
-
-			switch (response.getStatus()) {
-			case HttpURLConnection.HTTP_NO_CONTENT:
-				return this;			
-			case HttpURLConnection.HTTP_BAD_REQUEST:
-			case HttpURLConnection.HTTP_PRECON_FAILED:
-			default:
-				Utils.fail("Failed to get data map corresponding to selector:\ncode: " + response.getStatus()
-				+"\nbody: "+response.getEntity(String.class));				
-				return null;
-			}
-		});
-		return completableFuture;
+		switch (response.getStatus()) {
+		case HttpURLConnection.HTTP_NO_CONTENT:
+			return this;				
+		case HttpURLConnection.HTTP_BAD_REQUEST:
+		case HttpURLConnection.HTTP_PRECON_FAILED:
+		default:
+			Utils.fail("Failed to put data :\ncode: " + response.getStatus()
+			+"\nbody: "+response.getEntity(String.class));
+			return null;				
+		}
 	}
 
 	@Override
-	public Future<Long> subscribe(Selector selector) {
-		Future<Long> completableFuture = CompletableFuture.supplyAsync(() -> {
-			WebResource wr = config.getClient()
-					.resource(config.getYaksUrl())
-					.path("/yaks/access/"+accessId+"/subs")
-					.queryParam("selector", selector.path);
-			ClientResponse response = wr.post(ClientResponse.class);
-			switch (response.getStatus()) {
-			case HttpURLConnection.HTTP_CREATED:
-				MultivaluedMap<String, String> headers = response.getHeaders();
-				String location = Utils.getCookie(headers, "Location");
-				subscriptions.put(location, selector);
-				return new Long(location);
-			case HttpURLConnection.HTTP_PRECON_FAILED:
-			default:
-				Utils.fail("Failed to subscribe to selector:\ncode: " + response.getStatus()
-				+"\nbody: "+response.getEntity(String.class));				
-				return null;				
-			}			
-		});
-		return completableFuture;
+	public Access remove(Selector selector) {
+		WebResource wr = config.getClient()
+				.resource(config.getYaksUrl())
+				.path(selector.toString());
+
+		ClientResponse response = wr
+				.type(MediaType.APPLICATION_JSON_TYPE)
+				.accept(MediaType.APPLICATION_JSON_TYPE)
+				.cookie(new Cookie("is.yaks.access", accessId))
+				.delete(ClientResponse.class);	
+
+		switch (response.getStatus()) {
+		case HttpURLConnection.HTTP_NO_CONTENT:
+			return this;			
+		case HttpURLConnection.HTTP_BAD_REQUEST:
+		case HttpURLConnection.HTTP_PRECON_FAILED:
+		default:
+			Utils.fail("Failed to get data map corresponding to selector:\ncode: " + response.getStatus()
+			+"\nbody: "+response.getEntity(String.class));				
+			return null;
+		}
 	}
 
 	@Override
-	public Future<Map<String, Selector>> getSubscriptions() {
+	public Long subscribe(Selector selector) {
+		WebResource wr = config.getClient()
+				.resource(config.getYaksUrl())
+				.path("/yaks/access/"+accessId+"/subs")
+				.queryParam("selector", selector.toString());
+		ClientResponse response = wr.post(ClientResponse.class);
+		switch (response.getStatus()) {
+		case HttpURLConnection.HTTP_CREATED:
+			MultivaluedMap<String, String> headers = response.getHeaders();
+			String location = Utils.getHeader(headers, "Location");			
+			return new Long(location);
+		case HttpURLConnection.HTTP_PRECON_FAILED:
+		default:
+			Utils.fail("Failed to subscribe to selector:\ncode: " + response.getStatus()
+			+"\nbody: "+response.getEntity(String.class));				
+			return null;				
+		}
+	}
+
+	@Override
+	public <T> Long subscribe(Selector selector, Listener<T> listener) {
+		// TODO Auto-generated method stub
+		return null;		
+	}
+
+	@Override
+	public Map<String, Selector> getSubscriptions() {
 		WebResource wr = config.getClient()
 				.resource(config.getYaksUrl())
 				.path("/yaks/access/"+accessId+"/subs");
 
-		CompletableFuture<Map<String, Selector>> completableFuture = CompletableFuture.supplyAsync(() -> {
-			ClientResponse response = wr				
-					.type(MediaType.APPLICATION_JSON_TYPE)
-					.accept(MediaType.APPLICATION_JSON_TYPE)
-					.get(ClientResponse.class);	
+		ClientResponse response = wr				
+				.type(MediaType.APPLICATION_JSON_TYPE)
+				.accept(MediaType.APPLICATION_JSON_TYPE)
+				.get(ClientResponse.class);	
 
-			switch (response.getStatus()) {
-			case HttpURLConnection.HTTP_OK:				
-				Map<String, String> map = config.getGson().fromJson(
-						response.getEntity(String.class), 
-						gsonTypes.MAP_KV_STRING);
-				subscriptions.putAll(
-						map.entrySet().parallelStream().collect(Collectors.toMap(
-								p -> String.valueOf(p.getKey()), 
-								p -> Selector.path(p.getValue())))
-						);				
-				return subscriptions;
-			default:
-			case HttpURLConnection.HTTP_NOT_FOUND:
-				Utils.fail("Failed to get subscrition list :\ncode: " + response.getStatus()
-				+"\nbody: "+response.getEntity(String.class));					
-				return null;
-			}
-		});
+		switch (response.getStatus()) {
+		case HttpURLConnection.HTTP_OK:				
+			Map<String, String> map = config.getGson().fromJson(
+					response.getEntity(String.class), 
+					gsonTypes.MAP_KV_STRING);
 
-		return completableFuture;
-	}
+			Map<String, Selector> ret = map.entrySet()
+					.parallelStream()
+					.collect(
+						Collectors.toMap(
+						p -> String.valueOf(p.getKey()), 
+						p -> Selector.ofString((p.getValue()))));
+			return ret;
 
-	@Override
-	public void unsubscribe(long subscriptionId) {
-		CompletableFuture<Void> completableFuture = CompletableFuture.runAsync( new Runnable() {
-
-			@Override
-			public void run() {
-				WebResource wr = config.getClient()
-						.resource(config.getYaksUrl())
-						.path("/yaks/access/"+accessId+"/subs/"+subscriptionId);
-
-				ClientResponse response = wr
-						.type(MediaType.APPLICATION_JSON_TYPE)
-						.accept(MediaType.APPLICATION_JSON_TYPE)
-						.delete(ClientResponse.class);	
-
-				switch (response.getStatus()) {
-				case HttpURLConnection.HTTP_NO_CONTENT:
-					return;			
-				case HttpURLConnection.HTTP_NOT_FOUND:
-				default:
-					Utils.fail("Failed to unsubscribe:\ncode: " + response.getStatus()
-					+"\nbody: "+response.getEntity(String.class));				
-					return;
-				}
-			}
-		});
-
-		try {
-			completableFuture.get(5, TimeUnit.SECONDS);
-		} catch (Exception e) {
-			Utils.fail("Access Failed to unsubscribe " + e.getMessage());
+		default:
+		case HttpURLConnection.HTTP_NOT_FOUND:
+			Utils.fail("Failed to get subscrition list :\ncode: " + response.getStatus()
+			+"\nbody: "+response.getEntity(String.class));					
+			return null;
 		}
 	}
 
 	@Override
-	public void eval(Selector selector, Function<Selector, Object> computation) {
+	public void unsubscribe(long subscriptionId) {
+		WebResource wr = config.getClient()
+				.resource(config.getYaksUrl())
+				.path("/yaks/access/"+accessId+"/subs/"+subscriptionId);
+
+		ClientResponse response = wr
+				.type(MediaType.APPLICATION_JSON_TYPE)
+				.accept(MediaType.APPLICATION_JSON_TYPE)
+				.delete(ClientResponse.class);	
+
+		switch (response.getStatus()) {
+		case HttpURLConnection.HTTP_NO_CONTENT:
+			return;			
+		case HttpURLConnection.HTTP_NOT_FOUND:
+		default:
+			Utils.fail("Failed to unsubscribe:\ncode: " + response.getStatus()
+			+"\nbody: "+response.getEntity(String.class));				
+			return;
+		}
+
+	}
+
+	@Override
+	public <T> Map<Path, T> get(Selector selector, Class<T> c) {
+		WebResource wr = config.getClient()
+				.resource(config.getYaksUrl())
+				.path(selector.toString());
+		ClientResponse response = wr				
+				.accept(MediaType.APPLICATION_JSON_TYPE)
+				.cookie(new Cookie("is.yaks.access", accessId))
+				.get(ClientResponse.class);
+		String data = response.getEntity(String.class);			
+		switch (response.getStatus()) {
+		case HttpURLConnection.HTTP_OK:
+			Map<String, String> jsonMap = config.getGson().fromJson(data, gsonTypes.MAP_KV);
+			Map<Path, T> map = jsonMap.entrySet()
+					.parallelStream()
+					.collect(Collectors.toMap(
+							entry -> Path.ofString(String.valueOf(entry.getKey())), 
+							entry -> config.getGson().fromJson(String.valueOf(entry.getValue()), c)));
+			return map;	
+		case HttpURLConnection.HTTP_NOT_FOUND:
+		case HttpURLConnection.HTTP_BAD_REQUEST:
+		case HttpURLConnection.HTTP_PRECON_FAILED:
+		default:
+			Utils.fail("Failed to get data map corresponding to selector:\ncode: " + response.getStatus()
+			+"\nbody: " + data);				
+			return null;
+		}
+	}
+
+	@Override
+	public <T> T get(Path path, Class<T> c) {
+		WebResource wr = config.getClient()
+				.resource(config.getYaksUrl())
+				.path(path.toString());
+		ClientResponse response = wr				
+				.accept(MediaType.APPLICATION_JSON_TYPE)
+				.cookie(new Cookie("is.yaks.access", accessId))
+				.get(ClientResponse.class);
+		String data = response.getEntity(String.class);			
+		
+		switch (response.getStatus()) {
+		case HttpURLConnection.HTTP_OK:			
+			return config.getGson().fromJson(data, c);	
+		case HttpURLConnection.HTTP_NOT_FOUND:
+		case HttpURLConnection.HTTP_BAD_REQUEST:
+		case HttpURLConnection.HTTP_PRECON_FAILED:
+		default:
+			Utils.fail("Failed to get data map corresponding to selector:\ncode: " + response.getStatus()
+			+"\nbody: " + data);				
+			return null;
+		}
+	}
+
+	@Override
+	public void eval(Selector selector, Function<Path, Object> computation) {
 		// TODO Auto-generated method stub
 
 	}
@@ -339,27 +262,25 @@ public class AccessImpl implements Access {
 	@Override
 	public void close() {
 		// TODO Auto-generated method stub
-	}
 
-	public long getCacheSize() {
-		return cacheSize;
-	}
-
-	public void setAccessId(String accessId) {		
-		this.accessId = accessId;
-	}
-
-	public String getAccessId() {
-		return accessId;
-	}
-
-	public void setLocation(String location) {
-		this.location = location;		
 	}
 
 	@Override
-	public String toString() {	
-		return "{id:"+ accessId+", cache:" + cacheSize + ", scopePath:" + scopePath+", location: "+location+"}";
+	public void dispose() {
+		WebResource wr = config.getClient()
+				.resource(config.getYaksUrl())
+				.path("/yaks/access/"+accessId);
+		ClientResponse response = wr					
+				.accept(MediaType.APPLICATION_JSON_TYPE)
+				.delete(ClientResponse.class);
+		switch (response.getStatus()) {
+		case HttpURLConnection.HTTP_NO_CONTENT:
+			break;				
+		case HttpURLConnection.HTTP_NOT_FOUND:			
+		default:
+			Utils.fail("Access dispose failed with\n code: " + response.getStatus()
+			+ "\nbody: " + response.getEntity(String.class));								
+		}
 	}
 
 }
