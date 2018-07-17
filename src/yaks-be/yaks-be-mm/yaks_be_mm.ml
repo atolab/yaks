@@ -5,21 +5,6 @@ open Mm_types
 open Lwt.Infix
 
 
-type tuple = { key: string; value: Lwt_bytes.t }
-
-type message = 
-  | Create of { cid: int64; entity : entity; entity_id : entity_identifier }
-  | Dispose of { cid: int64; entity_id : entity_identifier }
-  | Get of { cid: int64; entity_id : entity_identifier; key : string; encoding: encoding option }
-  | Put of { cid: int64; access_id : entity_identifier; key : string; value : string }
-  | Patch of { cid: int64; access_id : entity_identifier; key : string; value : string }
-  | Remove of { cid: int64; access_id : entity_identifier; key : string }
-  | Notify of { cid: int64; sid : entity_identifier; values: tuple list }
-  | Values of { cid: int64; encoding: encoding; values : tuple list }
-  | Error of { cid : int64; reason : int }
-  | Ok of { cid : int64;  entity_id: entity_identifier}
-
-
 module SKey =  struct
   type t = string
   let of_string s = s
@@ -142,6 +127,10 @@ let get_state state =
   | None -> 
     ignore @@ Logs_lwt.debug (fun m -> m"[MM] State is not present! This is an error!");
     failwith "Error state must be present"
+
+
+
+(* ACTOR *)
 
 open Actor.Actor
 let memory_actor current_state = spawn ~state:(Some current_state) (fun self state from ->
