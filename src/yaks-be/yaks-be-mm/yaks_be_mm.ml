@@ -98,22 +98,44 @@ module MemStore = struct
 end
 
 module StoreMap = Map.Make(struct type t = string let compare = compare end)
+module PrefixMap = Map.Make(struct type t = string let compare = compare end)
 
 type t = {
   cfg: string;
-  stores : (MemStore.t) StoreMap.t
+  stores : (MemStore.t) StoreMap.t;
+  prefix_map : (string) PrefixMap.t
 }
 
 
 (* HELPER FUNCTIONS *)
 
-let create_store sid mm_be = 
+let create_store sid path mm_be = 
   let s = MemStore.create sid 1024 in
+  let pm = PrefixMap.add path sid mm_be.prefix_map in 
   let sm = StoreMap.add sid s mm_be.stores in 
-  { mm_be with stores = sm} 
+  { mm_be with stores = sm; prefix_map = pm} 
+
+
+let get_path_by_id sid mm_be = 
+  let l = PrefixMap.bindings mm_be.prefix_map in
+  List.filter (fun (_,v) -> v=sid) l
+
+let get_sid_by_path path mm_be = 
+  PrefixMap.find_opt path mm_be.prefix_map
+
+
+let find_matching_storages path mm_be = 
+  let l = PrefixMap.bindings mm_be.prefix_map in 
+  List.filter (fun (k,v) -> SKey.prefix k path) l
+
 
 let dispose_store sid mm_be = 
-  {mm_be with stores = StoreMap.remove sid mm_be.stores}
+  let p,_ = 
+    match List.nth_opt (get_path_by_id sid mm_be) 0 with
+    | Some s-> s
+    | None -> failwith @@ Printf.sprintf "MainMemory-BE error! Unable to find path for stogare id %s" sid
+  in
+  {mm_be with stores = StoreMap.remove sid mm_be.stores; prefix_map = PrefixMap.remove p mm_be.prefix_map}
 
 let check_if_storage_exists sid mm_be = 
   StoreMap.mem sid mm_be.stores
@@ -140,14 +162,22 @@ let memory_actor current_state = spawn ~state:(Some current_state) (fun self sta
       let current_state = get_state state in
       let myaddr = addr self in
       let reponse, new_state = 
-        match cmsg.entity_id with
-          | StorageId s -> 
-              ignore @@ Logs_lwt.debug (fun m -> m"[MM] Creating storage with ID %s" s);
-              let ns = create_store s current_state in
-              Ok{cid = cmsg.cid; entity_id = StorageId s }, ns
-          | _ -> 
-            ignore @@ Logs_lwt.debug (fun m -> m"[MM] Wrong formatted message, entity_identifier is not StorageId");
-            Error {cid = cmsg.cid; reason = (-1) }, current_state
+        match cmsg.entity with
+        | Storage storage -> 
+          let path = storage.path in
+          (
+            match cmsg.entity_id with
+            | StorageId s -> 
+                ignore @@ Logs_lwt.debug (fun m -> m "[MM] Creating storage with ID %s and path %s" s path);
+                let ns = create_store s path current_state in
+                Ok{cid = cmsg.cid; entity_id = StorageId s }, ns
+            | _ -> 
+              ignore @@ Logs_lwt.debug (fun m -> m"[MM] Wrong formatted message, entity_identifier is not StorageId");
+              Error {cid = cmsg.cid; reason = (-1) }, current_state
+          )
+        | _ -> 
+          ignore @@ Logs_lwt.debug (fun m -> m"[MM] Wrong formatted message, entity is not Storage");
+          Error {cid = cmsg.cid; reason = (-1) }, current_state
       in
       maybe_send from (Some myaddr) reponse >>= continue self (Some new_state)
     | Dispose dmsg ->
@@ -169,8 +199,24 @@ let memory_actor current_state = spawn ~state:(Some current_state) (fun self sta
       ignore @@ Logs_lwt.debug (fun m -> m"[MM] Received get");
       let current_state = get_state state in
       let myaddr = addr self in
+      let matching_storages = find_matching_storages gmsg.key current_state in
       let reponse,new_state = 
-        match gmsg.entity_id with
+        match List.length matching_storages with
+        | 0 -> 
+          ignore @@ Logs_lwt.debug (fun m -> m"[MM] No storage have resposability for this key");
+          Error {cid = gmsg.cid; reason = (-2) }, current_state
+        | _ ->
+          ignore @@ Logs_lwt.debug (fun m -> m"[MM] Getting from all storage that have responsability for this key: %s" gmsg.key);
+          let values = 
+            let storages = List.map (fun (_,id) -> StoreMap.find id current_state.stores) matching_storages in
+            List.flatten @@ List.map (fun e -> 
+              match MemStore.get gmsg.key e with
+              | Some vs -> List.map (fun (k,v) -> { key = SKey.to_string k; value = v }) vs
+              | None -> []
+             ) storages
+          in
+          Values{cid = gmsg.cid; encoding = `String ; values }, current_state
+        (* match gmsg.entity_id with
         | StorageId s -> 
           ignore @@ Logs_lwt.debug (fun m -> m"[MM] Getting with ID %s checking if storage exists" s);
           match check_if_storage_exists s current_state with
@@ -188,7 +234,7 @@ let memory_actor current_state = spawn ~state:(Some current_state) (fun self sta
             Error {cid = gmsg.cid; reason = (-2) }, current_state
         | _ -> 
           ignore @@ Logs_lwt.debug (fun m -> m"[MM] Wrong formatted message, entity_identifier is not StorageId");
-          Error {cid = gmsg.cid; reason = (-1) }, current_state
+          Error {cid = gmsg.cid; reason = (-1) }, current_state *)
         in
         maybe_send from (Some myaddr) reponse >>= continue self (Some new_state)
 
@@ -196,7 +242,29 @@ let memory_actor current_state = spawn ~state:(Some current_state) (fun self sta
       ignore @@ Logs_lwt.debug (fun m -> m"[MM] Received Put");
       let current_state = get_state state in
       let myaddr = addr self in
+      let matching_storages = find_matching_storages put_msg.key current_state in
       let reponse,new_state = 
+        match List.length matching_storages with
+        | 0 -> 
+          ignore @@ Logs_lwt.debug (fun m -> m"[MM] No storage have resposability for this key");
+          Error {cid = put_msg.cid; reason = (-2) }, current_state
+        | _ ->
+          ignore @@ Logs_lwt.debug (fun m -> m"[MM] Storing in all storage that have responsability for this key: %s" put_msg.key);
+          let new_storages = 
+            let storages = List.map (fun (_,id) -> id, StoreMap.find id current_state.stores) matching_storages in
+            List.map (fun (id,e) -> id, MemStore.put put_msg.key (BValue.of_string put_msg.value) e) storages
+          in
+          let rec update_state storage_list i current_state = 
+            if i < List.length storage_list then 
+              let id,storage = (List.nth storage_list i) in
+              update_state storage_list (i+1) (update_storage id storage current_state)
+            else
+              current_state
+          in 
+          let ns = update_state new_storages 0 current_state in
+          Ok{cid = put_msg.cid; entity_id = StorageId ""}, ns
+          (* TODO storage id is? The real storage id or the id of the backend? *)
+      (* let reponse,new_state = 
         match put_msg.access_id with
         | StorageId s -> 
           ignore @@ Logs_lwt.debug (fun m -> m"[MM] Putting with ID %s checking if storage exists" s);
@@ -212,7 +280,7 @@ let memory_actor current_state = spawn ~state:(Some current_state) (fun self sta
             Error {cid = put_msg.cid; reason = (-2) }, current_state
         | _ -> 
           ignore @@ Logs_lwt.debug (fun m -> m"[MM] Wrong formatted message, entity_identifier is not StorageId");
-          Error {cid = put_msg.cid; reason = (-1) }, current_state
+          Error {cid = put_msg.cid; reason = (-1) }, current_state *)
       in
       maybe_send from (Some myaddr) reponse >>= continue self (Some new_state)
 
@@ -220,7 +288,28 @@ let memory_actor current_state = spawn ~state:(Some current_state) (fun self sta
       ignore @@ Logs_lwt.debug (fun m -> m"[MM] Received Patch");
       let current_state = get_state state in
       let myaddr = addr self in
+      let matching_storages = find_matching_storages patch_msg.key current_state in
       let reponse,new_state = 
+        match List.length matching_storages with
+        | 0 -> 
+          ignore @@ Logs_lwt.debug (fun m -> m"[MM] No storage have resposability for this key");
+          Error {cid = patch_msg.cid; reason = (-2) }, current_state
+        | _ ->
+          ignore @@ Logs_lwt.debug (fun m -> m"[MM] Storing in all storage that have responsability for this key: %s" patch_msg.key);
+          let new_storages = 
+            let storages = List.map (fun (_,id) -> id,StoreMap.find id current_state.stores) matching_storages in
+            List.map (fun (id,e) -> id, MemStore.dput patch_msg.key (BValue.of_string patch_msg.value) e ) storages
+          in
+          let rec update_state storage_list i current_state = 
+            if i < List.length storage_list then
+              let id,storage = (List.nth storage_list i) in
+              update_state storage_list (i+1) (update_storage id storage current_state)
+            else
+              current_state
+          in 
+          let ns = update_state new_storages 0 current_state in
+          Ok{cid = patch_msg.cid; entity_id = StorageId ""}, ns
+      (* let reponse,new_state = 
         match patch_msg.access_id with
         | StorageId s -> 
           ignore @@ Logs_lwt.debug (fun m -> m"[MM] Patching with ID %s checking if storage exists" s);
@@ -236,7 +325,7 @@ let memory_actor current_state = spawn ~state:(Some current_state) (fun self sta
             Error {cid = patch_msg.cid; reason = (-2) }, current_state
         | _ -> 
         ignore @@ Logs_lwt.debug (fun m -> m"[MM] Wrong formatted message, entity_identifier is not StorageId");
-        Error {cid = patch_msg.cid; reason = (-1) }, current_state
+        Error {cid = patch_msg.cid; reason = (-1) }, current_state *)
       in
       maybe_send from (Some myaddr) reponse >>= continue self (Some new_state)
 
@@ -244,7 +333,28 @@ let memory_actor current_state = spawn ~state:(Some current_state) (fun self sta
       ignore @@ Logs_lwt.debug (fun m -> m"[MM] Received Patch");
       let current_state = get_state state in
       let myaddr = addr self in
+      let matching_storages = find_matching_storages rmsg.key current_state in
       let reponse,new_state = 
+        match List.length matching_storages with
+        | 0 -> 
+          ignore @@ Logs_lwt.debug (fun m -> m"[MM] No storage have resposability for this key");
+          Error {cid = rmsg.cid; reason = (-2) }, current_state
+        | _ ->
+          ignore @@ Logs_lwt.debug (fun m -> m"[MM] Storing in all storage that have responsability for this key: %s" rmsg.key);
+          let new_storages = 
+            let storages = List.map (fun (_,id) -> id, StoreMap.find id current_state.stores) matching_storages in
+            List.map (fun (id,e) -> id, MemStore.remove rmsg.key e ) storages
+          in
+          let rec update_state storage_list i current_state = 
+            if i < List.length storage_list then
+              let id,storage = (List.nth storage_list i) in
+              update_state storage_list (i+1) (update_storage id storage current_state)
+            else
+              current_state
+          in 
+          let ns = update_state new_storages 0 current_state in
+          Ok{cid = rmsg.cid; entity_id = StorageId ""}, ns
+      (* let reponse,new_state = 
         match rmsg.access_id with
         | StorageId s -> 
           ignore @@ Logs_lwt.debug (fun m -> m"[MM] Patching with ID %s checking if storage exists" s);
@@ -260,7 +370,7 @@ let memory_actor current_state = spawn ~state:(Some current_state) (fun self sta
             Error {cid = rmsg.cid; reason = (-2) }, current_state
         | _ -> 
           ignore @@ Logs_lwt.debug (fun m -> m"[MM] Wrong formatted message, entity_identifier is not StorageId");
-          Error {cid = rmsg.cid; reason = (-1) }, current_state
+          Error {cid = rmsg.cid; reason = (-1) }, current_state *)
       in
       maybe_send from (Some myaddr) reponse >>= continue self (Some new_state)
 
@@ -285,6 +395,6 @@ let memory_actor current_state = spawn ~state:(Some current_state) (fun self sta
 
 let create cfg = 
   ignore @@ Logs_lwt.debug (fun m -> m"MainMemory-BE Creating stores map");
-  let init_state = {stores = StoreMap.empty; cfg} in
+  let init_state = {prefix_map = PrefixMap.empty ;stores = StoreMap.empty; cfg} in
   let mm_actor,mm_loop = memory_actor init_state in
   mm_actor,mm_loop

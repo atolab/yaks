@@ -69,7 +69,7 @@ let push_to_engine sink msg =
 
 let set_cookie key value =
   let cookie = Cohttp.Cookie.Set_cookie_hdr.make (key, value) in
-  Cohttp.Cookie.Set_cookie_hdr.serialize ~version:`HTTP_1_1 cookie
+  Cohttp.Cookie.Set_cookie_hdr.serialize ~version:`HTTP_1_0 cookie
 
 let string_of_cookies header =
   Cookie.Cookie_hdr.extract header |>
