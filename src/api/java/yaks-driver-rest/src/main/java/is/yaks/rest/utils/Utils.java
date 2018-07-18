@@ -39,10 +39,10 @@ public class Utils {
 					fail("Invalid field in cookie: " + splittedString[0] + " != "+ field);
 				}
 			} else {
-				fail("No value in cookie");
+				fail("No value in cookie: " + firstCookie);
 			}
 		} else {
-			fail("No cookie");
+			fail("No cookie: " + headers);
 		}
 
 		return null;

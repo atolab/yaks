@@ -21,7 +21,7 @@ public class StorageImpl implements Storage {
 	public StorageImpl() {
 	}
 
-	public StorageImpl(String storageId, String location) {
+	StorageImpl(String storageId, String location) {
 		this.location = location;
 		this.storageId = storageId;
 	}

@@ -4,12 +4,10 @@ import java.lang.reflect.Type;
 import java.util.Collection;
 import com.google.gson.reflect.TypeToken;
 
-import is.yaks.rest.async.AccessImpl;
-
 public class GsonTypeToken {
 
-	public final Type ACCESS = new TypeToken<AccessImpl>(){}.getType();
-	public final Type COLLECTION_ID = new TypeToken<Collection<String>>(){}.getType();	
+	public final Type ACCESS = new TypeToken<is.yaks.rest.AccessImpl>(){}.getType();
+	public final Type STRING_COLLECTION = new TypeToken<Collection<String>>(){}.getType();	
 
 	private GsonTypeToken(){}
 

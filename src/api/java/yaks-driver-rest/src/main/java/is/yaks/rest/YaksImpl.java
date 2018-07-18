@@ -9,6 +9,7 @@ import java.util.concurrent.ForkJoinPool;
 import java.util.concurrent.TimeUnit;
 
 import javax.net.ssl.HttpsURLConnection;
+import javax.ws.rs.core.Cookie;
 import javax.ws.rs.core.MediaType;
 import javax.ws.rs.core.MultivaluedMap;
 
@@ -35,7 +36,7 @@ public class YaksImpl implements Yaks {
 	private GsonTypeToken gsonTypes = GsonTypeToken.getInstance();
 
 
-	public YaksImpl(String... args) {
+	private YaksImpl(String... args) {
 		if(args.length == 0) {
 			System.out.println("Usage: <yaksUrl>");
 			System.exit(-1);
@@ -89,11 +90,11 @@ public class YaksImpl implements Yaks {
 		switch (encoding) {
 		case JSON:
 		default:
-			ClientResponse response = webResource
+			ClientResponse response = webResource			
 			.path("/yaks/access/"+id)
 			.queryParam("path", scopePath.toString())
 			.queryParam("cacheSize", cacheSize + "")
-			.accept(MediaType.APPLICATION_JSON_TYPE)
+			.accept(MediaType.APPLICATION_JSON_TYPE)			
 			.put(ClientResponse.class);
 
 			MultivaluedMap<String, String> headers;
@@ -104,14 +105,16 @@ public class YaksImpl implements Yaks {
 				assert !String.valueOf(accessId).isEmpty();
 				AccessImpl access = new AccessImpl(accessId, scopePath, cacheSize);
 				accessById.put(accessId, access);
-				return access;
+				return access;				
 			case HttpURLConnection.HTTP_CREATED :
 				headers = response.getHeaders();						
 				accessId = Utils.getValueFromHeaderKey(headers, "Set-Cookie", "is.yaks.access");
-				String location = Utils.getHeader(headers, "Location"); //TODO check where to set
-				access = new AccessImpl(id, scopePath, cacheSize);				
+				String location = Utils.getHeader(headers, "Location");
+				assert !String.valueOf(accessId).isEmpty() && String.valueOf(location).equals(".");
+				access = new AccessImpl(accessId, scopePath, cacheSize);
+				access.setLocation(location);
 				accessById.put(accessId, access);
-				return access;
+				return access;				
 			case HttpURLConnection.HTTP_FORBIDDEN:
 			case HttpsURLConnection.HTTP_BAD_REQUEST:
 			case 507: //507 (Insufficient Storage): if requested cacheSize is too large
@@ -134,8 +137,7 @@ public class YaksImpl implements Yaks {
 		if (response.getStatus() == HttpURLConnection.HTTP_OK) {
 			List<String> idList = config.getGson().fromJson(
 					response.getEntity(String.class),
-					gsonTypes .COLLECTION_ID);
-
+					gsonTypes.STRING_COLLECTION);
 			return idList;
 		} else {
 			Utils.fail("Yaks instance failed to getAccess():\ncode: "+response.getStatus()+"\n" 
@@ -156,7 +158,8 @@ public class YaksImpl implements Yaks {
 		ClientResponse response = wr
 				.accept(MediaType.APPLICATION_JSON_TYPE)
 				.get(ClientResponse.class);
-		String data = response.getEntity(String.class);
+
+		String data = response.getEntity(String.class);		
 		switch (response.getStatus()) {
 		case HttpURLConnection.HTTP_OK:
 			Access access = config.getGson().fromJson(
@@ -184,21 +187,15 @@ public class YaksImpl implements Yaks {
 		ClientResponse response = wr
 				.accept(MediaType.APPLICATION_JSON_TYPE)
 				.post(ClientResponse.class);
-		String data = response.getEntity(String.class);
 
+		String data = response.getEntity(String.class);
 		MultivaluedMap<String, String> headers = response.getHeaders();
 		switch (response.getStatus()) {
 		case HttpURLConnection.HTTP_CREATED:				
-			String location = Utils.getHeader(headers, "Location");
 			String storageId = Utils.getValueFromHeaderKey(headers, "Set-Cookie", "is.yaks.storage");
+			String location = Utils.getHeader(headers, "Location");
 			assert !String.valueOf(storageId).isEmpty() && !String.valueOf(location).isEmpty();
 			StorageImpl storage = new StorageImpl(storageId, location);
-			storageById.put(storageId, storage);				
-			return storage;				
-		case HttpURLConnection.HTTP_OK:				
-			storageId = Utils.getValueFromHeaderKey(headers, "Set-Cookie", "is.yaks.storage");
-			assert !String.valueOf(storageId).isEmpty();
-			storage = new StorageImpl(storageId);
 			storageById.put(storageId, storage);				
 			return storage;
 		case HttpURLConnection.HTTP_NOT_IMPLEMENTED:
@@ -228,9 +225,9 @@ public class YaksImpl implements Yaks {
 		MultivaluedMap<String, String> headers = response.getHeaders();
 		switch (response.getStatus()) {
 		case HttpURLConnection.HTTP_CREATED:				
-			String location = Utils.getHeader(headers, "Location");
-			String storageId = Utils.getValueFromHeaderKey(headers, "Set-Cookie", "is.yaks.storage");	
-			assert !String.valueOf(storageId).isEmpty() && !String.valueOf(location).isEmpty();
+			String storageId = Utils.getValueFromHeaderKey(headers, "Set-Cookie", "is.yaks.storage");
+			String location = Utils.getHeader(headers, "Location");				
+			assert !String.valueOf(storageId).isEmpty() && String.valueOf(location).equals(".");
 			StorageImpl storage = new StorageImpl(storageId, location);
 			storageById.put(storageId, storage);				
 			return storage;				
@@ -261,7 +258,7 @@ public class YaksImpl implements Yaks {
 		if (response.getStatus() == HttpURLConnection.HTTP_OK) {
 			List<String> idList = config.getGson().fromJson(
 					response.getEntity(String.class),
-					gsonTypes.COLLECTION_ID);
+					gsonTypes.STRING_COLLECTION);
 
 			return idList;
 		} else {

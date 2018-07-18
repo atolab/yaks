@@ -16,7 +16,6 @@ import is.yaks.Encoding;
 import is.yaks.Path;
 import is.yaks.Selector;
 import is.yaks.Yaks;
-import is.yaks.rest.AccessImpl;
 import is.yaks.rest.YaksImpl;
 
 public class AccessTest {
@@ -31,15 +30,15 @@ public class AccessTest {
 		Assert.assertTrue(yaks instanceof YaksImpl);		
 	}
 
-	@Test
+	//@Test
 	public void yaksCreateAccessTest() throws InterruptedException, ExecutionException {		
 		Access access = yaks.createAccess(Path.ofString("//residence-1/house-access-1"), 100000L, Encoding.JSON);
 		Assert.assertNotNull(access);
 	}
 
 	//@Test
-	public void yaksCreateAccessTestWithId() throws InterruptedException, ExecutionException {
-		Access access = yaks.createAccess("access-id-1", Path.ofString("//residence-1/house10"), 100000L, Encoding.JSON);
+	public void yaksCreateAccessTestWithId() throws InterruptedException, ExecutionException {		
+		Access access = yaks.createAccess("access-id-1", Path.ofString("//residence-1/house10"), 100000L, Encoding.JSON);		
 		Assert.assertNotNull(access);
 	}
 
@@ -76,7 +75,7 @@ public class AccessTest {
 
 	//@Test
 	public void yaksGetSubscriptionsTest() throws InterruptedException, ExecutionException {
-		AccessImpl access = new AccessImpl("access-id-1", Path.ofString("//residence-1/house10"), 10000L);		
+		Access access = yaks.createAccess("access-id-1", Path.ofString("//residence-1/house10"), 100000L, Encoding.JSON);		
 		Map<String, Selector> subs = access.getSubscriptions();
 		Assert.assertNotNull(subs);
 		Assert.assertTrue(subs.size()>0);		

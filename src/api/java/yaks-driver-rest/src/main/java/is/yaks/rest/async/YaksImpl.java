@@ -21,7 +21,7 @@ public class YaksImpl implements Yaks {
 	private Map<String, Access> accessById = new HashMap<String, Access>();
 	private Map<String, Storage> storageById = new HashMap<String, Storage>();
 
-	public YaksImpl(String... args) {
+	private YaksImpl(String... args) {
 		if(args.length == 0) {
 			System.out.println("Usage: <yaksUrl>");
 			System.exit(-1);
@@ -32,7 +32,7 @@ public class YaksImpl implements Yaks {
 			System.exit(-1);
 		}
 
-		syncYaks = new is.yaks.rest.YaksImpl(args);		
+		syncYaks = (is.yaks.rest.YaksImpl) Yaks.getInstance("is.yaks.rest.YaksImpl", getClass().getClassLoader(), args);
 		registerShutdownHook();
 	}
 

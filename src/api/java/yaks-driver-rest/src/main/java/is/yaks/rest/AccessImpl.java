@@ -38,8 +38,10 @@ public class AccessImpl implements Access {
 	@SerializedName(value="cacheSize", alternate={"cache","size"})
 	private long cacheSize;
 
-	//create access
-	public AccessImpl(String accessId, Path scopePath, long cacheSize) {
+	private String location;
+
+	//no modifier, only visible in class and package
+	AccessImpl(String accessId, Path scopePath, long cacheSize) {
 		this.accessId = accessId;
 		this.scopePath = scopePath.toString();
 		this.cacheSize = cacheSize;
@@ -279,6 +281,10 @@ public class AccessImpl implements Access {
 
 	public long getCacheSize() {
 		return cacheSize;
+	}
+
+	public void setLocation(String location) {
+		this.location = location;		
 	}
 
 }

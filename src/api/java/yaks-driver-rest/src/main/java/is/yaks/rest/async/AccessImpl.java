@@ -13,7 +13,8 @@ public class AccessImpl implements Access {
 
 	private is.yaks.rest.AccessImpl syncAccess;
 
-	public AccessImpl(is.yaks.rest.AccessImpl access) {
+	//no modifier, only visible in class and package
+	AccessImpl(is.yaks.rest.AccessImpl access) {
 		syncAccess = access;
 	}
 

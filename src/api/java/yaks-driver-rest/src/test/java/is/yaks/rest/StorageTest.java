@@ -13,8 +13,7 @@ import org.slf4j.LoggerFactory;
 import is.yaks.Path;
 import is.yaks.Storage;
 import is.yaks.Yaks;
-import is.yaks.rest.async.StorageImpl;
-import is.yaks.rest.async.YaksImpl;
+import is.yaks.rest.YaksImpl;
 
 public class StorageTest {
 	Yaks yaks;

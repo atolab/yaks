@@ -24,7 +24,8 @@ public interface Yaks {
 		assert yaksImplName != null;
 		try {			
 			Class<?> yaks = classLoader.loadClass(yaksImplName);			
-			Constructor<?> ctor = yaks.getConstructor(String[].class);
+			Constructor<?> ctor = yaks.getDeclaredConstructor(String[].class);
+			ctor.setAccessible(true); 
 			return (Yaks) ctor.newInstance((Object) args);
 		} catch (ClassNotFoundException e) {
 			e.printStackTrace();
