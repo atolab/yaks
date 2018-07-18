@@ -284,7 +284,7 @@ public class YaksImpl implements Yaks {
 		case HttpURLConnection.HTTP_OK:
 			StorageImpl storage = config.getGson().fromJson(
 					data,
-					gsonTypes.getTypeToken(is.yaks.rest.AccessImpl.class));
+					gsonTypes.getTypeToken(is.yaks.rest.StorageImpl.class));
 			assert storage != null;
 			storageById.put(id, storage);				
 			return storage;
