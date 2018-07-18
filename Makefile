@@ -1,7 +1,7 @@
 .PHONY: all demo clean test doc
 
 BUILD_LIB=jbuilder build
-EXES=src/yaks/yaks-daemon/yaksd.exe src/yaks-tools/yaks-cat/yaksc.exe
+EXES=src/yaks/yaks-daemon/yaksd.exe #src/yaks-tools/yaks-cat/yaksc.exe
 BUILD_EXE=jbuilder build ${EXES}
 CLEAN= jbuilder clean
 TEST=jbuilder runtest -j1 --no-buffer --dev
