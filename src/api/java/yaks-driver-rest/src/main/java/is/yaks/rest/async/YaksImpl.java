@@ -5,15 +5,12 @@ import java.util.List;
 import java.util.Map;
 import java.util.Properties;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ForkJoinPool;
-import java.util.concurrent.TimeUnit;
 
 import is.yaks.Encoding;
 import is.yaks.Path;
 import is.yaks.async.Access;
 import is.yaks.async.Storage;
 import is.yaks.async.Yaks;
-import is.yaks.rest.utils.YaksConfiguration;
 
 public class YaksImpl implements Yaks {
 	
@@ -25,15 +22,12 @@ public class YaksImpl implements Yaks {
 		if(args.length == 0) {
 			System.out.println("Usage: <yaksUrl>");
 			System.exit(-1);
-		}		
-
+		}
 		String yaksUrl = args[0];
 		if(yaksUrl.isEmpty()) {
 			System.exit(-1);
 		}
-
 		syncYaks = (is.yaks.rest.YaksImpl) Yaks.getInstance("is.yaks.rest.YaksImpl", getClass().getClassLoader(), args);
-		registerShutdownHook();
 	}
 
 	@Override
@@ -125,18 +119,5 @@ public class YaksImpl implements Yaks {
 			storageById.put(id, asyncStorage);
 			return asyncStorage;
 		});
-	}
-
-	private void registerShutdownHook() {
-		Runtime.getRuntime().addShutdownHook(new Thread() {
-			@Override
-			public void run() {				
-				ForkJoinPool.commonPool().awaitQuiescence(5,TimeUnit.SECONDS);
-				YaksConfiguration.getInstance().getClient().destroy();
-				YaksConfiguration.getInstance().getExecutorService().shutdown();
-			}
-		});
-	}
-
-	
+	}	
 }

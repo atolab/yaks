@@ -55,10 +55,7 @@ public class AccessImpl implements Access {
 
 	@Override
 	public <T> CompletableFuture<Long> subscribe(Selector selector, Listener<T> listener) {
-		CompletableFuture<Long> future = CompletableFuture.supplyAsync(()->{			 
-			return syncAccess.subscribe(selector, listener);
-		});
-		return future;
+		throw new UnsupportedOperationException();
 	}
 
 	@Override
@@ -97,13 +94,7 @@ public class AccessImpl implements Access {
 
 	@Override
 	public CompletableFuture<Void> eval(Selector selector, Function<Path, Object> computation) {
-		CompletableFuture<Void> future = CompletableFuture.runAsync(new Runnable() {
-			public void run() {
-				syncAccess.eval(selector, computation);
-			}
-		});
-
-		return future;
+		throw new UnsupportedOperationException();
 	}
 
 	@Override

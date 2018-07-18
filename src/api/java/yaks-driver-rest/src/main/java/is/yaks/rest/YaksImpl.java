@@ -9,7 +9,6 @@ import java.util.concurrent.ForkJoinPool;
 import java.util.concurrent.TimeUnit;
 
 import javax.net.ssl.HttpsURLConnection;
-import javax.ws.rs.core.Cookie;
 import javax.ws.rs.core.MediaType;
 import javax.ws.rs.core.MultivaluedMap;
 
@@ -137,7 +136,7 @@ public class YaksImpl implements Yaks {
 		if (response.getStatus() == HttpURLConnection.HTTP_OK) {
 			List<String> idList = config.getGson().fromJson(
 					response.getEntity(String.class),
-					gsonTypes.STRING_COLLECTION);
+					gsonTypes.getCollectionTypeToken(String.class));
 			return idList;
 		} else {
 			Utils.fail("Yaks instance failed to getAccess():\ncode: "+response.getStatus()+"\n" 
@@ -164,7 +163,7 @@ public class YaksImpl implements Yaks {
 		case HttpURLConnection.HTTP_OK:
 			Access access = config.getGson().fromJson(
 					data,
-					gsonTypes.ACCESS);			
+					gsonTypes.getTypeToken(is.yaks.rest.AccessImpl.class));			
 			accessById.put(id, access);				
 			return access;
 		case HttpURLConnection.HTTP_NOT_FOUND:
@@ -258,7 +257,7 @@ public class YaksImpl implements Yaks {
 		if (response.getStatus() == HttpURLConnection.HTTP_OK) {
 			List<String> idList = config.getGson().fromJson(
 					response.getEntity(String.class),
-					gsonTypes.STRING_COLLECTION);
+					gsonTypes.getCollectionTypeToken(String.class));
 
 			return idList;
 		} else {
@@ -285,7 +284,7 @@ public class YaksImpl implements Yaks {
 		case HttpURLConnection.HTTP_OK:
 			StorageImpl storage = config.getGson().fromJson(
 					data,
-					gsonTypes.ACCESS);
+					gsonTypes.getTypeToken(is.yaks.rest.AccessImpl.class));
 			assert storage != null;
 			storageById.put(id, storage);				
 			return storage;

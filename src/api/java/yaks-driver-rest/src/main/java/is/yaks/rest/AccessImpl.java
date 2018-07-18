@@ -19,12 +19,14 @@ import is.yaks.Access;
 import is.yaks.Listener;
 import is.yaks.Path;
 import is.yaks.Selector;
+import is.yaks.rest.utils.GsonTypeToken;
 import is.yaks.rest.utils.Utils;
 import is.yaks.rest.utils.YaksConfiguration;
 
 public class AccessImpl implements Access {
 
 	private YaksConfiguration config = YaksConfiguration.getInstance();
+	private GsonTypeToken gsonTypes = GsonTypeToken.getInstance();
 
 	@Expose(serialize = true, deserialize = true)
 	@SerializedName(value="accessId", alternate={"id"})
@@ -129,7 +131,8 @@ public class AccessImpl implements Access {
 		switch (response.getStatus()) {
 		case HttpURLConnection.HTTP_CREATED:
 			MultivaluedMap<String, String> headers = response.getHeaders();
-			String location = Utils.getHeader(headers, "Location");			
+			String location = Utils.getHeader(headers, "Location");
+			assert !String.valueOf(location).isEmpty();
 			return new Long(location);
 		case HttpURLConnection.HTTP_PRECON_FAILED:
 		default:
@@ -141,8 +144,7 @@ public class AccessImpl implements Access {
 
 	@Override
 	public <T> Long subscribe(Selector selector, Listener<T> listener) {
-		// TODO Auto-generated method stub		
-		return null;		
+		throw new UnsupportedOperationException();	
 	}
 
 	@Override
@@ -156,11 +158,10 @@ public class AccessImpl implements Access {
 				.get(ClientResponse.class);	
 
 		switch (response.getStatus()) {
-		case HttpURLConnection.HTTP_OK:			
-			Type returnType = new TypeToken<Map<String, Selector>>(){}.getType();
+		case HttpURLConnection.HTTP_OK:
 			return config.getGson().fromJson(
 					response.getEntity(String.class), 
-					returnType);
+					gsonTypes.<String, Selector>getMapTypeToken());
 		default:
 		case HttpURLConnection.HTTP_NOT_FOUND:
 			Utils.fail("Failed to get subscrition list :\ncode: " + response.getStatus()
@@ -203,9 +204,8 @@ public class AccessImpl implements Access {
 		
 		String data = response.getEntity(String.class);
 		switch (response.getStatus()) {
-		case HttpURLConnection.HTTP_OK:
-			Type returnType = new TypeToken<Map<Path, T>>(){}.getType();
-			return config.getGson().fromJson(data, returnType);
+		case HttpURLConnection.HTTP_OK:			
+			return config.getGson().fromJson(data, gsonTypes.<Path,T>getMapTypeToken());
 		case HttpURLConnection.HTTP_NOT_FOUND:
 		case HttpURLConnection.HTTP_BAD_REQUEST:
 		case HttpURLConnection.HTTP_PRECON_FAILED:
@@ -242,14 +242,12 @@ public class AccessImpl implements Access {
 
 	@Override
 	public void eval(Selector selector, Function<Path, Object> computation) {
-		// TODO Auto-generated method stub
-
+		throw new UnsupportedOperationException();
 	}
 
 	@Override
 	public void close() {
-		// TODO Auto-generated method stub
-
+		// nothing to do
 	}
 
 	@Override
