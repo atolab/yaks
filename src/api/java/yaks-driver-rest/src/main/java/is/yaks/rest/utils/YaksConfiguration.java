@@ -15,23 +15,15 @@ public class YaksConfiguration {
 	private Client client;
 	private Gson gson = new Gson();
 
+	// first load at the call of YaksConfiguration.getInstance()
+	// work in multithread env
+	public static YaksConfiguration getInstance(){return YaksConfigurationHolder.instance;}
+	private static class YaksConfigurationHolder{private final static YaksConfiguration instance = new YaksConfiguration();}
 	private YaksConfiguration() {
 		DefaultClientConfig configClient = new DefaultClientConfig();
 		configClient.getProperties().put(URLConnectionClientHandler.PROPERTY_HTTP_URL_CONNECTION_SET_METHOD_WORKAROUND, true);
 		client = Client.create(configClient);		
 	}
-     
-	// first load at the call of YaksConfiguration.getInstance()
-	// work in multithread env
-    private static class YaksConfigurationHolder
-    {
-        private final static YaksConfiguration instance = new YaksConfiguration();
-    }
-
-    public static YaksConfiguration getInstance()
-    {
-        return YaksConfigurationHolder.instance;
-    }
 
 	public Client getClient() {
 		return client;
@@ -48,9 +40,8 @@ public class YaksConfiguration {
 	public ExecutorService getExecutorService() {		
 		return executorService ;
 	}
-	
+
 	public Gson getGson() {
 		return gson;
 	}
 }
-
