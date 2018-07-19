@@ -1,6 +1,5 @@
 package is.yaks.rest;
 
-import java.lang.reflect.Type;
 import java.net.HttpURLConnection;
 import java.util.Map;
 import java.util.function.Function;
@@ -11,7 +10,6 @@ import javax.ws.rs.core.MultivaluedMap;
 
 import com.google.gson.annotations.Expose;
 import com.google.gson.annotations.SerializedName;
-import com.google.gson.reflect.TypeToken;
 import com.sun.jersey.api.client.ClientResponse;
 import com.sun.jersey.api.client.WebResource;
 
@@ -40,6 +38,7 @@ public class AccessImpl implements Access {
 	@SerializedName(value="cacheSize", alternate={"cache","size"})
 	private long cacheSize;
 
+	@SuppressWarnings("unused")
 	private String location;
 
 	//no modifier, only visible in class and package

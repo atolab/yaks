@@ -15,6 +15,7 @@ public class StorageImpl implements Storage {
 
 	private YaksConfiguration config = YaksConfiguration.getInstance();
 
+	@SuppressWarnings("unused")
 	private String location;
 	private String storageId;	
 
@@ -50,10 +51,6 @@ public class StorageImpl implements Storage {
 			+ "\nbody: " + response.getEntity(String.class));
 
 		}
-	}
-
-	public String getLocation() {
-		return location;
 	}
 
 	public String getStorageId() {

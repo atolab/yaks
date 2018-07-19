@@ -67,9 +67,10 @@ public class YaksImpl implements Yaks {
 			case HttpURLConnection.HTTP_CREATED :			
 				MultivaluedMap<String, String> headers = response.getHeaders();			
 				String accessId = Utils.getValueFromHeaderKey(headers, "Set-Cookie", "is.yaks.access");
-				String location = Utils.getHeader(headers, "Location");
-				assert !String.valueOf(accessId).isEmpty() && !String.valueOf(location).isEmpty();
-				AccessImpl access = new AccessImpl(accessId, scopePath, cacheSize);				
+				String accessLocation = Utils.getHeader(headers, "Location");
+				assert !String.valueOf(accessId).isEmpty() && !String.valueOf(accessLocation).isEmpty();
+				AccessImpl access = new AccessImpl(accessId, scopePath, cacheSize);
+				access.setLocation(accessLocation);
 				accessById.put(accessId, access);
 				return access;
 			case HttpURLConnection.HTTP_FORBIDDEN:
@@ -108,10 +109,10 @@ public class YaksImpl implements Yaks {
 			case HttpURLConnection.HTTP_CREATED :
 				headers = response.getHeaders();						
 				accessId = Utils.getValueFromHeaderKey(headers, "Set-Cookie", "is.yaks.access");
-				String location = Utils.getHeader(headers, "Location");
-				assert !String.valueOf(accessId).isEmpty() && String.valueOf(location).equals(".");
+				String accessLocation = Utils.getHeader(headers, "Location");
+				assert !String.valueOf(accessId).isEmpty() && String.valueOf(accessLocation).equals(".");
 				access = new AccessImpl(accessId, scopePath, cacheSize);
-				access.setLocation(location);
+				access.setLocation(accessLocation);
 				accessById.put(accessId, access);
 				return access;				
 			case HttpURLConnection.HTTP_FORBIDDEN:
@@ -192,9 +193,9 @@ public class YaksImpl implements Yaks {
 		switch (response.getStatus()) {
 		case HttpURLConnection.HTTP_CREATED:				
 			String storageId = Utils.getValueFromHeaderKey(headers, "Set-Cookie", "is.yaks.storage");
-			String location = Utils.getHeader(headers, "Location");
-			assert !String.valueOf(storageId).isEmpty() && !String.valueOf(location).isEmpty();
-			StorageImpl storage = new StorageImpl(storageId, location);
+			String storageLocation = Utils.getHeader(headers, "Location");
+			assert !String.valueOf(storageId).isEmpty() && !String.valueOf(storageLocation).isEmpty();
+			StorageImpl storage = new StorageImpl(storageId, storageLocation);
 			storageById.put(storageId, storage);				
 			return storage;
 		case HttpURLConnection.HTTP_NOT_IMPLEMENTED:
@@ -225,9 +226,9 @@ public class YaksImpl implements Yaks {
 		switch (response.getStatus()) {
 		case HttpURLConnection.HTTP_CREATED:				
 			String storageId = Utils.getValueFromHeaderKey(headers, "Set-Cookie", "is.yaks.storage");
-			String location = Utils.getHeader(headers, "Location");				
-			assert !String.valueOf(storageId).isEmpty() && String.valueOf(location).equals(".");
-			StorageImpl storage = new StorageImpl(storageId, location);
+			String storageLocation = Utils.getHeader(headers, "Location");
+			assert !String.valueOf(storageId).isEmpty() && String.valueOf(storageLocation).equals(".");
+			StorageImpl storage = new StorageImpl(storageId, storageLocation);
 			storageById.put(storageId, storage);				
 			return storage;				
 		case HttpURLConnection.HTTP_OK:				
