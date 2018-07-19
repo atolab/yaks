@@ -42,11 +42,14 @@ public class AsyncTest {
 		Access access = futureAccess.get();
 		Assert.assertNotNull(access);
 		
-		Access x = access.put(Selector.ofString("//residence-1/house-id-10"), "{\"name\":\"door-room-1\"}")
+		Access finalAccess = access.put(Selector.ofString("//residence-1/house-id-10"), "{\"name\":\"door-room-1\"}")
 		.thenApply((Access a)->{ return a.deltaPut(Selector.ofString("//residence-1/house-id-10"), new Foo());}).get()
 		.thenApply((Access a)->{ a.dispose(); return a;}).get();
 		
-		Assert.assertNotNull(access);
+		Assert.assertNotNull(finalAccess);
+		
+		CompletableFuture<Void> x = finalAccess.dispose();
+		x.get();		
 	}
 	
 	
