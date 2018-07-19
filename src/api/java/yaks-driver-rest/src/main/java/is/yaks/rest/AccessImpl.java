@@ -125,7 +125,10 @@ public class AccessImpl implements Access {
 				.resource(config.getYaksUrl())
 				.path("/yaks/access/"+accessId+"/subs")
 				.queryParam("selector", selector.toString());
-		ClientResponse response = wr.post(ClientResponse.class);
+		ClientResponse response = wr
+				.type(MediaType.APPLICATION_JSON_TYPE)
+				.accept(MediaType.APPLICATION_JSON_TYPE)
+				.post(ClientResponse.class);
 
 		switch (response.getStatus()) {
 		case HttpURLConnection.HTTP_CREATED:

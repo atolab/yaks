@@ -27,7 +27,7 @@ public class YaksImpl implements Yaks {
 		if(yaksUrl.isEmpty()) {
 			System.exit(-1);
 		}
-		syncYaks = (is.yaks.rest.YaksImpl) Yaks.getInstance("is.yaks.rest.YaksImpl", getClass().getClassLoader(), args);
+		syncYaks = (is.yaks.rest.YaksImpl) is.yaks.Yaks.getInstance("is.yaks.rest.YaksImpl", getClass().getClassLoader(), args);
 	}
 
 	@Override
