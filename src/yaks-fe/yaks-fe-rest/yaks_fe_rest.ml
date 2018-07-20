@@ -6,11 +6,11 @@ open Cohttp_lwt_unix
 open Lwt
 
 
-type config = { port : int}
+type config = { port : int }
 
 type t = {
   cfg: config;
-  request_sink: event_sink;
+  engine_mailbox: Yaks_event.event Actor.actor_mailbox;
   stop: unit Lwt.t;
   stopper: unit Lwt.u;
   mutable request_counter: int64;
@@ -44,18 +44,7 @@ let query_to_string query =
 let properties_of_query =
   List.map (fun (k, v):property -> {key=k; value=(String.concat "," v)}) 
 
-
-let push_to_engine sink msg on_reply =
-  let%lwt _ = Logs_lwt.debug (fun m -> m "   send to engine %s" (string_of_message msg)) in
-  let (promise, resolver) = Lwt.wait () in
-  let event_handler = fun reply ->
-    let%lwt _ = Logs_lwt.debug (fun m -> m "   recv from engine %s" (string_of_message reply)) in
-    on_reply reply |> Lwt.wakeup_later resolver |> Lwt.return
-  in
-  let open Lwt in
-  EventStream.Sink.push (EventWithHandler (msg, event_handler)) sink >>= fun _ ->
-  promise >>= fun http_reply ->
-  http_reply
+(* 
 
 let push_to_engine sink msg =
   let%lwt _ = Logs_lwt.debug (fun m -> m "   send to engine %s" (string_of_message msg)) in
@@ -65,7 +54,21 @@ let push_to_engine sink msg =
     Lwt.return (Lwt.wakeup_later resolver reply)
   in
   let%lwt _ = EventStream.Sink.push (EventWithHandler (msg, on_reply)) sink in
+  promise *)
+
+
+let push_to_engine fe msg =
+  let%lwt _ = Logs_lwt.debug (fun m -> m "   send to engine %s" (string_of_message msg)) in
+  let (promise, resolver) = Lwt.task () in
+  let on_reply = fun reply ->
+    let%lwt _ = Logs_lwt.debug (fun m -> m "   recv from engine %s" (string_of_message reply)) in
+    Lwt.return (Lwt.wakeup_later resolver reply)
+  in
+  let open Actor in
+  let%lwt _ = fe.engine_mailbox <!> (None, (EventWithHandler (msg, on_reply))) in
   promise
+
+
 
 let set_cookie key value =
   let cookie = Cohttp.Cookie.Set_cookie_hdr.make (key, value) in
@@ -135,7 +138,7 @@ let create_access fe ?id path cache_size =
       entity_id = match id with None -> Auto | Some(i) -> AccessId(i)
     }
   in
-  push_to_engine fe.request_sink msg 
+  push_to_engine fe msg 
   >>= function
   | Ok {cid; entity_id=AccessId(aid)} ->
     let headers = Header.add_list (Header.init()) 
@@ -157,7 +160,7 @@ let get_access ?id fe =
       encoding = Some(`Json)
     }
   in
-  push_to_engine fe.request_sink msg 
+  push_to_engine fe msg 
   >>= function
   | Values {cid; encoding=`Json; values} ->
     Server.respond_string ~status:`OK ~body:(string_of_values values) ()
@@ -174,7 +177,7 @@ let dispose_access fe id =
       entity_id = AccessId(id)
     }
   in
-  push_to_engine fe.request_sink msg
+  push_to_engine fe msg
   >>= function
   | Ok{cid; entity_id=AccessId(xid)} ->
     Server.respond_string ~status:`No_content ~body:"" ()
@@ -192,7 +195,7 @@ let create_storage fe ?id path properties =
       entity_id = match id with None -> Auto | Some(i) -> StorageId(i)
     }
   in
-  push_to_engine fe.request_sink msg
+  push_to_engine fe msg
   >>= function
   | Ok {cid; entity_id=StorageId(sid)} ->
     let headers = Header.add_list (Header.init())
@@ -213,7 +216,7 @@ let get_storage ?id fe =
       encoding = Some(`Json)
     }
   in
-  push_to_engine fe.request_sink msg
+  push_to_engine fe msg
   >>= function
   | Values {cid; encoding=`Json; values} ->
     Server.respond_string ~status:`OK ~body:(string_of_values values) ()
@@ -229,7 +232,7 @@ let dispose_storage fe id =
       entity_id = StorageId(id)
     }
   in
-  push_to_engine fe.request_sink msg
+  push_to_engine fe msg
   >>= function
   | Ok {cid; entity_id=StorageId(sid)} ->
     Server.respond_string ~status:`No_content ~body:"" ()
@@ -246,7 +249,7 @@ let subscribe fe access_id selector =
       entity_id = Auto
     }
   in
-  push_to_engine fe.request_sink msg
+  push_to_engine fe msg
   >>= function
   | Ok {cid; entity_id=SubscriberId(sid)} ->
     let headers = Header.add_list (Header.init()) [("Location",Int64.to_string sid);] in
@@ -265,7 +268,7 @@ let get_subscriptions fe access_id =
       encoding = Some(`Json)
     }
   in
-  push_to_engine fe.request_sink msg
+  push_to_engine fe msg
   >>= function
   | Values {cid; encoding=`Json; values} ->
     Server.respond_string ~status:`OK ~body:(string_of_values values) ()
@@ -282,7 +285,7 @@ let unsubscribe fe access_id sub_id =
       entity_id = SubscriberId(sub_id)
     }
   in
-  push_to_engine fe.request_sink msg
+  push_to_engine fe msg
   >>= function
   | Ok {cid; entity_id=SubscriberId(sid)} ->
     Server.respond_string ~status:`No_content ~body:"" ()
@@ -306,7 +309,7 @@ let get_key_value fe access_id selector =
       encoding = None
     }
   in
-  push_to_engine fe.request_sink msg
+  push_to_engine fe msg
   >>= function
   | Values {cid; values} ->
     Server.respond_string ~status:`OK ~body:(string_of_values values) ()
@@ -324,7 +327,7 @@ let put_key_value fe access_id selector value =
       value
     }
   in
-  push_to_engine fe.request_sink msg
+  push_to_engine fe msg
   >>= function
   | Ok {cid; _} ->
     Server.respond_string ~status:`No_content ~body:"" ()
@@ -342,7 +345,7 @@ let put_delta_key_value fe access_id selector delta_value =
       value=delta_value
     }
   in
-  push_to_engine fe.request_sink msg
+  push_to_engine fe msg
   >>= function
   | Ok {cid; _} ->
     Server.respond_string ~status:`No_content ~body:"" ()
@@ -359,7 +362,7 @@ let remove_key_value fe access_id selector =
       key = selector;
     }
   in
-  push_to_engine fe.request_sink msg
+  push_to_engine fe msg
   >>= function
   | Ok {cid; _} ->
     Server.respond_string ~status:`No_content ~body:"" ()
@@ -500,10 +503,10 @@ let execute_http_request fe req body =
     execute_data_operation fe meth (Uri.to_string uri) headers body
 
 
-let create cfg request_sink = 
+let create cfg engine_mailbox = 
   let _ = Logs_lwt.debug (fun m -> m "REST-FE preparing HTTP server") in
   let stop, stopper = Lwt.wait () in
-  { cfg; request_sink; stop; stopper; request_counter=0L }
+  { cfg; engine_mailbox; stop; stopper; request_counter=0L }
 
 let start fe =
   let _ = Logs_lwt.debug (fun m -> m "REST-FE starting HTTP server on port %d" fe.cfg.port) in

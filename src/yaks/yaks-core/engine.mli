@@ -1,4 +1,5 @@
 open Yaks_event
+open Actor
 
 module Engine : sig   
   type t          
@@ -7,8 +8,8 @@ module Engine : sig
   val create : config -> t
   (** [create] a Yaks engine and return the function to be called to push events *)
 
-  val event_sink : t -> event_sink
+  val mailbox : t -> Yaks_event.event Actor.actor_mailbox
   (** More operations will be needed *)  
 
-    val start : t -> unit Lwt.t
+  val start : t -> unit Lwt.t
 end

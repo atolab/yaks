@@ -80,7 +80,7 @@ let string_of_message msg =
     Printf.sprintf "#%Ld Create(%s, %s)" cid (string_of_entity entity) (string_of_entity_id entity_id)
   | Dispose{cid; entity_id} ->
     Printf.sprintf "#%Ld Dispose(%s)" cid (string_of_entity_id entity_id)
-  | Get{cid; entity_id; key} ->
+  | Get{cid; entity_id; key; encoding} ->
     Printf.sprintf "#%Ld Get(%s)" cid key
   | Put{cid; access_id; key; value} ->
     Printf.sprintf "#%Ld Put(%s, %s)" cid key value
@@ -90,7 +90,7 @@ let string_of_message msg =
     Printf.sprintf "#%Ld Remove(%s)" cid key
   | Notify{cid; sid; values} ->
     Printf.sprintf "#%Ld Notify(%s)" cid (string_of_entity_id sid)
-  | Values{cid; values} ->
+  | Values{cid; encoding; values} ->
     Printf.sprintf "#%Ld Values(...)" cid
   | Error{cid; reason} ->
     Printf.sprintf "#%Ld Error(%d)" cid reason

@@ -1,23 +1,25 @@
 open Yaks_core
 open Yaks_event
+open Actor
+
 let read_message buf = Ok {cid=0L; entity_id = Auto  }
 let write_message buf msg = ()
 type config = { iface : string; port : int; backlog : int; bufsize : int; stream_len : int }
 
-type t = { socket : Lwt_unix.file_descr; sink : event_sink; cfg : config }
+type t = { socket : Lwt_unix.file_descr; engine_mailbox : event Actor.actor_mailbox; cfg : config }
 
 (** TODO: This should also be a functor configured by the serialier  *)
 
 let create_socket cfg =   
   let open Lwt_unix in  
-      
-    let sock = socket PF_INET SOCK_STREAM 0 in
-    let _ = setsockopt sock SO_REUSEADDR true in
-    let _ = setsockopt sock TCP_NODELAY true in
-    let addr = Unix.inet_addr_of_string cfg.iface in
-    let saddr = ADDR_INET (addr, cfg.port) in    
-    let _ = bind sock saddr in
-    let _ = listen sock cfg.backlog in sock
+
+  let sock = socket PF_INET SOCK_STREAM 0 in
+  let _ = setsockopt sock SO_REUSEADDR true in
+  let _ = setsockopt sock TCP_NODELAY true in
+  let addr = Unix.inet_addr_of_string cfg.iface in
+  let saddr = ADDR_INET (addr, cfg.port) in    
+  let _ = bind sock saddr in
+  let _ = listen sock cfg.backlog in sock
 
 let serve_connection sock fe = 
   let%lwt _ = Logs_lwt.debug (fun m -> m "Serving connection" ) in
@@ -26,7 +28,7 @@ let serve_connection sock fe =
   let rbuf = Lwt_bytes.create fe.cfg.bufsize in 
   let sbuf = Bi_outbuf.create fe.cfg.bufsize in   
   let handler = fun e -> EventStream.Sink.push e esink in 
-  
+
   let rec receive_loop () = 
     let%lwt _ = Logs_lwt.debug (fun m -> m "Watiting for connection data" ) in
     let lbuf = Lwt_bytes.create 4 in 
@@ -41,7 +43,8 @@ let serve_connection sock fe =
             let%lwt _ = Logs_lwt.debug (fun m -> m "Read %d bytes out of the socket" n) in
             try 
               let msg = read_message @@ Bi_inbuf.from_bytes (Lwt_bytes.to_bytes rbuf) in    
-              let%lwt _ = EventStream.Sink.push (EventWithHandler (msg, handler)) fe.sink in  receive_loop ()          
+              let open Actor in
+              let%lwt _ = fe.engine_mailbox <!> (None, (EventWithHandler (msg, handler))) in  receive_loop ()          
             with 
             | _ -> let%lwt _ = Logs_lwt.debug (fun m -> m "Failed to decode the message!") in receive_loop ()
           end
@@ -51,7 +54,7 @@ let serve_connection sock fe =
     else 
       let%lwt _ = Logs_lwt.debug (fun m -> m "Peer closed session") in Lwt.return_unit
   in 
-  
+
   let rec send_loop () =     
     match%lwt EventStream.Source.get esrc with 
     | Some msg ->    
@@ -65,7 +68,7 @@ let serve_connection sock fe =
       let%lwt _ = Lwt_bytes.send sock (Lwt_bytes.of_string payload) 0 len [] in                         
       Lwt.return_unit
     | None -> send_loop ()
-  
+
   in
 
   Lwt.pick [receive_loop (); send_loop ()]
@@ -76,16 +79,15 @@ let rec accept_connection fe =
   let _ = serve_connection sock fe in
   accept_connection fe
 
-let create cfg sink = 
+let create cfg engine_mailbox = 
   let _ = Logs_lwt.debug (fun m -> m "Socket-FE creating accepting socket") in
   let socket = create_socket cfg  in  
-  { socket; sink; cfg }
+  { socket; engine_mailbox; cfg }
 
 let start = accept_connection 
 
 let stop fe = Lwt.return_unit
-  (** TODO: Implement this.  *)
-   
+(** TODO: Implement this.  *)
 
 
-   
+
