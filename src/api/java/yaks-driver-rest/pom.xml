@@ -51,4 +51,41 @@
 		</dependency>
 
 	</dependencies>
+    
+    
+    
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <configuration>
+                    <excludes>
+                        <exclude>${excluded-tests}</exclude>
+                    </excludes>
+                </configuration>
+            </plugin>
+        
+        </plugins>
+    </build>
+    
+    <profiles>
+        <profile>
+            <id>default</id>
+            <activation>
+                <activeByDefault>true</activeByDefault>
+            </activation>
+            <properties>
+                <excluded-tests>is.yaks.rest.qualif.**</excluded-tests>
+            </properties>
+        </profile>
+        <profile>
+            <id>qualif</id>
+            <properties>
+                <excluded-tests></excluded-tests>
+            </properties>
+        </profile>
+    
+    </profiles>
+    
 </project>

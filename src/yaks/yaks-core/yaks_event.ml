@@ -97,9 +97,9 @@ let string_of_message msg =
   | Ok{cid; entity_id} ->
     Printf.sprintf "#%Ld Ok(%s)" cid (string_of_entity_id entity_id)
 
-let string_of_values values =
+let json_string_of_values values =
   values
-  |> List.map (fun {key; value} -> Printf.sprintf "{ %s , %s }\n" key (Lwt_bytes.to_string value))
-  |> String.concat "\n"
-  |> Printf.sprintf "{\n%s\n}\n"
+  |> List.map (fun {key; value} -> Printf.sprintf "\"%s\":%s" key (Lwt_bytes.to_string value))
+  |> String.concat ","
+  |> Printf.sprintf "{%s}"
 

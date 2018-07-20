@@ -219,7 +219,7 @@ public class YaksImpl implements Yaks {
 
 		ClientResponse response = wr
 				.accept(MediaType.APPLICATION_JSON_TYPE)
-				.post(ClientResponse.class);
+				.put(ClientResponse.class);
 		String data = response.getEntity(String.class);
 
 		MultivaluedMap<String, String> headers = response.getHeaders();

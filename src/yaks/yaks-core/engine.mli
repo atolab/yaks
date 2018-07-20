@@ -5,7 +5,7 @@ module Engine : sig
   type t          
   type config = { channel_len : int }  
 
-  val create : config -> t
+  val create : config -> Yaks_event.event Actor.actor_mailbox -> t
   (** [create] a Yaks engine and return the function to be called to push events *)
 
   val mailbox : t -> Yaks_event.event Actor.actor_mailbox

@@ -1,6 +1,7 @@
 package is.yaks.rest;
 
 import java.net.HttpURLConnection;
+import java.util.HashMap;
 import java.util.Map;
 import java.util.function.Function;
 
@@ -206,8 +207,17 @@ public class AccessImpl implements Access {
 		
 		String data = response.getEntity(String.class);
 		switch (response.getStatus()) {
-		case HttpURLConnection.HTTP_OK:			
-			return config.getGson().fromJson(data, gsonTypes.<Path,T>getMapTypeToken());
+		case HttpURLConnection.HTTP_OK:	
+		    // TODO: replace this tmp Map with a smarter Gson decoder that directly
+		    //       constructs a Map<Path, T> from {"k1":"v1","k2":"v2"}
+		    Map<String, T> tmp = config.getGson().fromJson(data, gsonTypes.<String,T>getMapTypeToken());
+		    Map<Path, T> result = new HashMap<Path, T>();
+		    for (Map.Entry<String, T> e : tmp.entrySet())
+		    {
+		       result.put(Path.ofString(e.getKey()), e.getValue());
+		    }
+		    
+			return result;
 		case HttpURLConnection.HTTP_NOT_FOUND:
 		case HttpURLConnection.HTTP_BAD_REQUEST:
 		case HttpURLConnection.HTTP_PRECON_FAILED:
@@ -230,8 +240,11 @@ public class AccessImpl implements Access {
 		
 		String data = response.getEntity(String.class);
 		switch (response.getStatus()) {
-		case HttpURLConnection.HTTP_OK:			
-			return config.getGson().fromJson(data, c);	
+		case HttpURLConnection.HTTP_OK:
+         // TODO: replace this tmp Map with a smarter Gson decoder that directly
+         //       constructs a Map<Path, T> from {"k1":"v1","k2":"v2"}
+         Map<String, T> tmp = config.getGson().fromJson(data, gsonTypes.<String,T>getMapTypeToken());
+			return tmp.get(path.toString());	
 		case HttpURLConnection.HTTP_NOT_FOUND:
 		case HttpURLConnection.HTTP_BAD_REQUEST:
 		case HttpURLConnection.HTTP_PRECON_FAILED:
