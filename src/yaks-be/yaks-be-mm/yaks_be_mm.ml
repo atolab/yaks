@@ -140,6 +140,14 @@ let dispose_store sid mm_be =
 let check_if_storage_exists sid mm_be = 
   StoreMap.mem sid mm_be.stores
 
+let generate_id mm_be = 
+  let rec check_if_id_available id =
+    if check_if_storage_exists id mm_be then
+      check_if_id_available (Int64.to_string @@ Random.int64 Int64.max_int)
+    else id
+  in
+  check_if_id_available (Int64.to_string @@ Random.int64 Int64.max_int)
+
 let update_storage sid storage mm_be = 
   { mm_be with stores = StoreMap.add sid storage mm_be.stores} 
 
@@ -171,7 +179,7 @@ let process current_state (msg : message) (handler : message_handler) =
             let ns = create_store s path current_state in
             Ok{cid = cmsg.cid; entity_id = StorageId s }, ns
           | Auto -> 
-            let id = Int64.to_string @@ Random.int64 Int64.max_int in
+            let id = generate_id current_state in
             ignore @@ Logs_lwt.debug (fun m -> m "[MM] Creating storage with ID %s and path %s" id path);
             let ns = create_store id path current_state in
             Ok{cid = cmsg.cid; entity_id = StorageId id }, ns
