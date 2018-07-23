@@ -170,6 +170,11 @@ let process current_state (msg : message) (handler : message_handler) =
             ignore @@ Logs_lwt.debug (fun m -> m "[MM] Creating storage with ID %s and path %s" s path);
             let ns = create_store s path current_state in
             Ok{cid = cmsg.cid; entity_id = StorageId s }, ns
+          | Auto -> 
+            let id = Int64.to_string @@ Random.int64 Int64.max_int in
+            ignore @@ Logs_lwt.debug (fun m -> m "[MM] Creating storage with ID %s and path %s" id path);
+            let ns = create_store id path current_state in
+            Ok{cid = cmsg.cid; entity_id = StorageId id }, ns
           | _ -> 
             ignore @@ Logs_lwt.debug (fun m -> m"[MM] Wrong formatted message, entity_identifier is not StorageId");
             Error {cid = cmsg.cid; reason = (-1) }, current_state
