@@ -122,10 +122,10 @@ module Engine = struct
         function
         | EventWithHandler (msg, handler)  ->
           process current_state msg handler
-          >>= fun new_state -> continue self (Some(new_state)) true
+          >>= fun new_state -> continue self (Some(new_state)) ()
         | Event (msg) ->
           process current_state msg (fun e -> Lwt.return_unit)
-          >>= fun new_state -> continue self (Some(new_state)) true
+          >>= fun new_state -> continue self (Some(new_state)) ()
       )
     in { my_mailbox; my_loop }
 
