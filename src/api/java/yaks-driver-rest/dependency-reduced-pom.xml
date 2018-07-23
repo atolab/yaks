@@ -9,6 +9,29 @@
   <modelVersion>4.0.0</modelVersion>
   <artifactId>yaks-driver-rest</artifactId>
   <name>Yaks API implementation in Java</name>
+  <build>
+    <plugins>
+      <plugin>
+        <artifactId>maven-surefire-plugin</artifactId>
+        <configuration>
+          <excludes>
+            <exclude>${excluded-tests}</exclude>
+          </excludes>
+        </configuration>
+      </plugin>
+    </plugins>
+  </build>
+  <profiles>
+    <profile>
+      <properties>
+        <excluded-tests>is.yaks.rest.qualif.**</excluded-tests>
+      </properties>
+    </profile>
+    <profile>
+      <id>qualif</id>
+      <properties />
+    </profile>
+  </profiles>
   <dependencies>
     <dependency>
       <groupId>ch.qos.logback</groupId>

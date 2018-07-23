@@ -2,6 +2,7 @@ package is.yaks.rest;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Properties;
 import java.util.concurrent.ExecutionException;
 
 import org.junit.After;
@@ -15,6 +16,7 @@ import is.yaks.Access;
 import is.yaks.Encoding;
 import is.yaks.Path;
 import is.yaks.Selector;
+import is.yaks.Storage;
 import is.yaks.Yaks;
 import is.yaks.rest.YaksImpl;
 
@@ -30,57 +32,59 @@ public class AccessTest {
 		Assert.assertTrue(yaks instanceof YaksImpl);		
 	}
 
-	//@Test
-	public void yaksCreateAccessTest() throws InterruptedException, ExecutionException {		
-		Access access = yaks.createAccess(Path.ofString("//residence-1/house-access-1"), 100000L, Encoding.JSON);
-		Assert.assertNotNull(access);
-	}
 
-	//@Test
-	public void yaksCreateAccessTestWithId() throws InterruptedException, ExecutionException {		
-		Access access = yaks.createAccess("access-id-1", Path.ofString("//residence-1/house10"), 100000L, Encoding.JSON);		
-		Assert.assertNotNull(access);
-	}
+	@Test
+	public void BasicTest()
+	{
+		//create access
+		Access  access1 = yaks.createAccess("access-1", Path.ofString("//is.yaks.tests"), 1024, Encoding.JSON);			
+		Storage storage1 = yaks.createStorage("MM-store1", Path.ofString("//is.yaks.tests"), new Properties());	
+		Assert.assertNotNull(storage1);
+		
+		//put
+		access1.put(Selector.ofString("//is.yaks.tests/a"), "ABC");
+		
+		//get value from key
+		String v = access1.get(Path.ofString("//is.yaks.tests/a"), String.class);		
+		Assert.assertEquals("ABC", v);
+		
+		
+		//get access from access-id
+		access1 = yaks.getAccess("access-1");
+		Assert.assertNotNull(access1);
 
-	//@Test
-	public void yaksGetAccessTest() throws InterruptedException, ExecutionException {
-		List<String> listAccess = yaks.getAccess();				
-		Assert.assertTrue(listAccess.size()>0);
+		//TODO activate
+		//Long subId = access1.subscribe(Selector.ofString("//is.yaks.tests"));
+		//Assert.assertTrue(subId>0);
+		
+		//create access
+		Access  access2 = yaks.createAccess("access-2", Path.ofString("//is.yaks.tests-2"), 1024, Encoding.JSON);
+		Assert.assertNotNull(access2);
+		Storage storage2 = yaks.createStorage("MM-store2", Path.ofString("//is.yaks.tests-2"), new Properties());	
+		Assert.assertNotNull(storage2);
+		
+		
+		
+		Access  access3 = yaks.createAccess("access-3", Path.ofString("//is.yaks.tests-3"), 1024, Encoding.JSON);
+		Assert.assertNotNull(access3);
+		Storage storage3 = yaks.createStorage("MM-store3", Path.ofString("//is.yaks.tests-3"), new Properties());	
+		Assert.assertNotNull(storage3);
+		
+		//TODO activate
+		//List<String> listAccess = yaks.getAccess();
+		//Assert.assertNotNull(listAccess);
+		//Assert.assertTrue(listAccess.size()>0);
+		
+		//dispose
+		//access1.unsubscribe(subId);
+		storage1.dispose();
+		storage2.dispose();
+		storage3.dispose();
+		
+		access1.dispose();
+		access2.dispose();
+		access3.dispose();
 	}
-
-	//@Test
-	public void yaksGetAccessByIdTest() throws InterruptedException, ExecutionException {
-		Access access = yaks.getAccess("access-id-1");
-		Assert.assertNotNull(access);
-	}
-
-	//@Test
-	public void yaksDisposeTest() throws InterruptedException, ExecutionException {				
-		Access access = yaks.createAccess("access-id-1", Path.ofString("//residence-1/house10"), 100000L, Encoding.JSON);
-		access.dispose();
-	}
-
-	//@Test
-	public void yaksSubscribeTest() throws InterruptedException, ExecutionException {
-		Access access = yaks.createAccess("access-id-1", Path.ofString("//residence-1/house10"), 100000L, Encoding.JSON);
-		Long subId = access.subscribe(Selector.ofString("//residence-1/house10"));		
-		Assert.assertTrue(subId>0);
-	}
-
-	//@Test
-	public void yaksUnsubscribeTest() throws InterruptedException, ExecutionException {
-		Access access = yaks.createAccess("access-id-1", Path.ofString("//residence-1/house10"), 100000L, Encoding.JSON);
-		access.unsubscribe(511512);
-	}
-
-	//@Test
-	public void yaksGetSubscriptionsTest() throws InterruptedException, ExecutionException {
-		Access access = yaks.createAccess("access-id-1", Path.ofString("//residence-1/house10"), 100000L, Encoding.JSON);		
-		Map<String, Selector> subs = access.getSubscriptions();
-		Assert.assertNotNull(subs);
-		Assert.assertTrue(subs.size()>0);		
-	}
-
 
 	@After
 	public void stop() {
