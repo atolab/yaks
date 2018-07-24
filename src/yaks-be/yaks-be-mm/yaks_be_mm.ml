@@ -1,6 +1,5 @@
 open Yaks_core
 open Yaks_event
-open Types_signatures
 open Mm_types
 open Lwt.Infix
 
@@ -42,7 +41,9 @@ module BValue = struct
   let none = Lwt_bytes.create 0 
 end
 
-module MemStore = struct
+
+module MemStore = MakeStore(SKey)(BValue)
+(* module MemStore = struct
 
   module K = SKey
   module Va = BValue
@@ -95,7 +96,7 @@ module MemStore = struct
 
   let empty = {id = "0"; cache = MMap.empty ; size = 0}
 
-end
+end *)
 
 module StoreMap = Map.Make(String)
 module PrefixMap = Map.Make(String)
