@@ -1,5 +1,6 @@
 open Apero
 open Yaks_event
+open Actor.Infix
 
 
 module Engine = struct 
@@ -63,7 +64,6 @@ module Engine = struct
       let%lwt _ = Logs_lwt.debug (fun m -> m "[ENG]   recv from BE %s" (string_of_message reply)) in
       Lwt.return (Lwt.wakeup_later resolver reply)
     in
-    let open Actor in
     let%lwt _ = state.be_mailbox <!> (None, (EventWithHandler (msg, on_reply))) in
     promise
 

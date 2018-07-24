@@ -1,6 +1,7 @@
 open Yaks_core
 open Yaks_event
-open Actor
+open Apero
+open Actor.Infix
 
 let read_message buf = Ok {cid=0L; entity_id = Auto  }
 let write_message buf msg = ()
@@ -43,7 +44,6 @@ let serve_connection sock fe =
             let%lwt _ = Logs_lwt.debug (fun m -> m "Read %d bytes out of the socket" n) in
             try 
               let msg = read_message @@ Bi_inbuf.from_bytes (Lwt_bytes.to_bytes rbuf) in    
-              let open Actor in
               let%lwt _ = fe.engine_mailbox <!> (None, (EventWithHandler (msg, handler))) in  receive_loop ()          
             with 
             | _ -> let%lwt _ = Logs_lwt.debug (fun m -> m "Failed to decode the message!") in receive_loop ()
