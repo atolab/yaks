@@ -33,7 +33,8 @@ type message =
   | Values of { cid: int64; encoding: encoding; values : tuple list }
   | Error of { cid : int64; reason : int }
   | Ok of { cid : int64;  entity_id: entity_identifier}
-
+  | Subscribe of { cid: int64; entity_id : entity_identifier; key : string }
+  | Unsubscribe of {cid: int64; entity_id: entity_identifier}
 
 
 type message_handler = message -> unit Lwt.t
@@ -96,6 +97,10 @@ let string_of_message msg =
     Printf.sprintf "#%Ld Error(%d)" cid reason
   | Ok{cid; entity_id} ->
     Printf.sprintf "#%Ld Ok(%s)" cid (string_of_entity_id entity_id)
+  | Subscribe { cid; entity_id; key } ->
+    Printf.sprintf "#%Ld Subscribe(%s, %s)" cid (string_of_entity_id entity_id) key
+  | Unsubscribe {cid; entity_id} ->
+      Printf.sprintf "#%Ld Unsubscribe(%s)" cid (string_of_entity_id entity_id)
 
 let json_string_of_values values =
   values

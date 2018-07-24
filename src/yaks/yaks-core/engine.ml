@@ -14,8 +14,9 @@ module Engine = struct
   type access = { path: string; cache_size: int64 }
 
   module PMap = Map.Make(String)
+  module SubscriptionMap = Map.Make(Int64)
 
-  type state = { access: access PMap.t; be_mailbox: event Actor.actor_mailbox; }
+  type state = { access: access PMap.t; be_mailbox: event Actor.actor_mailbox; subscriptions: string SubscriptionMap.t }
 
 
   let mailbox e = e.my_mailbox
@@ -26,7 +27,8 @@ module Engine = struct
     let id = Option.get_or_default id (generate_id ()) in
     id,
     { access = PMap.add id {path;cache_size} state.access; 
-      be_mailbox = state.be_mailbox
+      be_mailbox = state.be_mailbox;
+      subscriptions = state.subscriptions
     }
 
   let get_access state id = PMap.find id state.access
@@ -34,10 +36,15 @@ module Engine = struct
   let dispose_access state id =
     ignore @@ PMap.find id state.access;
     { access = PMap.remove id state.access;
-      be_mailbox = state.be_mailbox }
+      be_mailbox = state.be_mailbox;
+      subscriptions = state.subscriptions }
 
+  let add_subscriber ?id key state = 
+    let id = Option.get_or_default id (Random.int64 Int64.max_int) in
+    id,{state with subscriptions = SubscriptionMap.add id key state.subscriptions}
 
-
+  let remove_subscriber id state = 
+    id,{state with subscriptions = SubscriptionMap.remove id state.subscriptions}
 
   let push_to_be state msg =
     let%lwt _ = Logs_lwt.debug (fun m -> m "[ENG]   sending to BE: %s" (string_of_message msg)) in
@@ -104,6 +111,12 @@ module Engine = struct
     | Remove { cid; access_id; key } ->
       forward_to_be state msg handler
 
+    | Subscribe { cid; entity_id=SubscriberId(sid); key } ->
+      let id,new_state = add_subscriber ~id:sid key state in
+      handler (Ok {cid; entity_id=SubscriberId(id)}) >|= fun _ -> new_state
+    | Unsubscribe {cid; entity_id=SubscriberId(sid)} ->
+      let id,new_state = remove_subscriber sid state in
+      handler (Ok {cid; entity_id=SubscriberId(id)}) >|= fun _ -> new_state
     | _ ->
       ignore @@ Logs_lwt.err (fun m -> m"[ENG] Received a unsupported or malformed message !!");
       handler (Error {cid=0L; reason=43}) >|= fun _ -> state
@@ -111,7 +124,7 @@ module Engine = struct
 
 
   let create cfg be_mailbox = 
-    let init_state = { access = PMap.empty; be_mailbox } in
+    let init_state = { access = PMap.empty; be_mailbox; subscriptions = SubscriptionMap.empty } in
     let open Actor in
     let open Lwt.Infix in 
     let my_mailbox,my_loop = spawn ~state:(Some init_state) (fun self state from ->
