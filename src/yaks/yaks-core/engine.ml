@@ -1,6 +1,6 @@
 open Apero
 open Yaks_event
-open Actor
+
 
 module Engine = struct 
 
@@ -50,13 +50,10 @@ module Engine = struct
 
   let get_subscribers (key:string) (state:state) = 
     
-    (* let x = SubscriptionMap.bindings state.subscriptions |> 
-    (* TODO this should use the Ypath module with some function like Ypath.matches -> t -> t -> bool *)
-    List.filter (fun (p,mb) -> p=key)
-    in *)
-    (* List.iter (fun (x,y) -> Printf.printf "X %Ld" x); *)
-    (* List.map (fun (_,(_,mb)) -> mb ) l *)
-    []
+    let xs = SubscriptionMap.bindings state.subscriptions in 
+    let f = List.map (fun (k,x) -> x) xs in
+    let ff = List.filter (fun (p,_) -> p=key) f in
+    List.map (fun (_,mb) -> mb ) ff
 
 
   let push_to_be (state:state) (msg : message)  =
@@ -119,7 +116,7 @@ module Engine = struct
       let r = forward_to_be state msg handler in
       let values = [{ key; value=(Lwt_bytes.of_string value)}] in
       let subscribers = get_subscribers key state in
-      List.iter (fun e -> let msg = Values{cid; encoding = `String; values} in let _ = e <!> (None,Event (msg)) in ()) subscribers;
+      List.iter (fun e -> let msg = Values{cid; encoding = `String; values} in let _ = Actor.send e None (Event (msg)) in ()) subscribers;
       r
 
     | Patch { cid; access_id; key; value } ->
