@@ -27,37 +27,27 @@ public class StorageTest {
 	}
 
 
-	//@Test
+	@Test
 	public void yaksCreateStorage() throws InterruptedException, ExecutionException {
 		Properties options = new Properties();
 		options.put("options1", "OPT1");
 		options.put("options2", "OPT2");		
 		Storage storage = yaks.createStorage(Path.ofString("//residence-1/storage-1"), options);
 		Assert.assertNotNull(storage);
+		storage.dispose();
 	}
 
 
-	//@Test
+	@Test
 	public void yaksCreateStorageWithId() throws InterruptedException, ExecutionException {
 		Properties options = new Properties();
 		options.put("options1", "OPT1");
 		options.put("options2", "OPT2");
 		options.put("options3", "OPT3");
-		Storage storage = yaks.createStorage("storage-id-1", Path.ofString("//residence-1/storage-1"), options);		
+		Storage storage = yaks.createStorage("storage-id-2", Path.ofString("//residence-1/storage-2"), options);
 		Assert.assertNotNull(storage);
-	}
-
-
-	//@Test
-	public void storagesDisposeTest() throws InterruptedException, ExecutionException {
-		Properties options = new Properties();
-		options.put("options1", "OPT1");
-		options.put("options2", "OPT2");
-		options.put("options3", "OPT3");
-		Storage storage = yaks.createStorage("storage-id-1", Path.ofString("//residence-1/storage-1"), options);
 		storage.dispose();
 	}
-
 
 	@After
 	public void stop() {
