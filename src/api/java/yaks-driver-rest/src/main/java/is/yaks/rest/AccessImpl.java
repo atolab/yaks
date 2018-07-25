@@ -48,7 +48,7 @@ public class AccessImpl implements Access {
 		this.scopePath = scopePath.toString();
 		this.cacheSize = cacheSize;
 	}
-	
+
 	@Override
 	public Access put(Selector selector, Object value) {
 		WebResource wr = config.getClient()
@@ -204,19 +204,19 @@ public class AccessImpl implements Access {
 				.accept(MediaType.APPLICATION_JSON_TYPE)
 				.cookie(new Cookie("is.yaks.access", accessId))
 				.get(ClientResponse.class);
-		
+
 		String data = response.getEntity(String.class);
 		switch (response.getStatus()) {
 		case HttpURLConnection.HTTP_OK:	
-		    // TODO: replace this tmp Map with a smarter Gson decoder that directly
-		    //       constructs a Map<Path, T> from {"k1":"v1","k2":"v2"}
-		    Map<String, T> tmp = config.getGson().fromJson(data, gsonTypes.<String,T>getMapTypeToken());
-		    Map<Path, T> result = new HashMap<Path, T>();
-		    for (Map.Entry<String, T> e : tmp.entrySet())
-		    {
-		       result.put(Path.ofString(e.getKey()), e.getValue());
-		    }
-		    
+			// TODO: replace this tmp Map with a smarter Gson decoder that directly
+			//       constructs a Map<Path, T> from {"k1":"v1","k2":"v2"}
+			Map<String, T> tmp = config.getGson().fromJson(data, gsonTypes.<String,T>getMapTypeToken());
+			Map<Path, T> result = new HashMap<Path, T>();
+			for (Map.Entry<String, T> e : tmp.entrySet())
+			{
+				result.put(Path.ofString(e.getKey()), e.getValue());
+			}
+
 			return result;
 		case HttpURLConnection.HTTP_NOT_FOUND:
 		case HttpURLConnection.HTTP_BAD_REQUEST:
@@ -228,6 +228,7 @@ public class AccessImpl implements Access {
 		}
 	}
 
+
 	@Override
 	public <T> T get(Path path, Class<T> c) {
 		WebResource wr = config.getClient()
@@ -237,14 +238,14 @@ public class AccessImpl implements Access {
 				.accept(MediaType.APPLICATION_JSON_TYPE)
 				.cookie(new Cookie("is.yaks.access", accessId))
 				.get(ClientResponse.class);
-		
+
 		String data = response.getEntity(String.class);
 		switch (response.getStatus()) {
 		case HttpURLConnection.HTTP_OK:
-         // TODO: replace this tmp Map with a smarter Gson decoder that directly
-         //       constructs a Map<Path, T> from {"k1":"v1","k2":"v2"}
-         Map<String, T> tmp = config.getGson().fromJson(data, gsonTypes.<String,T>getMapTypeToken());
-			return tmp.get(path.toString());	
+			Map<Path, T> tmp = config.getGson().fromJson(data,  gsonTypes.<Path, T>getMapTypeToken());
+			//because tmp.get(path) returned an internal TreeMap for Foo object
+			String tmpString = config.getGson().toJson(tmp.get(path));	 	
+			return config.getGson().fromJson(tmpString, c);
 		case HttpURLConnection.HTTP_NOT_FOUND:
 		case HttpURLConnection.HTTP_BAD_REQUEST:
 		case HttpURLConnection.HTTP_PRECON_FAILED:
@@ -273,7 +274,7 @@ public class AccessImpl implements Access {
 		ClientResponse response = wr					
 				.accept(MediaType.APPLICATION_JSON_TYPE)
 				.delete(ClientResponse.class);
-		
+
 		switch (response.getStatus()) {
 		case HttpURLConnection.HTTP_NO_CONTENT:
 			break;				

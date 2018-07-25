@@ -1,12 +1,10 @@
 package is.yaks.rest;
 
-import java.util.List;
+import java.util.HashMap;
 import java.util.Map;
 import java.util.Properties;
-import java.util.concurrent.ExecutionException;
 
 import org.junit.After;
-import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 import org.slf4j.Logger;
@@ -18,18 +16,39 @@ import is.yaks.Path;
 import is.yaks.Selector;
 import is.yaks.Storage;
 import is.yaks.Yaks;
-import is.yaks.rest.YaksImpl;
+import is.yaks.rest.foo.Foo;
+import is.yaks.rest.utils.GsonTypeToken;
+import is.yaks.rest.utils.YaksConfiguration;
+import junit.framework.Assert;
+
 
 public class AccessTest {
 
 	Yaks yaks;
 	public static final Logger LOG = LoggerFactory.getLogger(AccessTest.class);
+	private GsonTypeToken gsonTypes = GsonTypeToken.getInstance();
 
 	@Before
 	public void init() {
 		String[] args = {"http://localhost:8000"};		
-		yaks = Yaks.getInstance("is.yaks.rest.YaksImpl", AccessTest.class.getClassLoader(), args);
+		yaks = Yaks.getInstance("is.yaks.rest.YaksImpl",AccessTest.class.getClassLoader(), args);
 		Assert.assertTrue(yaks instanceof YaksImpl);		
+	}
+	
+	@Test
+	public void debugTest() {
+		 System.out.println("==== TEST ====");
+         YaksConfiguration config = YaksConfiguration.getInstance();
+         Map<Path, String> m = new HashMap<>();
+         m.put(Path.ofString("//is.yaks.tests/a"), "ABC");
+         m.put(Path.ofString("//is.yaks.tests/x"), "XYZ");
+         String json = config.getGson().toJson(m);
+
+         Map<Path, String> result = new HashMap<>();
+         result = config.getGson().fromJson(json, gsonTypes.<Path, String>getMapTypeToken());
+
+         System.out.println("result get : "+result.get(Path.ofString("//is.yaks.tests/a")));
+         System.out.println("==============");
 	}
 
 
@@ -47,8 +66,7 @@ public class AccessTest {
 		//get value from key
 		String v = access1.get(Path.ofString("//is.yaks.tests/a"), String.class);		
 		Assert.assertEquals("ABC", v);
-		
-		
+
 		//get access from access-id
 		access1 = yaks.getAccess("access-1");
 		Assert.assertNotNull(access1);
@@ -64,6 +82,12 @@ public class AccessTest {
 		Assert.assertNotNull(storage2);
 		
 		
+		//put/get on object
+		Access fooAccess = access1.put(Selector.ofString("//is.yaks.tests/foo"), new Foo());
+		Assert.assertNotNull(fooAccess);
+		Foo foo = access1.get(Path.ofString("//is.yaks.tests/foo"), Foo.class);
+		Assert.assertTrue(foo instanceof Foo);
+		System.out.println(foo.toString());
 		
 		Access  access3 = yaks.createAccess("access-3", Path.ofString("//is.yaks.tests-3"), 1024, Encoding.JSON);
 		Assert.assertNotNull(access3);
