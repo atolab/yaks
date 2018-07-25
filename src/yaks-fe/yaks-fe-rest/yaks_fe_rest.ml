@@ -4,7 +4,7 @@ open Yaks_event
 open Cohttp
 open Cohttp_lwt_unix
 open Lwt
-
+open Actor.Infix
 
 type config = { port : int }
 
@@ -52,7 +52,6 @@ let push_to_engine fe msg =
     let%lwt _ = Logs_lwt.debug (fun m -> m "[FER] recv from engine %s" (string_of_message reply)) in
     Lwt.return (Lwt.wakeup_later resolver reply)
   in
-  let open Actor in
   let%lwt _ = fe.engine_mailbox <!> (None, (EventWithHandler (msg, on_reply))) in
   promise
 
