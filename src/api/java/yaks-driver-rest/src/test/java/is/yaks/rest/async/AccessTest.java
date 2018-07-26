@@ -2,8 +2,10 @@ package is.yaks.rest.async;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Properties;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
+import java.util.function.Function;
 
 import org.junit.After;
 import org.junit.Assert;
@@ -15,8 +17,7 @@ import org.slf4j.LoggerFactory;
 import is.yaks.Encoding;
 import is.yaks.Path;
 import is.yaks.Selector;
-
-
+import is.yaks.async.Storage;
 import is.yaks.async.Access;
 import is.yaks.async.Yaks;
 import is.yaks.rest.async.YaksImpl;
@@ -33,64 +34,65 @@ public class AccessTest {
 		Assert.assertTrue(yaks instanceof YaksImpl);		
 	}
 
-	//@Test
-	public void yaksCreateAccessTest() throws InterruptedException, ExecutionException {		
-		CompletableFuture<Access> futureAccess = yaks.createAccess(Path.ofString("//residence-1/house-access-1"), 100000L, Encoding.JSON);
-		Access access = futureAccess.get();
+	@Test
+	public void BasicAsyncTest() throws InterruptedException, ExecutionException {
+		//create access
+		CompletableFuture<Access> fAccess1 = yaks.createAccess(Path.ofString("//is.yaks.tests.async"), 100000L, Encoding.JSON);
+		Access access1 = fAccess1.get();
+		Assert.assertNotNull(access1);
+		
+		CompletableFuture<Storage> fStorage1 = yaks.createStorage("MM-async-store2", Path.ofString("//is.yaks.tests.async"), new Properties());
+		Storage storage1 = fStorage1.get();
+		Assert.assertNotNull(storage1);
+		
+		CompletableFuture<Access>  fAccess2 = yaks.createAccess("access-async-1", Path.ofString("//is.yaks.tests.async"), 100000L, Encoding.JSON);
+		Access access = fAccess2.get();
 		Assert.assertNotNull(access);
-	}
-
-	//@Test
-	public void yaksCreateAccessTestWithId() throws InterruptedException, ExecutionException {
-		CompletableFuture<Access>  futureAccess = yaks.createAccess("access-id-1", Path.ofString("//residence-1/house10"), 100000L, Encoding.JSON);
-		Access access = futureAccess.get();
-		Assert.assertNotNull(access);
-	}
-
-	//@Test
-	public void yaksGetAccessTest() throws InterruptedException, ExecutionException {
+		
+		CompletableFuture<Storage> fStorage2 = yaks.createStorage("MM-async-store2", Path.ofString("//is.yaks.tests.async"), new Properties());
+		Storage storage2 = fStorage2.get();
+		Assert.assertNotNull(storage2);
+		
+		/*TODO to activate
 		CompletableFuture<List<String>> futureListAccess = yaks.getAccess();
 		List<String> listAccess = futureListAccess.get();		
 		Assert.assertTrue(listAccess.size()>0);
-	}
+		*/
+		
+		//test put/get
+		String a = access1.put(Selector.ofString("//is.yaks.tests.async/a"), "ABC")
+				.thenApply((Access asyncAccess) ->{return asyncAccess.get(Path.ofString("//is.yaks.tests.async/a"), String.class);})
+				.get().get();		
+		Assert.assertEquals(a,"ABC");
+		
+		//get access with id
+		CompletableFuture<Access> futureAccess = yaks.getAccess("access-async-1");
+		Access assyncAccess = futureAccess.get();
+		Assert.assertNotNull(assyncAccess);
 
-	//@Test
-	public void yaksGetAccessByIdTest() throws InterruptedException, ExecutionException {
-		CompletableFuture<Access> futureAccess = yaks.getAccess("access-id-1");
-		Access access = futureAccess.get();
-		Assert.assertNotNull(access);
-	}
-
-	//@Test
-	public void yaksDisposeTest() throws InterruptedException, ExecutionException {				
-		CompletableFuture<Access> futureAccess = yaks.createAccess("access-id-1", Path.ofString("//residence-1/house10"), 100000L, Encoding.JSON);
-		Access access = futureAccess.get();
-		access.dispose();
+		access1.dispose().get();
+		assyncAccess.dispose().get();
+		
 	}
 
 	//@Test
 	public void yaksSubscribeTest() throws InterruptedException, ExecutionException {
-		CompletableFuture<Access> futureAccess = yaks.createAccess("access-id-1", Path.ofString("//residence-1/house10"), 100000L, Encoding.JSON);
+		CompletableFuture<Access> futureAccess = yaks.createAccess("access-async-2", Path.ofString("//is.yaks.tests.async-2"), 100000L, Encoding.JSON);
 		Access access = futureAccess.get();
-		CompletableFuture<Long> subId = access.subscribe(Selector.ofString("//residence-1/house10"));		
-		Assert.assertTrue(subId.get()>0);
-	}
-
-	//@Test
-	public void yaksUnsubscribeTest() throws InterruptedException, ExecutionException {
-		CompletableFuture<Access> futureAccess = yaks.createAccess("access-id-1", Path.ofString("//residence-1/house10"), 100000L, Encoding.JSON);
-		Access access = futureAccess.get();
-		access.unsubscribe(511512);
-	}
-
-	//@Test
-	public void yaksGetSubscriptionsTest() throws InterruptedException, ExecutionException {
-		CompletableFuture<Access> futureAccess = yaks.createAccess("access-id-1", Path.ofString("//residence-1/house10"), 100000L, Encoding.JSON);
-		Access access = futureAccess.get();
+		Assert.assertNotNull(access);
+		
+		CompletableFuture<Long> fSubId = access.subscribe(Selector.ofString("//is.yaks.tests.async-2"));		
+		Long subId = null;
+		Assert.assertTrue((subId = fSubId.get())>0);
+		
 		CompletableFuture<Map<String, Selector>> futureSubs = access.getSubscriptions();
 		Map<String, Selector> subs = futureSubs.get();
 		Assert.assertNotNull(subs);
-		Assert.assertTrue(subs.size()>0);		
+		Assert.assertTrue(subs.size()>0);
+
+		access = futureAccess.get();
+		access.unsubscribe(subId);
+		access.dispose();
 	}
 
 

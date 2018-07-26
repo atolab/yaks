@@ -24,8 +24,7 @@ public class BasicTests
    public void init() throws InterruptedException, ExecutionException
    {
       // Instantiate a Yaks Java API using a socket to connect the Yaks instance on localhost:8000
-      this.yaks = Yaks.getInstance("is.yaks.rest.YaksImpl", BasicTests.class.getClassLoader(), "http://localhost:8000");
-      
+      this.yaks = Yaks.getInstance("is.yaks.rest.YaksImpl", BasicTests.class.getClassLoader(), "http://localhost:8000");      
       this.access = yaks.createAccess("MyAccess", Path.ofString("//is.yaks.tests"), 1024, Encoding.JSON);
       this.storage = yaks.createStorage("MM-store", Path.ofString("//is.yaks.tests"), new Properties());
    }
@@ -36,11 +35,8 @@ public class BasicTests
    {
       try {
          access.put(Selector.ofString("//is.yaks.tests/a"), "ABC");
-         
-         
          String v = access.get(Path.ofString("//is.yaks.tests/a"), String.class);
          System.out.println(v);
-         
          Assert.assertEquals("ABC", v);
       } catch (Throwable e) {
          e.printStackTrace();
