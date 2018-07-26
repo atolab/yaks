@@ -7,9 +7,8 @@ module Engine : sig
   type config = { channel_len : int }
   type access
 
-  (* type handler = Yaks_event.message -> +'a Lwt.t *)
+  (* type handler = Yaks_event.message -> 'a Lwt.t *)
 
-  (* val create : config -> Yaks_event.event Actor.actor_mailbox -> t *)
   val create : config -> t
   (** [create] a Yaks engine and return the function to be called to push events *)
 
@@ -38,7 +37,7 @@ module Engine : sig
   (* val forward_to_be  *)
 
 
-  val push_to_tx : Yaks_event.message -> state -> Yaks_event.message Lwt.t
+  val push_to_tx : Yaks_event.message -> Yaks_event.event Apero.Actor.actor_mailbox option-> state -> Yaks_event.message Lwt.t
 
 
 
