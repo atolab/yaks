@@ -55,6 +55,15 @@ module Engine = struct
       ignore @@ Logs_lwt.debug (fun m -> m "[ENG] Adding Frontend %Ld" id);
       true,{state with frontends = FEMap.add id plugin_mb state.frontends}
      in r,s
+  | Transport -> 
+    let r,s = match TXMap.mem id state.transports with
+    | true -> 
+      ignore @@ Logs_lwt.err (fun m -> m"[ENG] Transport with id %Ld already exists !!" id);
+      false,state
+    | false -> 
+      ignore @@ Logs_lwt.debug (fun m -> m "[ENG] Adding Transport %Ld" id);
+      true,{state with transports = TXMap.add id plugin_mb state.transports}
+     in r,s
   | _ -> 
     ignore @@ Logs_lwt.err (fun m -> m"[ENG] Unknow plugin type !!");
     false,state
@@ -66,6 +75,7 @@ module Engine = struct
   | Backend -> 
     let r,s = match BEMap.mem id state.backends with
     | true -> 
+      ignore @@ Logs_lwt.debug (fun m -> m "[ENG] Removing Backend %Ld" id);
       true,{state with backends = BEMap.remove id state.backends}
     | false -> 
       ignore @@ Logs_lwt.err (fun m -> m"[ENG] Backend with id %Ld not exists !!" id);
@@ -73,9 +83,20 @@ module Engine = struct
      in r,s
   | Frontend -> 
     let r,s = match FEMap.mem id state.frontends with
-    | true -> true,{state with frontends = FEMap.remove id state.frontends}
+    | true -> 
+      ignore @@ Logs_lwt.debug (fun m -> m "[ENG] Removing Frontend %Ld" id);
+      true,{state with frontends = FEMap.remove id state.frontends}
     | false -> 
       ignore @@ Logs_lwt.err (fun m -> m"[ENG] Frontend with id %Ld not exists !!" id);
+       false,state
+    in r,s
+  | Transport -> 
+    let r,s = match TXMap.mem id state.transports with
+    | true -> 
+      ignore @@ Logs_lwt.debug (fun m -> m "[ENG] Removing Transport %Ld" id);
+      true,{state with transports = FEMap.remove id state.transports}
+    | false -> 
+      ignore @@ Logs_lwt.err (fun m -> m"[ENG] Transport with id %Ld not exists !!" id);
        false,state
     in r,s
   | _ -> 
@@ -123,6 +144,24 @@ module Engine = struct
   let forward_to_be msg handler state  =
     let open Lwt.Infix in 
     push_to_be msg state 
+    >>= fun reply ->
+    handler(reply) >|= fun _ -> state
+
+
+  let push_to_tx msg state  =
+    let%lwt _ = Logs_lwt.debug (fun m -> m "[ENG]   sending to TX: %s" (string_of_message msg)) in
+    let (promise, resolver) = Lwt.task () in
+    let on_reply = fun reply ->
+      let%lwt _ = Logs_lwt.debug (fun m -> m "[ENG]   recv from TX %s" (string_of_message reply)) in
+      Lwt.return (Lwt.wakeup_later resolver reply)
+    in
+    TXMap.iter (fun id mb -> let _ = mb <!> (None, (EventWithHandler (msg, on_reply))) in ())  state.transports;
+    (* let%lwt _ = state.be_mailbox <!> (None, (EventWithHandler (msg, on_reply))) in *)
+    promise
+
+  let forward_to_tx msg handler state  =
+    let open Lwt.Infix in 
+    push_to_tx msg state 
     >>= fun reply ->
     handler(reply) >|= fun _ -> state
 
