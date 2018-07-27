@@ -1,5 +1,4 @@
-module EventStream = Event_stream.EventStream.Make(Stream_lwt.Stream)
-(* Verify if is already defined in apero *)
+module EventStream = Apero.EventStream
 
 type property = {key : string; value : string}
 

@@ -8,4 +8,6 @@ module Ypath : sig
 
   val is_prefix : t -> t -> bool
 
+  val matches : t -> t -> bool
+
 end

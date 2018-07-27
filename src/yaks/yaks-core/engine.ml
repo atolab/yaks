@@ -1,7 +1,7 @@
 open Apero
 open Yaks_event
 open Actor.Infix
-
+open Lwt.Infix
 
 module Engine = struct 
 
@@ -131,20 +131,18 @@ module Engine = struct
     List.map (fun (_,mb) -> mb ) ff
 
   let push_to_be msg state  =
-    let%lwt _ = Logs_lwt.debug (fun m -> m "[ENG]   sending to BE: %s" (string_of_message msg)) in
+    ignore @@ Logs_lwt.debug (fun m -> m "[ENG]   sending to BE: %s" (string_of_message msg));
     let (promise, resolver) = Lwt.task () in
     let on_reply = fun reply ->
-      let%lwt _ = Logs_lwt.debug (fun m -> m "[ENG]   recv from BE %s" (string_of_message reply)) in
+      ignore @@ Logs_lwt.debug (fun m -> m "[ENG]   recv from BE %s" (string_of_message reply));
       Lwt.return (Lwt.wakeup_later resolver reply)
     in
-    let%lwt lb = Lwt_list.filter_p (fun (id,mb) -> Lwt.return true ) (BEMap.bindings state.backends) in
-    let%lwt _ = Lwt_list.iter_p (fun (id,mb) -> Actor.send mb None (EventWithHandler (msg, on_reply))) lb in
-    (* BEMap.iter (fun id mb -> let _ = mb <!> (None, (EventWithHandler (msg, on_reply))) in ())  state.backends; *)
-    (* let%lwt _ = state.be_mailbox <!> (None, (EventWithHandler (msg, on_reply))) in *)
+    (* let%lwt lb =  in *)
+    let%lwt _ = Lwt_list.filter_p (fun (id,mb) -> Lwt.return true ) (BEMap.bindings state.backends) >>=
+      Lwt_list.iter_p (fun (id,mb) -> Actor.send mb None (EventWithHandler (msg, on_reply))) in
     promise
 
   let forward_to_be msg handler state  =
-    let open Lwt.Infix in 
     push_to_be msg state 
     >>= fun reply ->
     handler(reply) >|= fun _ -> state
@@ -158,33 +156,22 @@ module Engine = struct
       Lwt.return (Lwt.wakeup_later resolver reply)
     in
 
-    let%lwt lt = 
-      match from with
-      | Some s ->  Lwt_list.filter_p (fun (id,mb) -> Lwt.return (Actor.compare s mb <> 0) ) (TXMap.bindings state.transports)
-      | None -> Lwt.return (TXMap.bindings state.transports)
-    in
-    let%lwt _ = Lwt_list.iter_p (fun (id,mb) -> Actor.send mb None (EventWithHandler (msg, on_reply))) lt
-    (* let%lwt _ = 
-   
-      | None ->
-        let%lwt _ = Lwt_list.iter_p (fun (id,mb) -> Actor.send mb None (EventWithHandler (msg, on_reply))) lt
-        in Lwt.return_unit *)
-        (* TXMap.iter (fun id mb -> 
-        let%lwt x = Lwt.return @@ Actor.send mb None (EventWithHandler (msg, on_reply)) in x *)
-        (* )  state.transports *)
+    let%lwt _ = 
+      ( match from with
+        | Some s ->  Lwt_list.filter_p (fun (id,mb) -> Lwt.return (Actor.compare s mb <> 0) ) (TXMap.bindings state.transports)
+        | None -> Lwt.return (TXMap.bindings state.transports)
+      ) >>= Lwt_list.iter_p (fun (id,mb) -> Actor.send mb None (EventWithHandler (msg, on_reply))) 
     in    
     promise
 
   let forward_to_tx msg handler from state  =
-    let open Lwt.Infix in 
     push_to_tx msg from state 
     >>= fun reply ->
     handler(reply) >|= fun _ -> state
 
   let process  msg handler from state = 
   (* let process state (msg : message) (handler : message_handler) =  *)
-    let%lwt _ = Logs_lwt.debug (fun m -> m "[ENG] recv from FE: %s" (string_of_message msg)) in
-    let open Lwt.Infix in 
+    ignore @@ Logs_lwt.debug (fun m -> m "[ENG] recv from FE: %s" (string_of_message msg));
     match msg with
     | Create {cid; entity=Access{path; cache_size}; entity_id=AccessId(id)} ->
       (try
@@ -221,7 +208,7 @@ module Engine = struct
       forward_to_be msg handler state
 
     | Put { cid; access_id ; key; value } ->
-      (* let r = forward_to_be msg handler state in  *)
+      (* let r = forward_to_be msg handler state >>= forward_to_tx msg handler from in  *)
       let r = forward_to_be msg handler state in
       let _ = forward_to_tx msg handler from state in 
       let values = [{ key; value=(Lwt_bytes.of_string value)}] in
@@ -284,7 +271,6 @@ module Engine = struct
       } 
     in
     let open Actor in
-    let open Lwt.Infix in 
     let my_mailbox,my_loop = spawn ~state:(Some init_state) (fun self state from ->
         let current_state =
           match state with
