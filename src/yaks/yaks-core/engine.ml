@@ -137,7 +137,9 @@ module Engine = struct
       let%lwt _ = Logs_lwt.debug (fun m -> m "[ENG]   recv from BE %s" (string_of_message reply)) in
       Lwt.return (Lwt.wakeup_later resolver reply)
     in
-    BEMap.iter (fun id mb -> let _ = mb <!> (None, (EventWithHandler (msg, on_reply))) in ())  state.backends;
+    let%lwt lb = Lwt_list.filter_p (fun (id,mb) -> Lwt.return true ) (BEMap.bindings state.backends) in
+    let%lwt _ = Lwt_list.iter_p (fun (id,mb) -> Actor.send mb None (EventWithHandler (msg, on_reply))) lb in
+    (* BEMap.iter (fun id mb -> let _ = mb <!> (None, (EventWithHandler (msg, on_reply))) in ())  state.backends; *)
     (* let%lwt _ = state.be_mailbox <!> (None, (EventWithHandler (msg, on_reply))) in *)
     promise
 
@@ -148,20 +150,34 @@ module Engine = struct
     handler(reply) >|= fun _ -> state
 
 
-  let push_to_tx msg state  =
-    let%lwt _ = Logs_lwt.debug (fun m -> m "[ENG]   sending to TX: %s" (string_of_message msg)) in
+  let push_to_tx msg from state =
+    ignore @@ Logs_lwt.debug (fun m -> m "[ENG]   sending to TX: %s" (string_of_message msg));
     let (promise, resolver) = Lwt.task () in
     let on_reply = fun reply ->
-      let%lwt _ = Logs_lwt.debug (fun m -> m "[ENG]   recv from TX %s" (string_of_message reply)) in
+      ignore @@ Logs_lwt.debug (fun m -> m "[ENG]   recv from TX %s" (string_of_message reply));
       Lwt.return (Lwt.wakeup_later resolver reply)
     in
-    TXMap.iter (fun id mb -> let _ = mb <!> (None, (EventWithHandler (msg, on_reply))) in ())  state.transports;
-    (* let%lwt _ = state.be_mailbox <!> (None, (EventWithHandler (msg, on_reply))) in *)
+
+    let%lwt lt = 
+      match from with
+      | Some s ->  Lwt_list.filter_p (fun (id,mb) -> Lwt.return (Actor.compare s mb <> 0) ) (TXMap.bindings state.transports)
+      | None -> Lwt.return (TXMap.bindings state.transports)
+    in
+    let%lwt _ = Lwt_list.iter_p (fun (id,mb) -> Actor.send mb None (EventWithHandler (msg, on_reply))) lt
+    (* let%lwt _ = 
+   
+      | None ->
+        let%lwt _ = Lwt_list.iter_p (fun (id,mb) -> Actor.send mb None (EventWithHandler (msg, on_reply))) lt
+        in Lwt.return_unit *)
+        (* TXMap.iter (fun id mb -> 
+        let%lwt x = Lwt.return @@ Actor.send mb None (EventWithHandler (msg, on_reply)) in x *)
+        (* )  state.transports *)
+    in    
     promise
 
-  let forward_to_tx msg handler state  =
+  let forward_to_tx msg handler from state  =
     let open Lwt.Infix in 
-    push_to_tx msg state 
+    push_to_tx msg from state 
     >>= fun reply ->
     handler(reply) >|= fun _ -> state
 
@@ -205,20 +221,21 @@ module Engine = struct
       forward_to_be msg handler state
 
     | Put { cid; access_id ; key; value } ->
+      (* let r = forward_to_be msg handler state in  *)
       let r = forward_to_be msg handler state in
+      let _ = forward_to_tx msg handler from state in 
       let values = [{ key; value=(Lwt_bytes.of_string value)}] in
       let subscribers = get_subscribers key state in
       List.iter (fun e -> let msg = Values{cid; encoding = `String; values} in let _ = Actor.send e None (Event (msg)) in ()) subscribers;
       r
 
     | Patch { cid; access_id; key; value } ->
-      forward_to_be msg handler state
+      forward_to_be msg handler state >>= forward_to_tx msg handler from
 
     | Remove { cid; access_id; key } ->
-      forward_to_be msg handler state
+      forward_to_be msg handler state >>= forward_to_tx msg handler from
 
     | Subscribe { cid; entity_id=SubscriberId(sid); key } ->
-
       let msg,new_state = 
         match from with 
           | Some mb -> 
