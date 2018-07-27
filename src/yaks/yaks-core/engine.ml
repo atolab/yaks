@@ -155,12 +155,15 @@ module Engine = struct
       ignore @@ Logs_lwt.debug (fun m -> m "[ENG]   recv from TX %s" (string_of_message reply));
       Lwt.return (Lwt.wakeup_later resolver reply)
     in
-
     let%lwt _ = 
       ( match from with
         | Some s ->  Lwt_list.filter_p (fun (id,mb) -> Lwt.return (Actor.compare s mb <> 0) ) (TXMap.bindings state.transports)
         | None -> Lwt.return (TXMap.bindings state.transports)
-      ) >>= Lwt_list.iter_p (fun (id,mb) -> Actor.send mb None (EventWithHandler (msg, on_reply))) 
+      ) >>= ( fun l -> 
+        match List.length l with 
+        | 0 -> on_reply (Ok {cid=0L; entity_id=PluginId(0L)})
+        | _ -> Lwt_list.iter_p (fun (id,mb) -> Actor.send mb None (EventWithHandler (msg, on_reply))) l 
+        )
     in    
     promise
 
@@ -208,19 +211,19 @@ module Engine = struct
       forward_to_be msg handler state
 
     | Put { cid; access_id ; key; value } ->
-      (* let r = forward_to_be msg handler state >>= forward_to_tx msg handler from in  *)
-      let r = forward_to_be msg handler state in
-      let _ = forward_to_tx msg handler from state in 
+      let r = forward_to_be msg handler state >>= forward_to_tx msg (fun e -> Lwt.return_unit) from in 
+      (* let r = forward_to_be msg handler state in
+      let _ = forward_to_tx msg (fun e -> Lwt.return_unit) from state in  *)
       let values = [{ key; value=(Lwt_bytes.of_string value)}] in
       let subscribers = get_subscribers key state in
       List.iter (fun e -> let msg = Values{cid; encoding = `String; values} in let _ = Actor.send e None (Event (msg)) in ()) subscribers;
       r
 
     | Patch { cid; access_id; key; value } ->
-      forward_to_be msg handler state >>= forward_to_tx msg handler from
+      forward_to_be msg handler state >>= forward_to_tx msg (fun e -> Lwt.return_unit) from
 
     | Remove { cid; access_id; key } ->
-      forward_to_be msg handler state >>= forward_to_tx msg handler from
+      forward_to_be msg handler state >>= forward_to_tx msg (fun e -> Lwt.return_unit) from
 
     | Subscribe { cid; entity_id=SubscriberId(sid); key } ->
       let msg,new_state = 
