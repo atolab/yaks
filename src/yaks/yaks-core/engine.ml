@@ -137,9 +137,15 @@ module Engine = struct
       ignore @@ Logs_lwt.debug (fun m -> m "[ENG]   recv from BE %s" (string_of_message reply));
       Lwt.return (Lwt.wakeup_later resolver reply)
     in
-    (* let%lwt lb =  in *)
-    let%lwt _ = Lwt_list.filter_p (fun (id,mb) -> Lwt.return true ) (BEMap.bindings state.backends) >>=
-      Lwt_list.iter_p (fun (id,mb) -> Actor.send mb None (EventWithHandler (msg, on_reply))) in
+    let%lwt _ = 
+      Lwt_list.filter_p (fun (id,mb) -> Lwt.return true ) (BEMap.bindings state.backends) >>= 
+      (fun l ->
+        match List.length l with 
+          | 0 -> on_reply (Error {cid=0L; reason=(-44)})
+          | _ -> Lwt_list.iter_p (fun (id,mb) -> Actor.send mb None (EventWithHandler (msg, on_reply))) l 
+      ) 
+    in 
+      (* Lwt_list.iter_p (fun (id,mb) -> Actor.send mb None (EventWithHandler (msg, on_reply))) in *)
     promise
 
   let forward_to_be msg handler state  =
