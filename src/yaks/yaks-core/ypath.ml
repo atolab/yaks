@@ -14,4 +14,6 @@ module Path = struct
 
   let is_prefix prefix path = Apero.String.starts_with (to_string prefix) (to_string path)
 
+  let matches a b = true
+
 end

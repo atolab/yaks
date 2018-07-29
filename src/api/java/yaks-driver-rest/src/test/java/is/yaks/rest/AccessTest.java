@@ -1,6 +1,7 @@
 package is.yaks.rest;
 
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Properties;
 
@@ -37,7 +38,6 @@ public class AccessTest {
 	
 	@Test
 	public void debugTest() {
-		 System.out.println("==== TEST ====");
          YaksConfiguration config = YaksConfiguration.getInstance();
          Map<Path, String> m = new HashMap<>();
          m.put(Path.ofString("//is.yaks.tests/a"), "ABC");
@@ -46,9 +46,9 @@ public class AccessTest {
 
          Map<Path, String> result = new HashMap<>();
          result = config.getGson().fromJson(json, gsonTypes.<Path, String>getMapTypeToken());
-
-         System.out.println("result get : "+result.get(Path.ofString("//is.yaks.tests/a")));
-         System.out.println("==============");
+         Assert.assertNotNull(result);
+         Assert.assertTrue(result.size()>0);
+         Assert.assertTrue(result.get(Path.ofString("//is.yaks.tests/a")).equals("ABC"));
 	}
 
 
@@ -72,7 +72,7 @@ public class AccessTest {
 		Assert.assertNotNull(access1);
 
 		//TODO activate
-		//Long subId = access1.subscribe(Selector.ofString("//is.yaks.tests"));
+		//Long subId = access1.subscribe(Selector.ofString("//is.yaks.tests/"));
 		//Assert.assertTrue(subId>0);
 		
 		//create access
@@ -81,6 +81,18 @@ public class AccessTest {
 		Storage storage2 = yaks.createStorage("MM-store2", Path.ofString("//is.yaks.tests-2"), new Properties());	
 		Assert.assertNotNull(storage2);
 		
+		/*
+		 * TODO to solve/to activate
+		 * String data = response.getEntity(String.class); //in get
+		 * returns
+		 * {"//is.yaks.tests-2/a":"DEF","//is.yaks.tests-2/a":"DEF"}
+
+		String value = "DEF";
+		Access deltaPut = access2.deltaPut(Selector.ofString("//is.yaks.tests-2/a"), value);
+		Assert.assertNotNull(deltaPut);
+		String deltaPutStr = access2.get(Path.ofString("//is.yaks.tests-2/a"), String.class);
+		System.out.println(deltaPutStr);
+		*/
 		
 		//put/get on object
 		Access fooAccess = access1.put(Selector.ofString("//is.yaks.tests/foo"), new Foo());
@@ -91,14 +103,17 @@ public class AccessTest {
 		
 		Access  access3 = yaks.createAccess("access-3", Path.ofString("//is.yaks.tests-3"), 1024, Encoding.JSON);
 		Assert.assertNotNull(access3);
-		Storage storage3 = yaks.createStorage("MM-store3", Path.ofString("//is.yaks.tests-3"), new Properties());	
+		Storage storage3 = yaks.createStorage("MM-store3", Path.ofString("//is.yaks.tests-3"), new Properties());
 		Assert.assertNotNull(storage3);
-		
+
 		//TODO activate
 		//List<String> listAccess = yaks.getAccess();
 		//Assert.assertNotNull(listAccess);
 		//Assert.assertTrue(listAccess.size()>0);
 		
+		Access rem = access3.remove(Selector.ofString("//is.yaks.tests-3"));
+		Assert.assertNotNull(rem);
+
 		//dispose
 		//access1.unsubscribe(subId);
 		storage1.dispose();
