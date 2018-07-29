@@ -1,4 +1,4 @@
-module Ypath = struct
+module Path = struct
 
   type t = string
 

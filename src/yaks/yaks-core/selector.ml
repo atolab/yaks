@@ -28,7 +28,7 @@ module Selector = struct
       (match s.query with | Some(q) -> "?"^q | None -> "")
       (match s.fragment with | Some(f) -> "#"^f | None -> "")
 
-  let path s = Ypath.of_string s.path
+  let path s = Path.of_string s.path
 
   let query s = s.query
 
@@ -55,7 +55,7 @@ module Selector = struct
 
 
   let is_matching selector path =
-    let sel_path = remove_last_slash selector.path and key = remove_last_slash @@ Ypath.to_string path in
+    let sel_path = remove_last_slash selector.path and key = remove_last_slash @@ Path.to_string path in
     let sel = full_split wildcard_regex sel_path in
     let rec check_matching sel key =
       Printf.printf "   - %s vs. '%s'\n" (string_of_sel sel) key;

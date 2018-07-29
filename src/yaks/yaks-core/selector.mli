@@ -8,12 +8,12 @@ module Selector : sig
 
   val to_string : t -> string
 
-  val path : t -> Ypath.t
+  val path : t -> Path.t
 
   val query : t -> string option
 
   val fragment : t -> string option
 
-  val is_matching : t -> Ypath.t -> bool
+  val is_matching : t -> Path.t -> bool
 
 end

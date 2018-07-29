@@ -6,4 +6,4 @@
   (wrapped     false)
   (libraries       (apero-core apero-net yaks-core  lwt lwt.unix logs logs.lwt ppx_deriving.show ppx_deriving.ord))
   (preprocess
-    (pps (ppx_deriving.show ppx_deriving.ord lwt_ppx)))))
+    (pps (ppx_deriving.show ppx_deriving.ord lwt_ppx ppx_cstruct)))))

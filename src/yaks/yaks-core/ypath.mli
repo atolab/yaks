@@ -1,4 +1,4 @@
-module Ypath : sig
+module Path : sig
 
   type t
 
