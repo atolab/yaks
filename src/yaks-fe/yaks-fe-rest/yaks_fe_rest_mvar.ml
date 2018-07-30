@@ -45,18 +45,6 @@ let properties_of_query  =
     Property.make k v) 
 
 
-(* let push_to_engine fe msg =
-  let%lwt _ = Logs_lwt.debug (fun m -> m "[FER] send to engine %s" (string_of_message msg)) in
-  let (promise, resolver) = Lwt.task () in
-  let on_reply = fun reply ->
-    let%lwt _ = Logs_lwt.debug (fun m -> m "[FER] recv from engine %s" (string_of_message reply)) in
-    Lwt.return (Lwt.wakeup_later resolver reply)
-  in
-  let%lwt _ = fe.engine_mailbox <!> (None, (EventWithHandler (msg, on_reply))) in
-  promise *)
-
-
-
 let set_cookie key value =
   let cookie = Cohttp.Cookie.Set_cookie_hdr.make (key, value) in
   Cohttp.Cookie.Set_cookie_hdr.serialize ~version:`HTTP_1_0 cookie
@@ -201,43 +189,7 @@ let create_storage fe path properties =
          (set_cookie cookie_name_storage_id sid)] in
     Server.respond_string ~status:`Created ~headers ~body:"" ()
 
-(* let create_storage fe ?id path properties =
-  let%lwt _ = Logs_lwt.debug (fun m -> m "[FER]   create_storage %s %s" (Option.get_or_default id "?") path) in
-  let msg = Create { 
-      cid = next_request_counter fe;
-      entity = Storage {path; properties};
-      entity_id = match id with None -> Auto | Some(i) -> StorageId(i)
-    }
-  in
-  push_to_engine fe msg
-  >>= function
-  | Ok {cid=_; entity_id=StorageId(sid)} ->
-    let headers = Header.add_list (Header.init())
-        [("Location", match id with None -> sid | Some(_) -> ".");
-         (set_cookie cookie_name_storage_id sid)] in
-    Server.respond_string ~status:`Created ~headers ~body:"" ()
-  | Error {cid=_; reason=501} ->
-    unkown_storage_type properties
-  | x ->
-    unexpected_reply x
-
-let get_storage ?id fe =
-  let%lwt _ = Logs_lwt.debug (fun m -> m "[FER]   get_storage %s" (Option.get_or_default id "?")) in
-  let msg = Get { 
-      cid = next_request_counter fe;
-      entity_id = Yaks;
-      key = "storages"^(Option.get_or_default id "");
-      encoding = Some(`Json)
-    }
-  in
-  push_to_engine fe msg
-  >>= function
-  | Values {cid=_; encoding=`Json; values} ->
-    Server.respond_string ~status:`OK ~body:(json_string_of_values values) ()
-  | Error {cid=_; reason=404} ->
-    storage_not_found (Option.get_or_default id "NO_ID!!!")
-  | x ->
-    unexpected_reply x
+(* 
 
 let dispose_storage fe id =
   let%lwt _ = Logs_lwt.debug (fun m -> m "[FER]   dispose_storage %s" id) in
