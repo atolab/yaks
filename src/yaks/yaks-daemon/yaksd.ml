@@ -45,5 +45,6 @@ let yaksd () =
 
 
 let () =  
+  Printexc.record_backtrace true;
   let _ = Term.(eval (setup_log, Term.info "tool")) in  
   Lwt_main.run @@ yaksd ()
