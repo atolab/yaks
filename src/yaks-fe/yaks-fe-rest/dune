@@ -1,0 +1,7 @@
+(library
+  (name            yaks_fe_rest)
+  (public_name     yaks-fe-rest)
+  (wrapped     false)
+  (libraries       apero-core apero-net yaks-core  lwt lwt.unix logs logs.lwt ppx_deriving.show ppx_deriving.ord cohttp-lwt-unix)
+  (preprocess
+    (pps ppx_deriving.show ppx_deriving.ord lwt_ppx)))

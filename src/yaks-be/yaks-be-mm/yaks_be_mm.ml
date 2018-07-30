@@ -1,7 +1,7 @@
-open Yaks_core
+(* open Yaks_core *)
 open Yaks_event
 open Mm_types
-open Lwt.Infix
+(* open Lwt.Infix *)
 
 
 module SKey =  struct
@@ -74,7 +74,7 @@ let get_sid_by_path path mm_be =
 
 let find_matching_storages path mm_be = 
   let l = PrefixMap.bindings mm_be.prefix_map in 
-  List.filter (fun (k,v) -> SKey.prefix k path) l
+  List.filter (fun (k,_) -> SKey.prefix k path) l
 
 
 let dispose_store sid mm_be = 
@@ -276,9 +276,9 @@ let process current_state (msg : message) (handler : message_handler) =
 let create cfg = 
   ignore @@ Logs_lwt.debug (fun m -> m"MainMemory-BE Creating stores map");
   let init_state = {prefix_map = PrefixMap.empty ;stores = StoreMap.empty; cfg} in
-  let open Actor in
+  (* let open Actor in *)
   let open Lwt.Infix in 
-  let my_mailbox,my_loop = spawn ~state:(Some init_state) (fun self state from ->
+  let my_mailbox,my_loop = spawn ~state:(Some init_state) (fun self state _ ->
       let current_state =
         match state with
         | Some(s) -> s
@@ -288,7 +288,7 @@ let create cfg =
         process current_state msg handler
         >>= fun new_state -> continue self (Some(new_state)) ()
       | Event (msg) ->
-        process current_state msg (fun e -> Lwt.return_unit)
+        process current_state msg (fun _ -> Lwt.return_unit)
         >>= fun new_state -> continue self (Some(new_state)) ()
     )
   in my_mailbox,my_loop

@@ -1,5 +1,5 @@
-open Lwt
-open Lwt.Infix
+(* open Lwt *)
+(* open Lwt.Infix *)
 open Yaks_core
 open Cmdliner
 
@@ -42,9 +42,22 @@ let yaksd () =
   Lwt.join [Engine.start engine; Yaks_fe_sock.start sockfe; Yaks_fe_rest.start restfe; mm_loop ]
 
 
+let yaksd_mvar () = 
+  let open Apero.LwtM.InfixM in 
+  let engine = SEngine.make () in     
+  try%lwt 
+    SEngine.add_backend_factory engine (yaks_backend_memory) (module Yaks_bef_mm.MainMemoryBEF : BackendFactory) >>=
+    fun _ -> SEngine.create_storage engine (Path.of_string "/") [Property.make yaks_backend_kind yaks_backend_memory] >>=
+    fun _ ->
+      let restfecfg = Yaks_fe_rest_mvar.{ port = 8000 } in
+      let restfe = Yaks_fe_rest_mvar.create restfecfg  engine in Yaks_fe_rest_mvar.start restfe
+  with 
+  | YException e  -> Logs_lwt.err (fun m -> m "%s" (show_yerror e)) >> Lwt.return_unit
+  | _ -> Logs_lwt.err (fun m -> m "Unknown Error raised") >> Lwt.return_unit
 
+  
 
 let () =  
-  Printexc.record_backtrace true;
+  Printexc.record_backtrace true;  
   let _ = Term.(eval (setup_log, Term.info "tool")) in  
-  Lwt_main.run @@ yaksd ()
+  Lwt_main.run @@ yaksd_mvar ()

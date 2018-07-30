@@ -1,5 +1,61 @@
+module Property = Apero.KeyValueF.Make (String) (String)
+
+module EventStream  = struct 
+  include  Apero.EventStream
+end 
+
+module AccessId = struct 
+ include Apero.Uuid
+end
+
+module StorageId = struct 
+  include Apero.Uuid
+end
+
+module Path = struct
+  type t = string
+  (* from https://tools.ietf.org/html/rfc3986#appendix-B *)
+  let path_regex = Str.regexp "[^?#]*"
+  
+  let is_valid s = Str.string_match path_regex s 0
+  
+  let of_string (s:string) : t = 
+    if is_valid s then s else raise (Invalid_argument s)
+
+  let to_string (s:t) : string = s
+
+  let is_prefix prefix path = Apero.String.starts_with (to_string prefix) (to_string path)
+
+  let matches _ _ = true
+end
+
+module SubscriberId = Apero.Id.Make (Int64)
+module PluginId = Apero.Id.Make (Int64)
+
+(* This should become parametrized through a functor *)
+module KeyValue =  Apero.KeyValueF.Make (String) (String) 
+
+type value_encoding = 
+  | Default_Encoding
+  | String_Encoding 
+  | Json_Encoding
+  | Binary_Encoding
+  | XML_Encoding
+
+
+type error_kind = [`NoMsg | `Msg of string | `Code of int | `Pos of (string * int * int * int) | `Loc of string] [@@deriving show]  
+
+type yerror = [
+  | `UnknownStorageKind 
+  | `UnavailableStorageFactory of error_kind
+  | `UnkownAccessId of error_kind
+  | `StoreError of error_kind
+  ] [@@deriving show]
+
+exception YException of yerror [@@deriving show]
+
+
 open Str
-open Ypath
 
 module Selector = struct
 
@@ -23,7 +79,6 @@ module Selector = struct
       raise (Invalid_argument s)
 
   let to_string s =
-    let open Apero in 
     Printf.sprintf "%s%s%s" s.path 
       (match s.query with | Some(q) -> "?"^q | None -> "")
       (match s.fragment with | Some(f) -> "#"^f | None -> "")

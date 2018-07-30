@@ -1,6 +1,6 @@
 open Apero
 open Yaks_event
-open Actor.Infix
+(* open Actor.Infix *)
 open Lwt.Infix
 
 module Engine = struct 
@@ -64,9 +64,9 @@ module Engine = struct
       ignore @@ Logs_lwt.debug (fun m -> m "[ENG] Adding Transport %Ld" id);
       true,{state with transports = TXMap.add id plugin_mb state.transports}
      in r,s
-  | _ -> 
+  (* | _ -> 
     ignore @@ Logs_lwt.err (fun m -> m"[ENG] Unknow plugin type !!");
-    false,state
+    false,state *)
   in r,s
 
   let remove_plugin id kind state = 
@@ -99,9 +99,9 @@ module Engine = struct
       ignore @@ Logs_lwt.err (fun m -> m"[ENG] Transport with id %Ld not exists !!" id);
        false,state
     in r,s
-  | _ -> 
+  (* | _ -> 
     ignore @@ Logs_lwt.err (fun m -> m"[ENG] Unknow plugin type !!");
-    false,state
+    false,state *)
   in r,s
 
   let create_access ?id path cache_size state =
@@ -109,7 +109,7 @@ module Engine = struct
     id,
     { state with access = PMap.add id {path;cache_size} state.access }
 
-  let get_access id state = PMap.find id state.access
+  (* let get_access id state = PMap.find id state.access *)
 
   let dispose_access  id state =
     ignore @@ PMap.find id state.access;
@@ -126,7 +126,7 @@ module Engine = struct
   let get_subscribers key state = 
     
     let xs = SubscriptionMap.bindings state.subscriptions in 
-    let f = List.map (fun (k,x) -> x) xs in
+    let f = List.map (fun (_,x) -> x) xs in
     let ff = List.filter (fun (p,_) -> p=key) f in
     List.map (fun (_,mb) -> mb ) ff
 
@@ -138,11 +138,11 @@ module Engine = struct
       Lwt.return (Lwt.wakeup_later resolver reply)
     in
     let%lwt _ = 
-      Lwt_list.filter_p (fun (id,mb) -> Lwt.return true ) (BEMap.bindings state.backends) >>= 
+      Lwt_list.filter_p (fun (_,_) -> Lwt.return true ) (BEMap.bindings state.backends) >>= 
       (fun l ->
         match List.length l with 
           | 0 -> on_reply (Error {cid=0L; reason=(-44)})
-          | _ -> Lwt_list.iter_p (fun (id,mb) -> Actor.send mb None (EventWithHandler (msg, on_reply))) l 
+          | _ -> Lwt_list.iter_p (fun (_,mb) -> Actor.send mb None (EventWithHandler (msg, on_reply))) l 
       ) 
     in 
       (* Lwt_list.iter_p (fun (id,mb) -> Actor.send mb None (EventWithHandler (msg, on_reply))) in *)
@@ -163,12 +163,12 @@ module Engine = struct
     in
     let%lwt _ = 
       ( match from with
-        | Some s ->  Lwt_list.filter_p (fun (id,mb) -> Lwt.return (Actor.compare s mb <> 0) ) (TXMap.bindings state.transports)
+        | Some s ->  Lwt_list.filter_p (fun (_,mb) -> Lwt.return (Actor.compare s mb <> 0) ) (TXMap.bindings state.transports)
         | None -> Lwt.return (TXMap.bindings state.transports)
       ) >>= ( fun l -> 
         match List.length l with 
         | 0 -> on_reply (Ok {cid=0L; entity_id=PluginId(0L)})
-        | _ -> Lwt_list.iter_p (fun (id,mb) -> Actor.send mb None (EventWithHandler (msg, on_reply))) l 
+        | _ -> Lwt_list.iter_p (fun (_,mb) -> Actor.send mb None (EventWithHandler (msg, on_reply))) l 
         )
     in    
     promise
@@ -198,7 +198,7 @@ module Engine = struct
        | _ -> handler (Error {cid; reason=42}) >|= fun _ -> state
       )
 
-    | Create {cid; entity=Storage{path; properties}; entity_id} ->
+    | Create {cid=_; entity=_; entity_id=_} ->
       forward_to_be msg handler state
 
     | Dispose { cid; entity_id=AccessId(id) }  ->
@@ -210,14 +210,14 @@ module Engine = struct
        |_ -> handler (Error {cid; reason=42}) >|= fun _ -> state
       )
 
-    | Dispose { cid; entity_id=StorageId(id) }  ->
+    | Dispose { cid=_; entity_id=_ }  ->
       forward_to_be msg handler state
 
-    | Get { cid; entity_id; key } ->
+    | Get { cid=_; entity_id=_; key=_; encoding=_ } ->
       forward_to_be msg handler state
 
-    | Put { cid; access_id ; key; value } ->
-      let r = forward_to_be msg handler state >>= forward_to_tx msg (fun e -> Lwt.return_unit) from in 
+    | Put { cid; access_id=_ ; key; value } ->
+      let r = forward_to_be msg handler state >>= forward_to_tx msg (fun _ -> Lwt.return_unit) from in 
       (* let r = forward_to_be msg handler state in
       let _ = forward_to_tx msg (fun e -> Lwt.return_unit) from state in  *)
       let values = [{ key; value=(Lwt_bytes.of_string value)}] in
@@ -225,14 +225,14 @@ module Engine = struct
       List.iter (fun e -> let msg = Values{cid; encoding = `String; values} in let _ = Actor.send e None (Event (msg)) in ()) subscribers;
       r
 
-    | Patch { cid; access_id; key; value } ->
-      forward_to_be msg handler state >>= forward_to_tx msg (fun e -> Lwt.return_unit) from
+    | Patch { cid=_; access_id=_; key=_; value=_ } ->
+      forward_to_be msg handler state >>= forward_to_tx msg (fun _ -> Lwt.return_unit) from
 
-    | Remove { cid; access_id; key } ->
-      forward_to_be msg handler state >>= forward_to_tx msg (fun e -> Lwt.return_unit) from
+    | Remove { cid=_; access_id=_; key=_ } ->
+      forward_to_be msg handler state >>= forward_to_tx msg (fun _ -> Lwt.return_unit) from
 
     | Subscribe { cid; entity_id=SubscriberId(sid); key } ->
-      let msg,new_state = 
+      let msg,_ = 
         match from with 
           | Some mb -> 
             let id,ns = add_subscriber ~id:sid key mb state in
@@ -268,7 +268,7 @@ module Engine = struct
 
 
 
-  let create cfg = 
+  let create _ = 
     let init_state = 
     { 
       access = PMap.empty;
@@ -290,7 +290,7 @@ module Engine = struct
           process  msg handler from current_state
           >>= fun new_state -> continue self (Some(new_state)) ()
         | Event (msg) ->
-          process msg (fun e -> Lwt.return_unit) from current_state
+          process msg (fun _ -> Lwt.return_unit) from current_state
           (* Sending passing the mailbox to process because in the case of subscription I need the mailbox of the actor that is handling that subscription *)
           >>= fun new_state -> continue self (Some(new_state)) ()
       )

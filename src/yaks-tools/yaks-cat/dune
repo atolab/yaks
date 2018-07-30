@@ -1,0 +1,6 @@
+(executable
+  (name           yaksc)
+  (modules yaksc)
+  (libraries lwt lwt.unix yaks-core yaks-fe-sock yaks-fe-rest atdgen logs logs.fmt logs.cli fmt fmt.cli fmt.tty cmdliner)
+  (preprocess
+    (pps lwt_ppx ppx_deriving.show ppx_deriving.ord)))
