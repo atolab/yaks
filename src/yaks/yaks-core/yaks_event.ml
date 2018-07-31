@@ -134,9 +134,9 @@ let string_of_message msg =
   |> String.concat ","
   |> Printf.sprintf "{%s}" *)
 
-let json_string_of_values values =
-  values
-  |> List.map (fun (key, value) -> Printf.sprintf "\"%s\":%s" key  value)
+let json_string_of_values (kvs : (string * Value.t) list) =
+  kvs
+  |> List.map (fun (key, value) -> Printf.sprintf "\"%s\":%s" key  (Value.to_string value))
   |> String.concat ","
   |> Printf.sprintf "{%s}"
 

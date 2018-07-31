@@ -93,12 +93,11 @@ module SEngine = struct
      returns a Lwt.fail with the proper exception set if the rights are not 
      sufficient *)
 
-  let get_from_be be _ selector = 
+  let get_from_be be selector = 
     let module BE = (val be : Backend) in 
     BE.get selector
 
-  (*?encoding:value_encoding -> t Lwt_mvar.t -> AccessId.t -> Selector.t -> KeyValue.t list Lwt.t  *)
-  let get ?(encoding=Default_Encoding) engine access_id selector = 
+  let get engine access_id selector = 
     let%lwt self = Apero.LwtM.read_mvar engine in 
     check_read_access self access_id selector 
     >>= fun () ->       
@@ -109,11 +108,11 @@ module SEngine = struct
         |> BackendMap.partition (fun _ info -> info.kind = Yaks_be.Memory)  in 
         (* Try to always resolve Get out of memory back-end if available *)
         (match BackendMap.find_first_opt (fun _ -> true) m_be with 
-        | Some (_, info) -> get_from_be info.be encoding selector 
+        | Some (_, info) -> get_from_be info.be selector 
         | None -> 
           (match BackendMap.find_first_opt (fun _ -> true) o_be with 
-          | Some (_, info) -> get_from_be info.be encoding selector
-          | None -> Lwt.return (encoding, [])))
+          | Some (_, info) -> get_from_be info.be selector
+          | None -> Lwt.return []))
     
       | None -> Lwt.fail (YException (`UnkownAccessId (`Msg (AccessId.to_string access_id))))        
 
@@ -122,10 +121,8 @@ module SEngine = struct
     let module BE = (val be: Backend) in 
     BE.put kv
 
-  let put (engine: t Lwt_mvar.t) access_id (kv:KeyValue.t) = 
-    let (key, value) = kv in
-    let%lwt self = Apero.LwtM.read_mvar engine in 
-    
+  let put (engine: t Lwt_mvar.t) access_id (key:string) (value:Value.t) =     
+    let%lwt self = Apero.LwtM.read_mvar engine in     
     match AccessMap.find_opt access_id  self.accs with 
     | Some access -> 
       Lwt.try_bind 
@@ -133,7 +130,7 @@ module SEngine = struct
         (fun () -> 
           let _ = self.bes 
           |> BackendMap.filter (fun _ (info:backend_info) -> Path.is_prefix info.path (Path.of_string key))
-          |> BackendMap.iter (fun _ (info:backend_info) -> let _ = put_onto_be info.be (key,value) in ()) in
+          |> BackendMap.iter (fun _ (info:backend_info) -> let _ = put_onto_be info.be key value in ()) in
           Lwt.return_unit                              
         )
         (fun e -> Lwt.fail e)

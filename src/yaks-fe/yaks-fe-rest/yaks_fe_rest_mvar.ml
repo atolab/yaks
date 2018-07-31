@@ -3,8 +3,8 @@ open Yaks_core
 
 open Cohttp
 open Cohttp_lwt_unix
-(* open Lwt *)
 open LwtM.InfixM
+
 type config = { port : int }
 
 type t = 
@@ -271,18 +271,18 @@ let get_key_value fe access_id selector =
   match (AccessId.of_string access_id) with 
   | Some aid ->  
     SEngine.get fe.engine aid (Selector.of_string selector ) 
-    >>= fun (_, values) -> 
-      Server.respond_string ~status:`OK ~body:(json_string_of_values values) ()
+    >>= fun (kvs) -> 
+      Server.respond_string ~status:`OK ~body:(json_string_of_values kvs) ()
   | None -> invalid_access access_id
   
   
 
-let put_key_value fe access_id selector value =
-  Logs_lwt.debug (fun m -> m "[FER]   put_key_value %s %s\n%s" access_id selector value) >> 
+let put_key_value fe access_id selector (value: Value.t) =
+  Logs_lwt.debug (fun m -> m "[FER]   put_key_value %s %s\n%s" access_id selector (Value.to_string value)) >> 
   match AccessId.of_string access_id with 
   | Some aid -> 
     Lwt.try_bind 
-    (fun () -> SEngine.put fe.engine aid (KeyValue.make selector value)) 
+    (fun () -> SEngine.put fe.engine aid selector value) 
     (fun () -> Server.respond_string ~status:`No_content ~body:"" ())
     (fun _ -> no_matching_key selector)
   | None -> invalid_access access_id
@@ -443,10 +443,10 @@ let execute_data_operation fe meth selector headers body =
     get_key_value fe aid selector
   | (`PUT, Some(aid)) ->
     let%lwt value = Cohttp_lwt.Body.to_string body in
-    put_key_value fe aid selector value
+    put_key_value fe aid selector (Value.JSonValue value)
   | (`PATCH, Some(aid)) ->
     let%lwt value = Cohttp_lwt.Body.to_string body in
-    put_key_value fe aid selector value
+    put_key_value fe aid selector (Value.JSonValue value)
     (* put_delta_key_value fe aid selector value *)
   | (`DELETE, Some(_)) -> unsupported_operation meth selector
     (* remove_key_value fe aid selector *)

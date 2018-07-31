@@ -1,4 +1,4 @@
-module Property = Apero.KeyValueF.Make (String) (String)
+module Property = Apero.KeyValueF.Make (String) (String) [@@deriving show]
 
 module EventStream  = struct 
   include  Apero.EventStream
@@ -6,11 +6,11 @@ end
 
 module AccessId = struct 
  include Apero.Uuid
-end
+end [@@deriving show]
 
 module StorageId = struct 
   include Apero.Uuid
-end
+end [@@deriving show]
 
 module Path = struct
   type t = string
@@ -27,30 +27,38 @@ module Path = struct
   let is_prefix prefix path = Apero.String.starts_with (to_string prefix) (to_string path)
 
   let matches _ _ = true
-end
+end [@@deriving show]
 
 module SubscriberId = Apero.Id.Make (Int64)
 module PluginId = Apero.Id.Make (Int64)
 
 (* This should become parametrized through a functor *)
-module KeyValue =  Apero.KeyValueF.Make (String) (String) 
-
-type value_encoding = 
-  | Default_Encoding
-  | String_Encoding 
-  | Json_Encoding
-  | Binary_Encoding
-  | XML_Encoding
+module KeyValue =  Apero.KeyValueF.Make (String) (String) [@@deriving show]
 
 
-type error_kind = [`NoMsg | `Msg of string | `Code of int | `Pos of (string * int * int * int) | `Loc of string] [@@deriving show]  
+
+type error_info = [`NoMsg | `Msg of string | `Code of int | `Pos of (string * int * int * int) | `Loc of string] [@@deriving show]  
 
 type yerror = [
+  | `InsufficientStorage
+  | `Forbidden of error_info
+  | `InvalidParameters
+  | `UnknownStorage of error_info
+  | `UnknownAccess of error_info
+  | `UnknownStorageKind 
+  | `UnavailableStorageFactory of error_info
+  | `UnkownAccessId of error_info
+  | `StoreError of error_info
+  | `UnauthorizedAccess of error_info
+  | `UnsupportedTranscoding of error_info
+  | `UnsupportedOperation
+  ] [@@deriving show]
+(* type yerror = [
   | `UnknownStorageKind 
   | `UnavailableStorageFactory of error_kind
   | `UnkownAccessId of error_kind
   | `StoreError of error_kind
-  ] [@@deriving show]
+  ] [@@deriving show] *)
 
 exception YException of yerror [@@deriving show]
 
@@ -147,4 +155,62 @@ module Selector = struct
     in
     check_matching sel key
 
+end
+
+module Value = struct 
+  type encoding = 
+  | Raw_Encoding
+  | String_Encoding 
+  | Json_Encoding  
+
+  type t  = 
+  | RawValue of Lwt_bytes.t 
+  | StringValue of string
+  | JSonValue of string
+  
+  let make buf = function 
+  | Raw_Encoding -> RawValue buf
+  | String_Encoding -> StringValue (Lwt_bytes.to_string buf)
+  | Json_Encoding -> JSonValue (Lwt_bytes.to_string buf)
+
+  let update _ _ = Apero.Result.fail `UnsupportedOperation
+
+  let encoding = function 
+  | RawValue _ -> Raw_Encoding
+  | StringValue _ -> String_Encoding
+  | JSonValue _ -> Json_Encoding
+  
+  let to_raw_encoding = function
+  | RawValue _ as v -> Apero.Result.ok @@ v
+  | StringValue s -> Apero.Result.ok @@ RawValue  (Lwt_bytes.of_string s)
+  | JSonValue s -> Apero.Result.ok @@ RawValue (Lwt_bytes.of_string s)
+
+  let to_string_encoding = function 
+  | RawValue r  -> Apero.Result.ok @@ StringValue (Lwt_bytes.to_string r)
+  | StringValue _ as v  -> Apero.Result.ok @@ v
+  | JSonValue s -> Apero.Result.ok @@ StringValue s 
+
+  (* @TODO: Should really do the JSON validation *)
+  let to_json_encoding = function 
+  | RawValue r  -> Apero.Result.ok @@ JSonValue (Lwt_bytes.to_string r)
+  | StringValue s  -> Apero.Result.ok @@ JSonValue s
+  | JSonValue _ as v -> Apero.Result.ok @@ v
+
+  let transcode v = function   
+  | Raw_Encoding -> to_raw_encoding v
+  | String_Encoding -> to_string_encoding v
+  | Json_Encoding -> to_json_encoding v
+
+  let of_string s e = transcode (StringValue s)  e
+  let to_string  = function 
+  | RawValue r -> Lwt_bytes.to_string r
+  | StringValue s -> s 
+  | JSonValue j -> j 
+
+  let to_bytes  = function 
+  | RawValue r ->  r
+  | StringValue s -> Lwt_bytes.of_string s 
+  | JSonValue j -> Lwt_bytes.of_string j 
+
+  let of_bytes = make 
 end

@@ -15,8 +15,8 @@ module SEngine : sig
 
   val create_subscriber : t Lwt_mvar.t -> Path.t -> Selector.t -> bool -> SubscriberId.t Lwt.t  
 
-  val get : ?encoding:value_encoding -> t Lwt_mvar.t -> AccessId.t -> Selector.t -> (value_encoding * KeyValue.t list)  Lwt.t
-  val put : t Lwt_mvar.t -> AccessId.t -> KeyValue.t -> unit Lwt.t
+  val get : t Lwt_mvar.t -> AccessId.t -> Selector.t -> (string * Value.t) list  Lwt.t
+  val put : t Lwt_mvar.t -> AccessId.t -> string -> Value.t -> unit Lwt.t
 
   val add_backend_factory : t Lwt_mvar.t -> string -> (module BackendFactory) -> unit Lwt.t
 
