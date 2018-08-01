@@ -12,30 +12,12 @@ module StorageId = struct
   include Apero.Uuid
 end [@@deriving show]
 
-module Path = struct
-  type t = string
-  (* from https://tools.ietf.org/html/rfc3986#appendix-B *)
-  let path_regex = Str.regexp "[^?#]*"
-  
-  let is_valid s = Str.string_match path_regex s 0
-  
-  let of_string (s:string) : t = 
-    if is_valid s then s else raise (Invalid_argument s)
-
-  let to_string (s:t) : string = s
-
-  let is_prefix prefix path = Apero.String.starts_with (to_string prefix) (to_string path)
-
-  let matches _ _ = true
-end [@@deriving show]
 
 module SubscriberId = Apero.Id.Make (Int64)
 module PluginId = Apero.Id.Make (Int64)
 
 (* This should become parametrized through a functor *)
 module KeyValue =  Apero.KeyValueF.Make (String) (String) [@@deriving show]
-
-
 
 type error_info = [`NoMsg | `Msg of string | `Code of int | `Pos of (string * int * int * int) | `Loc of string] [@@deriving show]  
 
@@ -53,21 +35,48 @@ type yerror = [
   | `UnsupportedTranscoding of error_info
   | `UnsupportedOperation
   ] [@@deriving show]
-(* type yerror = [
-  | `UnknownStorageKind 
-  | `UnavailableStorageFactory of error_kind
-  | `UnkownAccessId of error_kind
-  | `StoreError of error_kind
-  ] [@@deriving show] *)
 
 exception YException of yerror [@@deriving show]
 
 
 open Str
 
+module Path = struct
+  type t = string
+  (* from https://tools.ietf.org/html/rfc3986#appendix-B *)
+  let prefix = Str.regexp "/\\(/[0-9A-za-z_-]+\\)+"
+  let path_regex = Str.regexp "[^?#]*"
+  
+  let is_valid s = Str.string_match path_regex s 0
+  
+  let is_key p = 
+    match Str.string_match prefix p 0 with
+    | true -> (Str.matched_string p) = p 
+    | false -> false
+  
+  let key p = 
+    match Str.string_match prefix p 0 with
+    | true -> if (Str.matched_string p) = p then (Some p) else None
+    | false -> None
+
+  let prefix p = 
+    match Str.string_match prefix p 0 with
+    | true -> Str.matched_string p
+    | false -> ""
+  
+  let of_string s = 
+    if is_valid s then Some s else None
+
+  let to_string s = s
+
+  let is_prefix prefix path = Apero.String.starts_with (to_string prefix) (to_string path)
+
+  let matches _ _ = true
+end [@@deriving show]
+
 module Selector = struct
 
-  type t = { path: string; query: string option; fragment: string option }
+  type t = { path: string; key: string option; query: string option; fragment: string option }
 
 
   (* from https://tools.ietf.org/html/rfc3986#appendix-B *)
@@ -75,16 +84,23 @@ module Selector = struct
 
   let is_valid s = Str.string_match sel_regex s 0
 
+  let key s = 
+    let open Apero.Option.Infix in 
+    Path.of_string s.path >>= fun p -> Path.key p
 
-  let of_string (s:string) : t = 
-    if is_valid s then
+  let of_string s = 
+    match is_valid s with
+    | true ->
       let path = Str.matched_group 1 s
       and query = try Some(Str.matched_group 3 s) with Not_found -> None
       and fragment = try Some(Str.matched_group 5 s) with Not_found -> None
       in
-      { path; query; fragment }
-    else 
-      raise (Invalid_argument s)
+      let key = 
+        let open Apero.Option.Infix in 
+        Path.of_string path >>= fun p -> Path.key p in
+      Some { path; key; query; fragment }
+    | false -> None
+      
 
   let to_string s =
     Printf.sprintf "%s%s%s" s.path 
@@ -117,7 +133,7 @@ module Selector = struct
       remove_last_slash @@ String.sub key 0 (String.length key-1)
 
 
-  let is_matching selector path =
+  let match_path selector path =
     let sel_path = remove_last_slash selector.path and key = remove_last_slash @@ Path.to_string path in
     let sel = full_split wildcard_regex sel_path in
     let rec check_matching sel key =
@@ -155,6 +171,10 @@ module Selector = struct
     in
     check_matching sel key
 
+  let match_string sel str = 
+    match Path.of_string str with 
+    | Some p -> match_path sel p
+    | None -> false
 end
 
 module Value = struct 

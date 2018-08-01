@@ -1,4 +1,12 @@
-let yaks_storage_kind = "yaks.storage.kind" 
-let yaks_auth_pn = "yaks.auth"
-let yaks_backend_kind = "yaks.backend.kind"
-let yaks_backend_memory = "yaks.backend.memory"
+(* let yaks_storage_kind = "yaks.storage.kind" *)
+
+(* Kind / Values for backends *)
+let yaks_backend = "yaks.backend"
+let yaks_backend_memory = "memory"
+(*
+  let yaks_backend_dbms = "dbms" (* any DBMS *)
+  let yaks_backend_dbms = "postgresql"
+  let yaks_backend_dbms = "mariadb"
+  let yaks_backend_dbms = "sqlite"
+*)
+let yaks_auth = "yaks.auth"

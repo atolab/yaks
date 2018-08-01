@@ -39,23 +39,26 @@ end [@@deriving show]
 
 module Path : sig
   type t
-  val of_string : string -> t
+  val is_key : t -> bool
+  val key : t -> string option
+  val prefix : t -> t
+  val of_string : string -> t option
   val to_string : t -> string
   val is_prefix : t -> t -> bool
   val matches : t -> t -> bool
 end [@@deriving show]
 
 module Selector : sig
-
   type t          
-  val of_string : string -> t
+  val of_string : string -> t option
   val to_string : t -> string
-  val path : t -> Path.t
+  val path : t -> Path.t option
+  val key : t -> string option
   val query : t -> string option
   val fragment : t -> string option
-  val is_matching : t -> Path.t -> bool
+  val match_path : t -> Path.t -> bool
+  val match_string : t -> string -> bool
 end [@@deriving show]
-
 
 type error_info = [`NoMsg | `Msg of string | `Code of int | `Pos of (string * int * int * int) | `Loc of string] [@@deriving show]  
 

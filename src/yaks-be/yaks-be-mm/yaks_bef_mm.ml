@@ -7,29 +7,46 @@ module MainMemoryBE = struct
     val encoding : Value.encoding
     val path : Path.t
   end
-  module Make (C : Config) = struct 
+  module Make (C : Config) (MVar : Apero.MVar) = struct 
+    open Lwt.Infix
     module SMap = Map.Make(String)
     
-    let mvar_self = Lwt_mvar.create SMap.empty
+    let mvar_self = MVar.create SMap.empty
     let kind = C.kind
     let path = C.path
 
-    let get selector = 
-      let%lwt self = Lwt_mvar.take mvar_self in 
-      Lwt.return (self 
-      |> SMap.filter (fun key _ -> Selector.is_matching selector (Path.of_string key))
-      |> SMap.to_seq 
-      |> List.of_seq)
+    let get selector =       
+      match Selector.key selector with 
+      | Some key -> 
+        MVar.read mvar_self 
+        >|= (fun self -> 
+          match SMap.find_opt key self with 
+          | Some v -> [(key, v)]
+          | None -> [])
+      | None -> 
+        MVar.read mvar_self 
+        >|= (fun self ->
+          self
+          |> SMap.filter (fun key _ -> Selector.match_string selector key)
+          |> SMap.bindings)
+      
+      
 
-    let put key value =        
+    let put (selector:Selector.t) (value:Value.t) =        
     (* Stores should potentailly convert the encoding for the value. 
            For the main memory, we keep the value in its original format 
            and just convert in the front-end when required *)        
-      match Path.is_prefix path (Path.of_string key) with 
-      | true ->         
-          let%lwt self = Lwt_mvar.take mvar_self in 
-          Lwt_mvar.put mvar_self (SMap.add key value self)         
-      | false -> Lwt.fail (YException (`StoreError (`Msg "Can't store key that does not prefix storage")))
+      match Selector.key selector with 
+      | Some key -> 
+        MVar.guarded mvar_self
+        (fun self -> Lwt.return (Lwt.return_unit, SMap.add key value self))        
+      | None -> 
+        MVar.guarded mvar_self
+        (fun self -> 
+          let matches = SMap.filter (fun key _ -> Selector.match_string selector key) self in 
+          let self' = SMap.fold (fun k _ s -> SMap.add k value s) matches self  in 
+          Lwt.return (Lwt.return_unit, self'))
+        
   end
 end 
 let make_memory_be path _ =
@@ -39,7 +56,7 @@ let make_memory_be path _ =
       let id = StorageId.next_id ()
       let encoding = Value.Raw_Encoding
       let path = path
-    end) in (module M : Backend)
+    end) (Apero.MVar_lwt) in (module M : Backend)
 
 module MainMemoryBEF = struct 
   let kind = Yaks_core.Memory

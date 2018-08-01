@@ -6,7 +6,7 @@ module type Backend = sig
   val kind : backend_kind
   val path : Path.t  
   val get : Selector.t -> (string * Value.t) list Lwt.t
-  val put : string -> Value.t -> unit Lwt.t   
+  val put : Selector.t -> Value.t -> unit Lwt.t   
 end
 
 module type BackendFactory  = sig 

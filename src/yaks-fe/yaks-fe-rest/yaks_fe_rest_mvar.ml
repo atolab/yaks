@@ -9,7 +9,7 @@ type config = { port : int }
 
 type t = 
   { cfg: config
-  ; engine: SEngine.t Lwt_mvar.t 
+  ; engine: YEngine.t 
   ; stop: unit Lwt.t
   ; stopper: unit Lwt.u
   ; mutable request_counter: int64 }
@@ -95,6 +95,9 @@ let invalid_access_id = invalid_access
 let invalid_storage_id id =
   Server.respond_error ~status:`Not_found ~body:("Invalid Storage Id  \""^id) ()
 
+let invalid_path p =
+  Server.respond_error ~status:`Not_found ~body:("Invalid Storage Path  \""^p) ()
+
 let storage_not_found id =
   Server.respond_error ~status:`Not_found ~body:("Storage \""^id^"\" not found") ()
 
@@ -107,6 +110,8 @@ let missing_cookie cookie_name =
 let no_matching_key selector =
   Server.respond_error ~status:`Not_found ~body:("No key found matching selector: "^selector) ()
 
+let invalid_selector s =
+  Server.respond_error ~status:`Not_found ~body:("Invalid Selector  \""^s) ()
 
 
 (**********************************)
@@ -117,7 +122,7 @@ let create_access_with_id fe (path:Path.t) cache_size access_id=
   let aid = AccessId.to_string access_id in 
   let%lwt _ = Logs_lwt.debug (fun m -> m "[FER]   create_access_with_id %s %s %Ld" aid (Path.to_string path) cache_size) in
   Lwt.try_bind 
-    (fun () -> SEngine.create_access_with_id fe.engine path cache_size access_id)
+    (fun () -> YEngine.create_access_with_id fe.engine path cache_size access_id)
     (fun () ->      
       
       Logs_lwt.debug (fun m -> m "Created Access with id : %s responding client" aid) >>      
@@ -130,7 +135,7 @@ let create_access_with_id fe (path:Path.t) cache_size access_id=
 let create_access fe (path:Path.t) cache_size =  
   let%lwt _ = Logs_lwt.debug (fun m -> m "[FER]   create_access %s %Ld"  (Path.to_string path) cache_size) in
   Lwt.try_bind 
-    (fun () -> SEngine.create_access fe.engine path cache_size)
+    (fun () -> YEngine.create_access fe.engine path cache_size)
     (fun access_id ->
       let aid = AccessId.to_string access_id in  
       Logs_lwt.debug (fun m -> m "Created Access with id : %s responding client" aid) >>      
@@ -145,7 +150,7 @@ let get_access fe access_id =
   let aid = AccessId.to_string access_id in 
   let%lwt _ = Logs_lwt.debug (fun m -> m "[FER]   get_access %s" aid) in
   
-  match%lwt SEngine.get_access fe.engine access_id with 
+  match%lwt YEngine.get_access fe.engine access_id with 
   | Some _ -> 
     let headers = Header.add_list (Header.init()) 
         [("Location", aid);
@@ -172,7 +177,7 @@ let dispose_access fe id =
     unexpected_reply x *)
 
 let create_storage_with_id fe path properties storage_id = 
-    SEngine.create_storage_with_id fe.engine (Path.of_string path) properties storage_id
+    YEngine.create_storage_with_id fe.engine path properties storage_id
     >>= fun () -> 
     let sid = StorageId.to_string storage_id in
     let headers = Header.add_list (Header.init())
@@ -181,7 +186,7 @@ let create_storage_with_id fe path properties storage_id =
     Server.respond_string ~status:`Created ~headers ~body:"" ()
 
 let create_storage fe path properties = 
-  SEngine.create_storage fe.engine (Path.of_string path) properties 
+  YEngine.create_storage fe.engine path properties 
   >>= fun id -> 
     let sid = StorageId.to_string id in
     let headers = Header.add_list (Header.init())
@@ -266,25 +271,26 @@ let unsubscribe fe access_id sub_id =
 
 let status_ok = `Ok
 
-let get_key_value fe access_id selector =
-  Logs_lwt.debug (fun m -> m "[FER]   get_key_value %s %s" access_id selector) >>
+let get_key_value fe access_id (selector: Selector.t) =
+  let%lwt _ = Logs_lwt.debug (fun m -> m "[FER]   get_key_value %s %s" access_id (Selector.to_string selector)) in
   match (AccessId.of_string access_id) with 
-  | Some aid ->  
-    SEngine.get fe.engine aid (Selector.of_string selector ) 
-    >>= fun (kvs) -> 
-      Server.respond_string ~status:`OK ~body:(json_string_of_values kvs) ()
+  | Some aid ->      
+      YEngine.get fe.engine aid selector
+      >>= fun (kvs) -> 
+        Server.respond_string ~status:`OK ~body:(json_string_of_values kvs) ()    
+    
   | None -> invalid_access access_id
   
   
 
-let put_key_value fe access_id selector (value: Value.t) =
-  Logs_lwt.debug (fun m -> m "[FER]   put_key_value %s %s\n%s" access_id selector (Value.to_string value)) >> 
+let put_key_value fe access_id (selector: Selector.t) (value: Value.t) =
+  let%lwt _ = Logs_lwt.debug (fun m -> m "[FER]   put_key_value %s %s\n%s" access_id (Selector.to_string selector) (Value.to_string value)) in
   match AccessId.of_string access_id with 
   | Some aid -> 
     Lwt.try_bind 
-    (fun () -> SEngine.put fe.engine aid selector value) 
+    (fun () -> YEngine.put fe.engine aid selector value) 
     (fun () -> Server.respond_string ~status:`No_content ~body:"" ())
-    (fun _ -> no_matching_key selector)
+    (fun _ -> no_matching_key (Selector.to_string selector))
   | None -> invalid_access access_id
   
 (* let put_delta_key_value fe access_id selector delta_value =
@@ -342,7 +348,10 @@ let execute_control_operation fe meth path query _ _ =
       | (None, None) -> missing_query (["path:string"; "cacheSize:int"])
       | (None, _)    -> missing_query (["path:string"])
       | (_, None)    -> missing_query (["cacheSize:int"])
-      | (Some(path), Some(cache_size)) -> create_access fe (Path.of_string path) cache_size
+      | (Some(path), Some(cache_size)) -> (
+        match Path.of_string path with 
+        | Some p -> create_access fe p cache_size
+        | None -> invalid_path path)
     )
   (* PUT /yaks/access/id ? path & cacheSize *)
   | (`PUT, ["yaks"; "access"; id]) -> (
@@ -355,7 +364,10 @@ let execute_control_operation fe meth path query _ _ =
       | (_, None)    -> missing_query (["cacheSize:int"])
       | (Some(path), Some(cache_size)) -> 
         match AccessId.of_string id with 
-        | Some access_id -> create_access_with_id fe (Path.of_string path) cache_size access_id
+        | Some access_id -> (
+          match Path.of_string path with 
+          |Some p -> create_access_with_id fe p cache_size access_id
+          | None -> invalid_path path)
         | None -> invalid_access id
     )
   (* GET /yaks/access *)
@@ -382,8 +394,11 @@ let execute_control_operation fe meth path query _ _ =
       match storage_path with
       | None -> missing_query (["path:string"])
       | Some(path) -> 
-        let properties = query |> List.filter (fun (n, _) -> n != "path") |> properties_of_query in        
-        create_storage fe path properties
+        (match Path.of_string path with 
+        | Some p -> 
+          let properties = query |> List.filter (fun (n, _) -> n != "path") |> properties_of_query in        
+          create_storage fe p properties
+        | None -> invalid_path path)
     )
   (* PUT /yaks/storages/id ? path & options... *)
   | (`PUT, ["yaks"; "storages"; id ]) -> (
@@ -393,9 +408,13 @@ let execute_control_operation fe meth path query _ _ =
       | None -> missing_query (["path:string"])
       | Some(path) -> 
         let properties = query |> List.filter (fun (n, _) -> n != "path") |> properties_of_query in
-        match StorageId.of_string id with 
-        | Some storage_id -> create_storage_with_id fe path properties storage_id 
-        | None -> invalid_storage_id id
+        (match StorageId.of_string id with 
+        | Some storage_id -> 
+          (match Path.of_string path with 
+          | Some p -> create_storage_with_id fe p properties storage_id 
+          | None -> invalid_path path)
+
+        | None -> invalid_storage_id id)
         (* unsupported_uri "ZZZ" *)
     )
   (* GET /yaks/storages *)
@@ -426,9 +445,13 @@ let execute_control_operation fe meth path query _ _ =
   (* Otherwise... *)
   | (_, _) -> String.concat "/" path |> unsupported_uri
 
-
-let execute_data_operation fe meth selector headers body =
-  Logs_lwt.debug (fun m -> m "(-- execute_data_operation --" ) >> 
+(* 
+  @AC: Julien, is this a selector or a path? The naming is inconsistent and 
+  conceptually it should be a selector. It would be good to know if that is the 
+  case and make changes accordingly
+ *)
+let execute_data_operation fe meth (selector: Selector.t) headers body =
+  let%lwt _ = Logs_lwt.debug (fun m -> m "(-- execute_data_operation --" ) in 
   let open Apero.Option.Infix in
   let access_id = 
     Cookie.Cookie_hdr.extract headers
@@ -440,17 +463,19 @@ let execute_data_operation fe meth selector headers body =
   | (_, None) ->
     missing_cookie cookie_name_access_id
   | (`GET, Some(aid)) ->
+    let%lwt _ = Logs_lwt.debug (fun m -> m "(-- get_key_value --" ) in 
     get_key_value fe aid selector
   | (`PUT, Some(aid)) ->
     let%lwt value = Cohttp_lwt.Body.to_string body in
-    put_key_value fe aid selector (Value.JSonValue value)
+    put_key_value fe aid selector (Value.JSonValue value)     
+    
   | (`PATCH, Some(aid)) ->
     let%lwt value = Cohttp_lwt.Body.to_string body in
     put_key_value fe aid selector (Value.JSonValue value)
     (* put_delta_key_value fe aid selector value *)
-  | (`DELETE, Some(_)) -> unsupported_operation meth selector
+  | (`DELETE, Some(_)) -> unsupported_operation meth (Selector.to_string selector)
     (* remove_key_value fe aid selector *)
-  | _ -> unsupported_operation meth selector
+  | _ -> unsupported_operation meth (Selector.to_string selector)
 
 
 let execute_http_request fe req body =
@@ -472,7 +497,10 @@ let execute_http_request fe req body =
     let normalized_path = path |> String.split_on_char '/' |> List.filter (fun s -> String.length s > 0) in
     execute_control_operation fe meth normalized_path query headers body
   else
-    execute_data_operation fe meth path headers body
+    (match Selector.of_string path with 
+    | Some selector -> execute_data_operation fe meth selector headers body
+    | None -> invalid_path path)
+    
 
 
 let create cfg engine = 
@@ -483,7 +511,7 @@ let create cfg engine =
 let start fe =
   let _ = Logs_lwt.debug (fun m -> m "[FER] REST-FE starting HTTP server on port %d" fe.cfg.port) in
   let callback _conn req body = execute_http_request fe req body in
-  Server.create ~stop:fe.stop ~mode:(`TCP (`Port fe.cfg.port)) (Server.make ~callback ())
+  Server.create ~stop:fe.stop  ~mode:(`TCP (`Port fe.cfg.port)) (Server.make ~callback ())
 
 
 let stop fe =

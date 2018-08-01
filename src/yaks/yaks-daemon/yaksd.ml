@@ -44,16 +44,16 @@ let yaksd () =
 
 let yaksd_mvar () = 
   let open Apero.LwtM.InfixM in 
-  let engine = SEngine.make () in     
+  let engine = YEngine.make () in     
   try%lwt 
-    SEngine.add_backend_factory engine (yaks_backend_memory) (module Yaks_bef_mm.MainMemoryBEF : BackendFactory) >>=
-    fun _ -> SEngine.create_storage engine (Path.of_string "/") [Property.make yaks_backend_kind yaks_backend_memory] >>=
+    YEngine.add_backend_factory engine (yaks_backend_memory) (module Yaks_bef_mm.MainMemoryBEF : BackendFactory) >>=
+    fun _ -> YEngine.create_storage engine (Apero.Option.get @@ Path.of_string "/") [Property.make yaks_backend yaks_backend_memory] >>=
     fun _ ->
       let restfecfg = Yaks_fe_rest_mvar.{ port = 8000 } in
       let restfe = Yaks_fe_rest_mvar.create restfecfg  engine in Yaks_fe_rest_mvar.start restfe
   with 
   | YException e  -> Logs_lwt.err (fun m -> m "%s" (show_yerror e)) >> Lwt.return_unit
-  | _ -> Logs_lwt.err (fun m -> m "Unknown Error raised") >> Lwt.return_unit
+  | exn -> Logs_lwt.err (fun m -> m "Exception %s raised" (Printexc.to_string exn)) >> Lwt.return_unit
 
   
 
