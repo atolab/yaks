@@ -288,10 +288,14 @@ let put_key_value fe access_id (selector: Selector.t) (value: Value.t) =
   match AccessId.of_string access_id with 
   | Some aid -> 
     Lwt.try_bind 
-    (fun () -> YEngine.put fe.engine aid selector value) 
+    (fun () -> 
+      let%lwt _ = Logs_lwt.debug (fun m -> m "[FER]   put_key_value calling YEngine.put") in
+      YEngine.put fe.engine aid selector value) 
     (fun () -> Server.respond_string ~status:`No_content ~body:"" ())
     (fun _ -> no_matching_key (Selector.to_string selector))
-  | None -> invalid_access access_id
+  | None -> 
+    let%lwt _ = Logs_lwt.warn (fun m -> m "[FER]   put_key_value failed due to invalid access id %s\n" access_id) in
+    invalid_access access_id
   
 (* let put_delta_key_value fe access_id selector delta_value =
   let%lwt _ = Logs_lwt.debug (fun m -> m "[FER]   put_delta_key_value %s %s" access_id selector) in

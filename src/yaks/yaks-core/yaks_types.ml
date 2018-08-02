@@ -44,7 +44,7 @@ open Str
 module Path = struct
   type t = string
   (* from https://tools.ietf.org/html/rfc3986#appendix-B *)
-  let prefix = Str.regexp "/\\(/[0-9A-za-z_-]+\\)+"
+  let prefix = Str.regexp "\\(/[0-9A-za-z_-]+\\)+"
   let path_regex = Str.regexp "[^?#]*"
   
   let is_valid s = Str.string_match path_regex s 0
@@ -55,8 +55,12 @@ module Path = struct
     | false -> false
   
   let key p = 
+    let _ = Logs_lwt.debug (fun m -> m "Key for path: -%s-" p) in
     match Str.string_match prefix p 0 with
-    | true -> if (Str.matched_string p) = p then (Some p) else None
+    | true -> 
+      let ms = Str.matched_string p in 
+      let _ = Logs_lwt.debug (fun m -> m "Matched Key = %s" ms) in
+      if ms = p then (Some p) else None
     | false -> None
 
   let prefix p = 
@@ -84,10 +88,8 @@ module Selector = struct
 
   let is_valid s = Str.string_match sel_regex s 0
 
-  let key s = 
-    let open Apero.Option.Infix in 
-    Path.of_string s.path >>= fun p -> Path.key p
-
+  let key s = s.key
+  
   let of_string s = 
     match is_valid s with
     | true ->
@@ -107,7 +109,7 @@ module Selector = struct
       (match s.query with | Some(q) -> "?"^q | None -> "")
       (match s.fragment with | Some(f) -> "#"^f | None -> "")
 
-  let path s = Path.of_string s.path
+  let path s = Apero.Option.get @@ Path.of_string s.path
 
   let query s = s.query
 

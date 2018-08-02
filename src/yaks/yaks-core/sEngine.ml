@@ -148,17 +148,18 @@ module SEngine = struct
       let module BE = (val be: Backend) in 
       BE.put kv
 
-    let put (engine: t) access_id (key:Selector.t) (value:Value.t) =     
+    let put (engine: t) access_id (selector:Selector.t) (value:Value.t) =     
+      let%lwt _ = Logs_lwt.debug (fun m -> m "[YE]: put") in      
       MVar.read engine 
       >>= fun self ->       
         match AccessMap.find_opt access_id  self.accs with 
         | Some access -> 
           Lwt.try_bind 
-            (fun () -> check_write_access self access key)
+            (fun () -> check_write_access self access selector)
             (fun () -> 
               let _ = self.bes 
-              |> BackendMap.filter (fun _ (info:backend_info) -> Selector.match_path key info.path )
-              |> BackendMap.iter (fun _ (info:backend_info) -> let _ = put_onto_be info.be key value in ()) in
+              |> BackendMap.filter (fun _ (info:backend_info) -> Path.is_prefix info.path (Selector.path selector))                
+              |> BackendMap.iter (fun _ (info:backend_info) -> let _ = put_onto_be info.be selector value in ()) in
               Lwt.return_unit                              
             )
             (fun e -> Lwt.fail e)

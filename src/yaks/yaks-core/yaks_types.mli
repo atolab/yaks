@@ -52,7 +52,7 @@ module Selector : sig
   type t          
   val of_string : string -> t option
   val to_string : t -> string
-  val path : t -> Path.t option
+  val path : t -> Path.t
   val key : t -> string option
   val query : t -> string option
   val fragment : t -> string option
