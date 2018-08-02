@@ -50,7 +50,40 @@ module MainMemoryBE = struct
           let matches = SMap.filter (fun key _ -> Selector.match_string selector key) self in 
           let self' = SMap.fold (fun k _ s -> SMap.add k value s) matches self  in 
           Lwt.return (Lwt.return_unit, self'))
-        
+    
+    let try_update v d = match Value.update v d with
+      | Ok r -> r
+      | Error _ -> v 
+
+    let put_delta selector delta =       
+      match Selector.key selector with 
+      | Some key -> 
+        let%lwt _ = Logs_lwt.debug (fun m -> m "mmbe.put_delta k:%s v:%s" key (Value.to_string delta)) in
+        MVar.guarded mvar_self
+        @@ fun self -> 
+          (match SMap.find_opt key self with 
+          | Some v -> Lwt.return (Lwt.return_unit, SMap.add key (try_update v delta) self)        
+          | None -> Lwt.return (Lwt.return_unit, SMap.add key delta self))        
+      | None -> 
+        let%lwt _ = Logs_lwt.debug (fun m -> m "mmbe.put_delta s:%s v:%s" (Selector.to_string selector) (Value.to_string delta)) in
+        MVar.guarded mvar_self
+        @@ fun self -> 
+          let matches = SMap.filter (fun key _ -> Selector.match_string selector key) self in           
+          let self' = SMap.fold (fun k v s -> SMap.add k (try_update v delta) s) matches self  in 
+          Lwt.return (Lwt.return_unit, self')
+
+
+    let remove selector = 
+      match Selector.key selector with 
+      | Some key -> 
+        MVar.guarded mvar_self 
+        @@ fun self -> Lwt.return (Lwt.return_unit, SMap.remove key self)
+      | None -> 
+        MVar.guarded mvar_self 
+        @@ fun self -> 
+          let matches = SMap.filter (fun key _ -> Selector.match_string selector key) self in     
+          let self' = SMap.fold (fun k _ s -> SMap.remove k s) matches self in 
+          Lwt.return (Lwt.return_unit, self')              
   end
 end 
 let make_memory_be path _ =

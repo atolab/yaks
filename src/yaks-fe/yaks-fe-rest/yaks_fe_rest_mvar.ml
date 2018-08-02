@@ -159,22 +159,11 @@ let get_access fe access_id =
   | None -> 
     access_not_found aid 
 
-(*
-let dispose_access fe id =
-  let%lwt _ = Logs_lwt.debug (fun m -> m "[FER]   dispose_access %s" id) in
-  let msg = Dispose { 
-      cid = next_request_counter fe;
-      entity_id = AccessId(id)
-    }
-  in
-  push_to_engine fe msg
-  >>= function
-  | Ok{cid=_; entity_id=_} ->
-    Server.respond_string ~status:`No_content ~body:"" ()
-  | Error{cid=_; reason=404} ->
-    access_not_found id
-  | x ->
-    unexpected_reply x *)
+let dispose_access fe access_id = 
+  (* Intentionally do not give hint when an access_id does not exist.
+     The operation always succeeds *)
+  YEngine.dispose_access fe.engine access_id 
+  >>= fun () -> Server.respond_string ~status:`No_content ~body:"" ()
 
 let create_storage_with_id fe path properties storage_id = 
     YEngine.create_storage_with_id fe.engine path properties storage_id
@@ -194,24 +183,14 @@ let create_storage fe path properties =
          (set_cookie cookie_name_storage_id sid)] in
     Server.respond_string ~status:`Created ~headers ~body:"" ()
 
-(* 
+let dispose_storage fe storage_id = 
+  (* Intentionally do not give hint when an access_id does not exist.
+     The operation always succeeds *)
+  YEngine.dispose_storage fe.engine storage_id 
+  >>= fun () -> Server.respond_string ~status:`No_content ~body:"" ()
 
-let dispose_storage fe id =
-  let%lwt _ = Logs_lwt.debug (fun m -> m "[FER]   dispose_storage %s" id) in
-  let msg = Dispose { 
-      cid = next_request_counter fe;
-      entity_id = StorageId(id)
-    }
-  in
-  push_to_engine fe msg
-  >>= function
-  | Ok {cid=_; entity_id=_} ->
-    Server.respond_string ~status:`No_content ~body:"" ()
-  | Error {cid=_; reason=404} ->
-    storage_not_found id
-  | x ->
-    unexpected_reply x
 
+(*
 let subscribe fe access_id selector = 
   let%lwt _ = Logs_lwt.debug (fun m -> m "[FER]   subscribe %s %s" access_id selector) in
   let msg = Create { 
@@ -271,50 +250,34 @@ let unsubscribe fe access_id sub_id =
 
 let status_ok = `Ok
 
-let get_key_value fe access_id (selector: Selector.t) =
-  let%lwt _ = Logs_lwt.debug (fun m -> m "[FER]   get_key_value %s %s" access_id (Selector.to_string selector)) in
-  match (AccessId.of_string access_id) with 
-  | Some aid ->      
-      YEngine.get fe.engine aid selector
-      >>= fun (kvs) -> 
-        Server.respond_string ~status:`OK ~body:(json_string_of_values kvs) ()    
-    
-  | None -> invalid_access access_id
+let get_key_value fe (access_id:AccessId.t) (selector: Selector.t) =
+  let%lwt _ = Logs_lwt.debug (fun m -> m "[FER]   get_key_value %s %s" (AccessId.to_string access_id) (Selector.to_string selector)) in
+  YEngine.get fe.engine access_id selector
+  >>= fun (kvs) -> 
+    Server.respond_string ~status:`OK ~body:(json_string_of_values kvs) ()    
   
   
 
-let put_key_value fe access_id (selector: Selector.t) (value: Value.t) =
-  let%lwt _ = Logs_lwt.debug (fun m -> m "[FER]   put_key_value %s %s\n%s" access_id (Selector.to_string selector) (Value.to_string value)) in
-  match AccessId.of_string access_id with 
-  | Some aid -> 
+let put fe (access_id:AccessId.t) (selector: Selector.t) (value: Value.t) =
+  let%lwt _ = Logs_lwt.debug (fun m -> m "[FER]   put %s %s\n%s" (AccessId.to_string access_id) (Selector.to_string selector) (Value.to_string value)) in
     Lwt.try_bind 
     (fun () -> 
-      let%lwt _ = Logs_lwt.debug (fun m -> m "[FER]   put_key_value calling YEngine.put") in
-      YEngine.put fe.engine aid selector value) 
+      let%lwt _ = Logs_lwt.debug (fun m -> m "[FER]   put calling YEngine.put") in
+      YEngine.put fe.engine access_id selector value) 
     (fun () -> Server.respond_string ~status:`No_content ~body:"" ())
     (fun _ -> no_matching_key (Selector.to_string selector))
-  | None -> 
-    let%lwt _ = Logs_lwt.warn (fun m -> m "[FER]   put_key_value failed due to invalid access id %s\n" access_id) in
-    invalid_access access_id
   
-(* let put_delta_key_value fe access_id selector delta_value =
-  let%lwt _ = Logs_lwt.debug (fun m -> m "[FER]   put_delta_key_value %s %s" access_id selector) in
-  let msg = Patch { 
-      cid = next_request_counter fe;
-      access_id = AccessId(access_id);
-      key = selector;
-      value=delta_value
-    }
-  in
-  push_to_engine fe msg
-  >>= function
-  | Ok {cid=_; _} ->
-    Server.respond_string ~status:`No_content ~body:"" ()
-  | Error {cid=_; reason=404} ->
-    no_matching_key selector
-  | x ->
-    unexpected_reply x
 
+let put_delta  fe (access_id:AccessId.t) selector delta =  
+  let%lwt _ = Logs_lwt.debug (fun m -> m "[FER]   put_delta %s %s\n%s" (AccessId.to_string access_id) (Selector.to_string selector) (Value.to_string delta)) in  
+    Lwt.try_bind 
+    (fun () -> 
+      let%lwt _ = Logs_lwt.debug (fun m -> m "[FER]   put calling YEngine.put_delta") in
+      YEngine.put_delta fe.engine access_id selector delta) 
+    (fun () -> Server.respond_string ~status:`No_content ~body:"" ())
+    (fun _ -> no_matching_key (Selector.to_string selector))
+
+(*
 let remove_key_value fe access_id selector =
   let%lwt _ = Logs_lwt.debug (fun m -> m "[FER]   put_delta_key_value %s %s" access_id selector) in
   let msg = Remove { 
@@ -457,12 +420,12 @@ let execute_control_operation fe meth path query _ _ =
 let execute_data_operation fe meth (selector: Selector.t) headers body =
   let%lwt _ = Logs_lwt.debug (fun m -> m "(-- execute_data_operation --" ) in 
   let open Apero.Option.Infix in
-  let access_id = 
-    Cookie.Cookie_hdr.extract headers
+
+  let access_id : AccessId.t option = 
+    (Cookie.Cookie_hdr.extract headers
     |> List.find_opt (fun (key, _) -> key = cookie_name_access_id)
-       >== fun (_, value) -> value
-  in
-  let%lwt _ = Logs_lwt.debug (fun m -> m "[FER]  request on access %s" (Option.get_or_default access_id "!!NO_ID!!")) in
+       >== fun (_, value) -> value) >>= (fun aid -> AccessId.of_string aid) in  
+  
   match (meth, access_id) with
   | (_, None) ->
     missing_cookie cookie_name_access_id
@@ -471,11 +434,11 @@ let execute_data_operation fe meth (selector: Selector.t) headers body =
     get_key_value fe aid selector
   | (`PUT, Some(aid)) ->
     let%lwt value = Cohttp_lwt.Body.to_string body in
-    put_key_value fe aid selector (Value.JSonValue value)     
+    put fe aid selector (Value.JSonValue value)     
     
   | (`PATCH, Some(aid)) ->
     let%lwt value = Cohttp_lwt.Body.to_string body in
-    put_key_value fe aid selector (Value.JSonValue value)
+    put fe aid selector (Value.JSonValue value)
     (* put_delta_key_value fe aid selector value *)
   | (`DELETE, Some(_)) -> unsupported_operation meth (Selector.to_string selector)
     (* remove_key_value fe aid selector *)

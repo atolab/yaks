@@ -13,15 +13,21 @@ module SEngine = struct
     val create_access : t  -> Path.t -> int64 ->  AccessId.t Lwt.t
     val create_access_with_id : t -> Path.t -> int64 ->  AccessId.t -> unit Lwt.t
     val get_access : t -> AccessId.t -> AccessId.t option Lwt.t
+    val dispose_access : t -> AccessId.t -> unit Lwt.t
 
     val create_storage : t -> Path.t -> Property.t list -> StorageId.t Lwt.t 
     val create_storage_with_id : t -> Path.t -> Property.t list -> StorageId.t -> unit Lwt.t 
     val get_storage : t -> StorageId.t -> StorageId.t option Lwt.t
+    val dispose_storage : t -> StorageId.t -> unit Lwt.t
 
     val create_subscriber : t -> Path.t -> Selector.t -> bool -> SubscriberId.t Lwt.t  
 
     val get : t -> AccessId.t -> Selector.t -> (string * Value.t) list  Lwt.t
+
     val put : t -> AccessId.t -> Selector.t -> Value.t -> unit Lwt.t
+    val put_delta : t -> AccessId.t -> Selector.t -> Value.t -> unit Lwt.t
+
+    val remove : t -> AccessId.t -> Selector.t -> unit Lwt.t
 
     val add_backend_factory : t -> string -> (module BackendFactory) -> unit Lwt.t
   end
@@ -65,11 +71,31 @@ module SEngine = struct
       ; befs = BackendFactoryMap.empty 
       ; accs = AccessMap.empty }
 
+    (* @TODO: Implement read/write check  *)
+    let check_write_access _ _ _ (*self access path*) = Lwt.return_unit
+    let check_read_access (* self access selector *) _ _ (_ : Selector.t) = Lwt.return_unit  
+    (* Checks if the access can read data addressed by this selector. It 
+      returns a Lwt.fail with the proper exception set if the rights are not 
+      sufficient *)
+
+    let get_matching_bes (self:state) (access_id:AccessId.t) (selector: Selector.t) = 
+       match AccessMap.find_opt access_id  self.accs with 
+        | Some access -> 
+          Lwt.try_bind 
+            (fun () -> check_write_access self access selector)
+            (fun () -> 
+              Lwt.return @@
+              BackendMap.filter 
+                (fun _ (info:backend_info) -> Path.is_prefix info.path (Selector.path selector)) 
+                self.bes)
+            (fun e -> Lwt.fail e)
+        | None -> Lwt.fail (YException (`UnkownAccessId (`Msg (AccessId.to_string access_id))))
+
     let create_access_with_id engine path cache_size access_id = 
       let%lwt _ = Logs_lwt.debug (fun m -> m "Engine.create_access path: %s " (Path.to_string path)) in    
       let info = { uid = access_id ; path ; cache_size } in 
       MVar.guarded engine
-        (fun self -> Lwt.return (Lwt.return_unit, {self with accs = (AccessMap.add access_id info self.accs)}))
+        (fun self -> MVar.return () {self with accs = (AccessMap.add access_id info self.accs)})
 
     let create_access engine path cache_size = 
       let%lwt _ = Logs_lwt.debug (fun m -> m "Engine.create_access path: %s " (Path.to_string path)) in
@@ -80,12 +106,18 @@ module SEngine = struct
       MVar.read engine      
       >|= fun self -> Apero.Option.bind (AccessMap.find_opt access_id self.accs) (fun _ -> Some access_id)
 
+    let dispose_access engine access_id = 
+      MVar.guarded engine @@ 
+      fun self -> 
+        let self' = {self with accs =  AccessMap.remove access_id self.accs } in 
+        MVar.return () self'
+
     let create_storage_with_id engine path properties storage_id =                 
       match List.find_opt (fun p -> Property.key p = yaks_backend) properties with 
       | Some (_,v) -> 
         let _ = Logs_lwt.debug (fun m -> m "SEngine:  create %s storage\n" v) in      
         MVar.guarded engine 
-        (fun (self:state) -> 
+        @@ fun (self:state) -> 
           (match BackendFactoryMap.find_opt v  self.befs with
           | Some bef -> 
             let module BEF = (val bef : BackendFactory) in 
@@ -95,10 +127,9 @@ module SEngine = struct
               ; uid = storage_id
               ; path
               ; be = bem } in 
-           Lwt.return (Lwt.return_unit, {self with bes = (BackendMap.add storage_id be_info self.bes)})
-          
+           MVar.return () {self with bes = (BackendMap.add storage_id be_info self.bes)}          
           | None ->           
-            Lwt.return (Lwt.fail @@ YException (`UnavailableStorageFactory (`Msg v)), self)))                        
+            MVar.return_lwt (Lwt.fail @@ YException (`UnavailableStorageFactory (`Msg v))) self)
       | None -> Lwt.fail @@ YException `UnknownStorageKind
 
     let create_storage engine path properties =     
@@ -111,14 +142,15 @@ module SEngine = struct
       (fun self -> Lwt.return
         (Apero.Option.bind (BackendMap.find_opt storage_id self.bes) (fun _ -> Some storage_id)))
 
+    let dispose_storage engine storage_id = 
+      MVar.guarded engine 
+      @@ fun self -> 
+        let self' = {self with bes =  BackendMap.remove storage_id self.bes } in 
+        MVar.return () self'
+
     let create_subscriber _ _ _ _ = Lwt.return @@  SubscriberId.next_id ()
     
-    (* @TODO: Implement read/write check  *)
-    let check_write_access _ _ _ (*self access path*) = Lwt.return_unit
-    let check_read_access (* self access selector *) _ _ (_ : Selector.t) = Lwt.return_unit  
-    (* Checks if the access can read data addressed by this selector. It 
-      returns a Lwt.fail with the proper exception set if the rights are not 
-      sufficient *)
+   
 
     let get_from_be be selector = 
       let module BE = (val be : Backend) in 
@@ -144,9 +176,16 @@ module SEngine = struct
         | None -> Lwt.fail (YException (`UnkownAccessId (`Msg (AccessId.to_string access_id))))        
 
 
-    let put_onto_be be kv = 
+    let be_put be selector = 
       let module BE = (val be: Backend) in 
-      BE.put kv
+      BE.put selector
+
+    let be_put_delta be selector = 
+      let module BE = (val be: Backend) in 
+      BE.put_delta selector
+
+    let be_remove be = 
+      let module BE = (val be: Backend) in BE.remove
 
     let put (engine: t) access_id (selector:Selector.t) (value:Value.t) =     
       let%lwt _ = Logs_lwt.debug (fun m -> m "[YE]: put") in      
@@ -159,18 +198,42 @@ module SEngine = struct
             (fun () -> 
               let _ = self.bes 
               |> BackendMap.filter (fun _ (info:backend_info) -> Path.is_prefix info.path (Selector.path selector))                
-              |> BackendMap.iter (fun _ (info:backend_info) -> let _ = put_onto_be info.be selector value in ()) in
+              |> BackendMap.iter (fun _ (info:backend_info) -> let _ = be_put info.be selector value in ()) in
               Lwt.return_unit                              
             )
             (fun e -> Lwt.fail e)
         | None -> Lwt.fail (YException (`UnkownAccessId (`Msg (AccessId.to_string access_id))))
 
+    let put_delta engine access_id selector value = 
+    let%lwt _ = Logs_lwt.debug (fun m -> m "[YE]: put_delta") in      
+      MVar.read engine 
+      >>= fun self ->       
+        match AccessMap.find_opt access_id  self.accs with 
+        | Some access -> 
+          Lwt.try_bind 
+            (fun () -> check_write_access self access selector)
+            (fun () -> 
+              let _ = self.bes 
+              |> BackendMap.filter (fun _ (info:backend_info) -> Path.is_prefix info.path (Selector.path selector))                
+              |> BackendMap.iter (fun _ (info:backend_info) -> let _ = be_put_delta info.be selector value in ()) in
+              Lwt.return_unit                              
+            )
+            (fun e -> Lwt.fail e)
+        | None -> Lwt.fail (YException (`UnkownAccessId (`Msg (AccessId.to_string access_id))))
+
+    let remove engine access_id selector = 
+      let%lwt self = MVar.read engine in       
+      get_matching_bes self access_id selector 
+      >>= fun bes -> 
+        Lwt.return @@ BackendMap.iter (fun _ bei -> Lwt.ignore_result @@ be_remove bei.be selector) bes 
+      
+        
+
     let add_backend_factory engine name factory =  
       Logs_lwt.debug (fun m -> m "add_backend_factory : %s" name) >>
       MVar.guarded engine 
-      (fun self ->         
-        Lwt.return (Lwt.return_unit, { self with befs = BackendFactoryMap.add name factory self.befs }))
-      
+      @@ fun self ->         
+        MVar.return () { self with befs = BackendFactoryMap.add name factory self.befs }
   end
 
 end
