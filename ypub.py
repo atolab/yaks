@@ -5,6 +5,7 @@ from time import time
 from colorama import Fore
 from colorama import Style
 import sys
+import statistics
 
 
 def main(times, ip, port):
@@ -46,10 +47,11 @@ def main(times, ip, port):
             print(f'[{Fore.RED}FAILED{Style.RESET_ALL}] Run {i}')
         finally:
             i = i + 1
-
+    print('Results:')
     print('Successful: {} Failed: {}'.format(successed,failed))
-    print('Results Total: {} Min: {} Max: {} Avg:{}'.format(sum(resp_times),min(resp_times),max(resp_times),sum(resp_times)/len(resp_times)))
-
+    print('Total: {} \nMin: {} \nMax: {} \nAvg: {}'.format(sum(resp_times),min(resp_times),max(resp_times),statistics.mean(resp_times)))
+    print(f'Variance: {statistics.variance(resp_times)}')
+    print(f'Std Deviation: {statistics.stdev(resp_times)}')
 
 if __name__ == "__main__":
     if len(sys.argv) < 4:
