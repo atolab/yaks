@@ -9,7 +9,7 @@ import statistics
 
 def main(times, ip, port):
 
-    SERVER = f'http://{ip}:{port}/'
+    SERVER = 'http://{}:{}/'.format(ip,port)
 
     token = time()
 
@@ -38,27 +38,27 @@ def main(times, ip, port):
             resp_times.append(timetaken)
             successed = successed+1
             results.append(0)
-            print(f'[{Fore.GREEN}SUCCESS{Style.RESET_ALL}] Run {i}')
+            print('[{}SUCCESS{}] Run {}'.format(Fore.GREEN,Style.RESET_ALL,i))
         except:
             failed = failed + 1
             results.append(-1)
-            print(f'[{Fore.RED}FAILED{Style.RESET_ALL}] Run {i}')
+            print('[{}FAILED{}] Run {}'.format(Fore.RED,Style.RESET_ALL,i))
         finally:
             i = i + 1
 
     print('Results:')
     print('Successful: {} Failed: {}'.format(successed,failed))
-    print(f'Success Rate: {(float(successed)/float(tries))*100}%')
+    print('Success Rate: {}%'.format((float(successed)/float(tries))*100))
     print('Total: {} \nMin: {} \nMax: {} \nAvg: {}'.format(sum(resp_times),min(resp_times),max(resp_times),statistics.mean(resp_times)))
-    print(f'Variance: {statistics.variance(resp_times)}')
-    print(f'Std Deviation: {statistics.stdev(resp_times)}')
-    print(f'Saving results into MAT file -> get_results-{token}.mat')
+    print('Variance: {}'.format(statistics.variance(resp_times)))
+    print('Std Deviation: {}'.format(statistics.stdev(resp_times)))
+    print('Saving results into MAT file -> get_results-{}.mat'.format(token))
     data = {   
         'get_total_tries':tries,
         'get_response_times': resp_times,
         'get_results':results    
     }
-    scipy.io.savemat(f'get_results-{token}.mat',data)
+    scipy.io.savemat('get_results-{}.mat'.format(token),data)
 
 if __name__ == "__main__":
     if len(sys.argv) < 4:
