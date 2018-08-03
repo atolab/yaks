@@ -1,4 +1,5 @@
 open Yaks_types
+open Yaks_property
 
 type backend_kind = Memory | Disk
 

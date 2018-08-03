@@ -1,7 +1,3 @@
-module Property : sig 
-  include (module type of Apero.KeyValueF.Make (String) (String))
-end [@@deriving show]
-
 module EventStream  : sig 
   include (module type of Apero.EventStream)
 end 
