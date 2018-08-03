@@ -6,11 +6,13 @@ from colorama import Fore
 from colorama import Style
 import sys
 import statistics
+import scipy.io
 
 
 def main(times, ip, port):
 
     SERVER = f'http://{ip}:{port}/'
+    token = time()
     #print ("Creating storage /afos/0/1/\n")
 
     uri = SERVER+'yaks/storages?path=/afos/0/1/&yaks.backend=memory'
@@ -29,6 +31,7 @@ def main(times, ip, port):
     #input('Press enter to send {} values and calculate response time'.format(tries))
     successed = 0
     failed = 0 
+    results = []
     resp_times = []
     while i < tries:
         #print('Press enter to put a random value to /afos/0/1/data-{}'.format(i))
@@ -41,17 +44,28 @@ def main(times, ip, port):
             timetaken = time() - starttime
             resp_times.append(timetaken)
             successed = successed+1
+            results.append(0)
             print(f'[{Fore.GREEN}SUCCESS{Style.RESET_ALL}] Run {i}')
         except:
             failed = failed + 1
+            results.append(-1)
             print(f'[{Fore.RED}FAILED{Style.RESET_ALL}] Run {i}')
         finally:
             i = i + 1
     print('Results:')
     print('Successful: {} Failed: {}'.format(successed,failed))
+    print(f'Success Rate: {(float(successed)/float(tries))*100}%')
     print('Total: {} \nMin: {} \nMax: {} \nAvg: {}'.format(sum(resp_times),min(resp_times),max(resp_times),statistics.mean(resp_times)))
     print(f'Variance: {statistics.variance(resp_times)}')
     print(f'Std Deviation: {statistics.stdev(resp_times)}')
+    print(f'Saving results into MAT file -> put_results-{token}.mat')
+
+    data = {
+        'put_total_tries':tries,
+        'put_response_times': resp_times,
+        'put_results':results    
+    }
+    scipy.io.savemat(f'put_results-{token}.mat',data)
 
 if __name__ == "__main__":
     if len(sys.argv) < 4:

@@ -11,6 +11,8 @@ def main(times, ip, port):
 
     SERVER = f'http://{ip}:{port}/'
 
+    token = time()
+
     uri = SERVER+'yaks/access?path=/afos/0/1/&cacheSize=100'
     resp = requests.post(uri)
     access_id = resp.cookies.get('is.yaks.access')
@@ -22,6 +24,7 @@ def main(times, ip, port):
     resp_times = []
     successed = 0
     failed = 0 
+    results = []
     while i < tries:
         cookies = {'is.yaks.access':access_id}
         uri = SERVER + 'afos/0/1/data-{}'.format(i)
@@ -34,18 +37,28 @@ def main(times, ip, port):
             timetaken = time() - starttime
             resp_times.append(timetaken)
             successed = successed+1
+            results.append(0)
             print(f'[{Fore.GREEN}SUCCESS{Style.RESET_ALL}] Run {i}')
         except:
             failed = failed + 1
+            results.append(-1)
             print(f'[{Fore.RED}FAILED{Style.RESET_ALL}] Run {i}')
         finally:
             i = i + 1
 
     print('Results:')
     print('Successful: {} Failed: {}'.format(successed,failed))
+    print(f'Success Rate: {(float(successed)/float(tries))*100}%')
     print('Total: {} \nMin: {} \nMax: {} \nAvg: {}'.format(sum(resp_times),min(resp_times),max(resp_times),statistics.mean(resp_times)))
     print(f'Variance: {statistics.variance(resp_times)}')
     print(f'Std Deviation: {statistics.stdev(resp_times)}')
+    print(f'Saving results into MAT file -> get_results-{token}.mat')
+    data = {   
+        'get_total_tries':tries,
+        'get_response_times': resp_times,
+        'get_results':results    
+    }
+    scipy.io.savemat(f'get_results-{token}.mat',data)
 
 if __name__ == "__main__":
     if len(sys.argv) < 4:
