@@ -62,6 +62,6 @@ def main(times, ip, port):
 
 if __name__ == "__main__":
     if len(sys.argv) < 4:
-        print(f'[Usage] {sys.argv[0]} <tries> <server> <port>')
+        print('[Usage] {} <tries> <server> <port>'.format(sys.argv[0]))
     else:
         main(int(sys.argv[1]),sys.argv[2],sys.argv[3])
