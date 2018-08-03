@@ -6,6 +6,7 @@ from colorama import Fore
 from colorama import Style
 import sys
 import statistics
+import scipy.io
 
 def main(times, ip, port):
 
