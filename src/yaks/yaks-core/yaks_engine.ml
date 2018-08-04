@@ -1,5 +1,6 @@
 open Yaks_types
 open Yaks_property
+open Yaks_access
 open Yaks_be 
 open Apero.LwtM.InfixM
 
@@ -10,10 +11,10 @@ module SEngine = struct
     type t 
       
     val make : unit -> t 
-    val create_access : t  -> Path.t -> int64 ->  AccessId.t Lwt.t
-    val create_access_with_id : t -> Path.t -> int64 ->  AccessId.t -> unit Lwt.t
-    val get_access : t -> AccessId.t -> AccessId.t option Lwt.t
-    val dispose_access : t -> AccessId.t -> unit Lwt.t
+    val create_access : t  -> Path.t -> int64 ->  Access.Id.t Lwt.t
+    val create_access_with_id : t -> Path.t -> int64 ->  Access.Id.t -> unit Lwt.t
+    val get_access : t -> Access.Id.t -> Access.Id.t option Lwt.t
+    val dispose_access : t -> Access.Id.t -> unit Lwt.t
 
     val create_storage : t -> Path.t -> Property.t list -> StorageId.t Lwt.t 
     val create_storage_with_id : t -> Path.t -> Property.t list -> StorageId.t -> unit Lwt.t 
@@ -22,12 +23,12 @@ module SEngine = struct
 
     val create_subscriber : t -> Path.t -> Selector.t -> bool -> SubscriberId.t Lwt.t  
 
-    val get : t -> AccessId.t -> Selector.t -> (string * Value.t) list  Lwt.t
+    val get : t -> Access.Id.t -> Selector.t -> (string * Value.t) list  Lwt.t
 
-    val put : t -> AccessId.t -> Selector.t -> Value.t -> unit Lwt.t
-    val put_delta : t -> AccessId.t -> Selector.t -> Value.t -> unit Lwt.t
+    val put : t -> Access.Id.t -> Selector.t -> Value.t -> unit Lwt.t
+    val put_delta : t -> Access.Id.t -> Selector.t -> Value.t -> unit Lwt.t
 
-    val remove : t -> AccessId.t -> Selector.t -> unit Lwt.t
+    val remove : t -> Access.Id.t -> Selector.t -> unit Lwt.t
 
     val add_backend_factory : t -> string -> (module BackendFactory) -> unit Lwt.t
   end
@@ -40,14 +41,14 @@ module SEngine = struct
       ; be : (module Backend) }
 
     type access_info = 
-      { uid : AccessId.t 
+      { uid : Access.Id.t 
       ; path : Path.t 
       ; cache_size : int64 } 
       (* at some point we may also keep a list of  backend_info matching this access  *)
     
     module BackendFactoryMap = Map.Make (String)  
     module BackendMap  = Map.Make (StorageId)
-    module AccessMap = Map.Make (AccessId)
+    module AccessMap = Map.Make (Access.Id)
     
 
     type state = 
@@ -58,7 +59,7 @@ module SEngine = struct
     type t = state MVar.t
     
     (* 
-    let create_access engine path cache_size = (engine, Lwt.return @@ AccessId.next_id ())
+    let create_access engine path cache_size = (engine, Lwt.return @@ Access.Id.next_id ())
     let create_storage engine path properties = (engine, Lwt.return   @@ StorageId.next_id ()  )
     let create_subscriber engine path selector push = (engine, Lwt.return @@  SubscriberId.next_id ()) 
     let add_back_end engine be_name be_module = (engine, Lwt.return_unit)
@@ -80,7 +81,7 @@ module SEngine = struct
       sufficient *)
     type access_check = state -> access_info -> Selector.t -> unit Lwt.t
 
-    let get_matching_bes (self:state) (access_id:AccessId.t) (selector: Selector.t) (access_controller : access_check)  = 
+    let get_matching_bes (self:state) (access_id : Access.Id.t) (selector: Selector.t) (access_controller : access_check)  = 
        match AccessMap.find_opt access_id  self.accs with 
         | Some access -> 
           Lwt.try_bind 
@@ -91,7 +92,10 @@ module SEngine = struct
                 (fun _ (info:backend_info) -> Path.is_prefix info.path (Selector.path selector)) 
                 self.bes)
             (fun e -> Lwt.fail e)
-        | None -> Lwt.fail (YException (`UnkownAccessId (`Msg (AccessId.to_string access_id))))
+        | None -> 
+          let ei : error_info = `Msg (Access.Id.to_string access_id) in 
+          let err : yerror = `UnknownAccess ei in 
+          Lwt.fail @@ YException err
 
     let create_access_with_id engine path cache_size access_id = 
       let%lwt _ = Logs_lwt.debug (fun m -> m "Engine.create_access path: %s " (Path.to_string path)) in    
@@ -101,7 +105,7 @@ module SEngine = struct
 
     let create_access engine path cache_size = 
       let%lwt _ = Logs_lwt.debug (fun m -> m "Engine.create_access path: %s " (Path.to_string path)) in
-      let uid = AccessId.next_id () in 
+      let uid = Access.Id.next_id () in 
       create_access_with_id engine path cache_size uid >|= fun () -> uid    
       
     let get_access engine access_id = 

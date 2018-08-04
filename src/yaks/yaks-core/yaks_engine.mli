@@ -1,4 +1,5 @@
 open Yaks_types
+open Yaks_access
 open Yaks_property
 open Yaks_be
 
@@ -8,10 +9,10 @@ module SEngine : sig
     type t 
       
     val make : unit -> t 
-    val create_access : t  -> Path.t -> int64 ->  AccessId.t Lwt.t
-    val create_access_with_id : t -> Path.t -> int64 ->  AccessId.t -> unit Lwt.t
-    val get_access : t -> AccessId.t -> AccessId.t option Lwt.t
-    val dispose_access : t -> AccessId.t -> unit Lwt.t
+    val create_access : t  -> Path.t -> int64 ->  Access.Id.t Lwt.t
+    val create_access_with_id : t -> Path.t -> int64 ->  Access.Id.t -> unit Lwt.t
+    val get_access : t -> Access.Id.t -> Access.Id.t option Lwt.t
+    val dispose_access : t -> Access.Id.t -> unit Lwt.t
 
     val create_storage : t -> Path.t -> Property.t list -> StorageId.t Lwt.t 
     val create_storage_with_id : t -> Path.t -> Property.t list -> StorageId.t -> unit Lwt.t 
@@ -20,12 +21,12 @@ module SEngine : sig
 
     val create_subscriber : t -> Path.t -> Selector.t -> bool -> SubscriberId.t Lwt.t  
 
-    val get : t -> AccessId.t -> Selector.t -> (string * Value.t) list  Lwt.t
+    val get : t -> Access.Id.t -> Selector.t -> (string * Value.t) list  Lwt.t
     
-    val put : t -> AccessId.t -> Selector.t -> Value.t -> unit Lwt.t
-    val put_delta : t -> AccessId.t -> Selector.t -> Value.t -> unit Lwt.t
+    val put : t -> Access.Id.t -> Selector.t -> Value.t -> unit Lwt.t
+    val put_delta : t -> Access.Id.t -> Selector.t -> Value.t -> unit Lwt.t
 
-    val remove : t -> AccessId.t -> Selector.t -> unit Lwt.t
+    val remove : t -> Access.Id.t -> Selector.t -> unit Lwt.t
     
     val add_backend_factory : t -> string -> (module BackendFactory) -> unit Lwt.t
   end

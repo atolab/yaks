@@ -1,6 +1,6 @@
 open Apero
 open Yaks_core
-
+open Yaks_access
 open Cohttp
 open Cohttp_lwt_unix
 open LwtM.InfixM
@@ -119,7 +119,7 @@ let invalid_selector s =
 (**********************************)
 
 let create_access_with_id fe (path:Path.t) cache_size access_id= 
-  let aid = AccessId.to_string access_id in 
+  let aid = Access.Id.to_string access_id in 
   let%lwt _ = Logs_lwt.debug (fun m -> m "[FER]   create_access_with_id %s %s %Ld" aid (Path.to_string path) cache_size) in
   Lwt.try_bind 
     (fun () -> YEngine.create_access_with_id fe.engine path cache_size access_id)
@@ -137,7 +137,7 @@ let create_access fe (path:Path.t) cache_size =
   Lwt.try_bind 
     (fun () -> YEngine.create_access fe.engine path cache_size)
     (fun access_id ->
-      let aid = AccessId.to_string access_id in  
+      let aid = Access.Id.to_string access_id in  
       Logs_lwt.debug (fun m -> m "Created Access with id : %s responding client" aid) >>      
       let headers = Header.add_list (Header.init()) 
         [("Location", aid);
@@ -147,7 +147,7 @@ let create_access fe (path:Path.t) cache_size =
 
 
 let get_access fe access_id =
-  let aid = AccessId.to_string access_id in 
+  let aid = Access.Id.to_string access_id in 
   let%lwt _ = Logs_lwt.debug (fun m -> m "[FER]   get_access %s" aid) in
   
   match%lwt YEngine.get_access fe.engine access_id with 
@@ -189,6 +189,14 @@ let dispose_storage fe storage_id =
   YEngine.dispose_storage fe.engine storage_id 
   >>= fun () -> Server.respond_string ~status:`No_content ~body:"" ()
 
+(* @AC: We should add subscriptions only once we'll have a front-end that can 
+        deal with them. Notice that subscriptions introduce potentially concurrent
+        notification from the Engine to the front-end. 
+
+        Perhaps the right way to do this is to have the front-end 
+        provide a "push" function to the engine and then deal with it.
+
+ *)
 
 (*
 let subscribe fe access_id selector = 
@@ -250,16 +258,16 @@ let unsubscribe fe access_id sub_id =
 
 let status_ok = `Ok
 
-let get_key_value fe (access_id:AccessId.t) (selector: Selector.t) =
-  let%lwt _ = Logs_lwt.debug (fun m -> m "[FER]   get_key_value %s %s" (AccessId.to_string access_id) (Selector.to_string selector)) in
+let get_key_value fe (access_id:Access.Id.t) (selector: Selector.t) =
+  let%lwt _ = Logs_lwt.debug (fun m -> m "[FER]   get_key_value %s %s" (Access.Id.to_string access_id) (Selector.to_string selector)) in
   YEngine.get fe.engine access_id selector
   >>= fun (kvs) -> 
     Server.respond_string ~status:`OK ~body:(json_string_of_values kvs) ()    
   
   
 
-let put fe (access_id:AccessId.t) (selector: Selector.t) (value: Value.t) =
-  let%lwt _ = Logs_lwt.debug (fun m -> m "[FER]   put %s %s\n%s" (AccessId.to_string access_id) (Selector.to_string selector) (Value.to_string value)) in
+let put fe (access_id:Access.Id.t) (selector: Selector.t) (value: Value.t) =
+  let%lwt _ = Logs_lwt.debug (fun m -> m "[FER]   put %s %s\n%s" (Access.Id.to_string access_id) (Selector.to_string selector) (Value.to_string value)) in
     Lwt.try_bind 
     (fun () -> 
       let%lwt _ = Logs_lwt.debug (fun m -> m "[FER]   put calling YEngine.put") in
@@ -268,8 +276,8 @@ let put fe (access_id:AccessId.t) (selector: Selector.t) (value: Value.t) =
     (fun _ -> no_matching_key (Selector.to_string selector))
   
 
-let put_delta  fe (access_id:AccessId.t) selector delta =  
-  let%lwt _ = Logs_lwt.debug (fun m -> m "[FER]   put_delta %s %s\n%s" (AccessId.to_string access_id) (Selector.to_string selector) (Value.to_string delta)) in  
+let put_delta  fe (access_id:Access.Id.t) selector delta =  
+  let%lwt _ = Logs_lwt.debug (fun m -> m "[FER]   put_delta %s %s\n%s" (Access.Id.to_string access_id) (Selector.to_string selector) (Value.to_string delta)) in  
     Lwt.try_bind 
     (fun () -> 
       let%lwt _ = Logs_lwt.debug (fun m -> m "[FER]   put calling YEngine.put_delta") in
@@ -282,7 +290,7 @@ let remove_key_value fe access_id selector =
   let%lwt _ = Logs_lwt.debug (fun m -> m "[FER]   put_delta_key_value %s %s" access_id selector) in
   let msg = Remove { 
       cid = next_request_counter fe;
-      access_id = AccessId(access_id);
+      access_id = Access.Id(access_id);
       key = selector;
     }
   in
@@ -330,7 +338,7 @@ let execute_control_operation fe meth path query _ _ =
       | (None, _)    -> missing_query (["path:string"])
       | (_, None)    -> missing_query (["cacheSize:int"])
       | (Some(path), Some(cache_size)) -> 
-        match AccessId.of_string id with 
+        match Access.Id.of_string id with 
         | Some access_id -> (
           match Path.of_string path with 
           |Some p -> create_access_with_id fe p cache_size access_id
@@ -344,7 +352,7 @@ let execute_control_operation fe meth path query _ _ =
     )
   (* GET /yaks/access/id *)
   | (`GET, ["yaks"; "access"; id]) -> (
-      match AccessId.of_string id with 
+      match Access.Id.of_string id with 
       | Some access_id -> get_access fe access_id
       | None -> invalid_access id
       
@@ -421,10 +429,10 @@ let execute_data_operation fe meth (selector: Selector.t) headers body =
   let%lwt _ = Logs_lwt.debug (fun m -> m "(-- execute_data_operation --" ) in 
   let open Apero.Option.Infix in
 
-  let access_id : AccessId.t option = 
+  let access_id : Access.Id.t option = 
     (Cookie.Cookie_hdr.extract headers
     |> List.find_opt (fun (key, _) -> key = cookie_name_access_id)
-       >== fun (_, value) -> value) >>= (fun aid -> AccessId.of_string aid) in  
+       >== fun (_, value) -> value) >>= (fun aid -> Access.Id.of_string aid) in  
   
   match (meth, access_id) with
   | (_, None) ->

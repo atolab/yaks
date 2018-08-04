@@ -1,7 +1,7 @@
 module EventStream  : sig 
   include (module type of Apero.EventStream)
 end 
-
+(* 
 module AccessId : sig 
   type t
   val make : unit -> t
@@ -12,7 +12,7 @@ module AccessId : sig
   val to_bytes : t -> string
   val of_string : ?pos:int -> string -> t option
   val to_string : ?upper:bool -> t -> string
-end [@@deriving show]
+end [@@deriving show] *)
 
 module StorageId : sig 
   type t
