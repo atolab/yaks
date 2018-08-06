@@ -13,16 +13,20 @@ module Group : sig
     val to_string : ?upper:bool -> t -> string
   end [@@deriving show]
 
+
+  type group_level =  Admins | Users
+
   type t = 
     { id : Id.t 
     ; name : string
     ; rw_paths : Selector.t list
     ; r_paths : Selector.t list
     ; w_paths : Selector.t list
+    ; group_level : group_level
     } 
 
 
-  val make : string -> Selector.t list -> Selector.t list -> Selector.t list ->  t 
+  val make : string -> Selector.t list -> Selector.t list -> Selector.t list -> group_level ->  t 
   (* val id : t -> Id.t 
   val name : t -> string
   val rw_paths : t -> Selector.t list

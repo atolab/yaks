@@ -17,17 +17,17 @@ module User : sig
     { id : Id.t 
     ; name : string
     ; password : string
-    ; groups : Group.Id.t list
+    ; group : Group.Id.t
     } 
 
 
-  val make : string -> string -> Group.Id.t list -> t 
+  val make : string -> string -> Group.Id.t -> t 
   (* val id : t -> Id.t 
   val name : t -> string
   val pwd : t -> string
   val groups : t -> Group.Id.t list *)
-  val add_group : t -> Group.Id.t -> t
-  val remove_group : t -> Group.Id.t -> t
+  (* val add_group : t -> Group.Id.t -> t
+  val remove_group : t -> Group.Id.t -> t *)
 
 
 end  [@@deriving show]

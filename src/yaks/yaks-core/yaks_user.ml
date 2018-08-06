@@ -11,18 +11,18 @@ module User = struct
     { id : Id.t 
     ; name : string
     ; password : string
-    ; groups : Group.Id.t list
+    ; group : Group.Id.t
     } 
 
-  let make name password groups = { id = Id.next_id (); name; password; groups }
+  let make name password group = { id = Id.next_id (); name; password; group }
   
   (* let id u = u.id
   let name u = u.name 
   let pwd u = u.password
   let groups u = u.groups *)
 
-  let add_group u gid = {u with groups = u.groups @ [gid]}
-  let remove_group u gid = {u with groups = List.filter (fun e -> e = gid) u.groups}
+  (* let add_group u gid = {u with groups = u.groups @ [gid]}
+  let remove_group u gid = {u with groups = List.filter (fun e -> e = gid) u.groups} *)
 
 
 end  [@@deriving show]

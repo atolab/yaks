@@ -5,16 +5,23 @@ module Group = struct
   module Id = struct
     include Apero.Uuid
   end [@@deriving show]
-  
+
+
+
+  type group_level =  Admins | Users
+
   type t = 
     { id : Id.t 
     ; name : string
     ; rw_paths : Selector.t list
     ; r_paths : Selector.t list
     ; w_paths : Selector.t list
+    ; group_level : group_level
     } 
 
-  let make name rw_paths r_paths w_paths = { id = Id.next_id (); name; rw_paths; r_paths; w_paths }
+
+
+  let make name rw_paths r_paths w_paths group_level = { id = Id.next_id (); name; rw_paths; r_paths; w_paths; group_level }
   
   (* let id g = g.id
   let name g = g.name  *)

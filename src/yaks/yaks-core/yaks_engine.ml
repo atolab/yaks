@@ -22,11 +22,11 @@ module SEngine = struct
     val get_storage : t -> StorageId.t -> StorageId.t option Lwt.t
     val dispose_storage : t -> StorageId.t -> unit Lwt.t
 
-    val create_group : t -> string -> Selector.t list -> Selector.t list -> Selector.t list -> Group.Id.t Lwt.t
-    val create_group_with_id : t -> string -> Selector.t list -> Selector.t list -> Selector.t list -> Group.Id.t -> unit Lwt.t
+    val create_group : t -> string -> Selector.t list -> Selector.t list -> Selector.t list -> Group.group_level -> Group.Id.t Lwt.t
+    val create_group_with_id : t -> string -> Selector.t list -> Selector.t list -> Selector.t list -> Group.group_level -> Group.Id.t -> unit Lwt.t
 
-    val create_user : t -> string -> string -> Group.Id.t list -> User.Id.t Lwt.t
-    val create_user_with_id : t -> string -> string -> Group.Id.t list -> User.Id.t -> unit Lwt.t
+    val create_user : t -> string -> string -> Group.Id.t -> User.Id.t Lwt.t
+    val create_user_with_id : t -> string -> string -> Group.Id.t -> User.Id.t -> unit Lwt.t
 
     val create_subscriber : t -> Path.t -> Selector.t -> bool -> SubscriberId.t Lwt.t  
 
@@ -124,33 +124,50 @@ module SEngine = struct
           let err : yerror = `UnknownAccess ei in
           Lwt.fail @@ YException err
 
-    let create_group_with_id engine name rw_paths r_paths w_paths group_id = 
+    let create_group_with_id engine name rw_paths r_paths w_paths level group_id = 
       let%lwt _ = Logs_lwt.debug (fun m -> m "Engine.create group id: %s " (Group.Id.to_string group_id)) in
-      let g = Group.{id=group_id; name=name; rw_paths=rw_paths; r_paths=r_paths; w_paths =w_paths} in
+      let g = Group.{id=group_id; name; rw_paths; r_paths; w_paths; group_level=level} in
       MVar.guarded engine 
         (fun self ->  MVar.return () {self with groups = (GroupMap.add group_id g self.groups)})
 
-    let create_group engine name rw_paths r_paths w_paths = 
+    let create_group engine name rw_paths r_paths w_paths level = 
       let%lwt _ = Logs_lwt.debug (fun m -> m "Engine.create group name: %s " name) in
       let uid = Group.Id.next_id () in
-      create_group_with_id engine name rw_paths r_paths w_paths uid >|= fun () -> uid
+      create_group_with_id engine name rw_paths r_paths w_paths level uid >|= fun () -> uid
     
-    let create_user_with_id engine name password groups user_id =
+    let create_user_with_id engine name password group user_id =
       let%lwt _ = Logs_lwt.debug (fun m -> m "Engine.create user id: %s " (User.Id.to_string user_id)) in
-      let u = User.{id=user_id; name; password; groups } in
+      let u = User.{id=user_id; name; password; group } in
       MVar.guarded engine 
         (fun self ->  MVar.return () {self with users = (UserMap.add user_id u self.users)})
 
-    let create_user engine name password groups = 
+    let create_user engine name password group = 
       let%lwt _ = Logs_lwt.debug (fun m -> m "Engine.create user name: %s " name) in
       let uid = User.Id.next_id () in
-      create_user_with_id engine name password groups uid >|= fun () -> uid
+      create_user_with_id engine name password group uid >|= fun () -> uid
 
-    let create_access_with_id engine path cache_size _ access_id = (* unsed is userid *)
+    let create_access_with_id engine path cache_size user_id access_id = (* unsed is userid *)
       let%lwt _ = Logs_lwt.debug (fun m -> m "Engine.create_access path: %s " (Path.to_string path)) in
-      let info = { uid = access_id ; path ; cache_size; right = RW_Mode } in (* At the moment the all access created with RW rights for the path *)
-      MVar.guarded engine
-        (fun self -> MVar.return () {self with accs = (AccessMap.add access_id info self.accs)})
+      (* Should get the user groups and depend on the group assign the rights for the access *)
+      (* The map between security token and userid should be managed at access level *)
+      (* An user is part of only one group *)
+      MVar.guarded engine 
+        @@ fun (self:state) -> 
+          (match UserMap.find_opt user_id self.users with
+          | Some u -> 
+                let g = GroupMap.find u.group self.groups in
+                let info = 
+                  (match (List.exists (fun ie -> Selector.match_path ie path) g.rw_paths),(List.exists (fun ie -> Selector.match_path ie path) g.r_paths),(List.exists (fun ie -> Selector.match_path ie path) g.w_paths) with
+                | (true,_,_) -> { uid = access_id ; path ; cache_size; right = RW_Mode }
+                | (false,true,false) -> { uid = access_id ; path ; cache_size; right = R_Mode}
+                | (false,false,true) -> { uid = access_id ; path ; cache_size; right = W_Mode}
+                | _ -> failwith "Error! On create_access_with_id when checking rights on the access is not matched in the pattern matching") (* TODO this is to remove *)
+                in
+                MVar.return () {self with accs = (AccessMap.add access_id info self.accs)}
+          | None -> 
+            let v = Printf.sprintf "User %s Unknown" @@ User.Id.to_string user_id in
+            MVar.return_lwt (Lwt.fail @@ YException (`Forbidden (`Msg v))) self)
+        
 
     let create_access engine path cache_size userid =
       let%lwt _ = Logs_lwt.debug (fun m -> m "Engine.create_access path: %s " (Path.to_string path)) in
