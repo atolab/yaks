@@ -11,13 +11,15 @@ module Access = struct
   type t = 
     { id : Id.t 
     ; path : Path.t 
-    ; cache_size : int64 } 
+    ; cache_size : int64
+    ; right : access_right } 
 
-  let make path cache_size = { id = Id.next_id (); path; cache_size }
+  let make path cache_size = { id = Id.next_id (); path; cache_size; right = RW_Mode }
   
   let id a = a.id
   let path a = a.path 
   let cache_size a = a.cache_size
+  let right a = a.right
 
   let check_access_right _ _ _ = Lwt.return_unit 
 

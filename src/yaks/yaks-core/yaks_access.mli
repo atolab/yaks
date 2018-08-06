@@ -21,6 +21,7 @@ module Access : sig
   val id : t -> Id.t 
   val path : t -> Path.t
   val cache_size : t -> int64
+  val right : t -> access_right
 
   val check_access_right : t -> Selector.t -> access_right -> unit Lwt.t
   (* [check_access_right] checks if the current access can access the data 

@@ -43,7 +43,8 @@ module SEngine = struct
     type access_info = 
       { uid : Access.Id.t 
       ; path : Path.t 
-      ; cache_size : int64 } 
+      ; cache_size : int64
+      ; right : Access.access_right } 
       (* at some point we may also keep a list of  backend_info matching this access  *)
     
     module BackendFactoryMap = Map.Make (String)  
@@ -73,8 +74,18 @@ module SEngine = struct
       ; accs = AccessMap.empty }
 
     (* @TODO: Implement read/write check  *)
-    let check_write_access _ _ _ (*self access_info path*) = Lwt.return_unit
-    let check_read_access (* self access_info selector *) _ _ (_ : Selector.t) = Lwt.return_unit  
+    let check_write_access _ access_info path (*self access_info path*) = 
+      match access_info.right with
+      | RW_Mode ->  Lwt.return_unit
+      | W_Mode -> Lwt.return_unit
+      | R_Mode -> Lwt.fail @@ YException (`UnauthorizedAccess (`Msg (Printf.sprintf "Cannot write to %s" (Selector.to_string path))))
+      
+    let check_read_access (* self access_info selector *) _ access_info (selector : Selector.t) =
+    match access_info.right with 
+    | R_Mode -> Lwt.return_unit
+    | RW_Mode -> Lwt.return_unit
+    | W_Mode -> Lwt.fail @@ YException (`UnauthorizedAccess (`Msg (Printf.sprintf "Cannot read from to %s" (Selector.to_string selector))))
+     
 
     (* Checks if the access can read data addressed by this selector. It 
       returns a Lwt.fail with the proper exception set if the rights are not 
@@ -98,8 +109,8 @@ module SEngine = struct
           Lwt.fail @@ YException err
 
     let create_access_with_id engine path cache_size access_id = 
-      let%lwt _ = Logs_lwt.debug (fun m -> m "Engine.create_access path: %s " (Path.to_string path)) in    
-      let info = { uid = access_id ; path ; cache_size } in 
+      let%lwt _ = Logs_lwt.debug (fun m -> m "Engine.create_access path: %s " (Path.to_string path)) in 
+      let info = { uid = access_id ; path ; cache_size; right = RW_Mode } in (* At the moment the a *)
       MVar.guarded engine
         (fun self -> MVar.return () {self with accs = (AccessMap.add access_id info self.accs)})
 
