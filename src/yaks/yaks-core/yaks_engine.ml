@@ -156,14 +156,20 @@ module SEngine = struct
           (match UserMap.find_opt user_id self.users with
           | Some u -> 
                 let g = GroupMap.find u.group self.groups in
-                let info = 
-                  (match (List.exists (fun ie -> Selector.match_path ie path) g.rw_paths),(List.exists (fun ie -> Selector.match_path ie path) g.r_paths),(List.exists (fun ie -> Selector.match_path ie path) g.w_paths) with
-                | (true,_,_) -> { uid = access_id ; path ; cache_size; right = RW_Mode }
-                | (false,true,false) -> { uid = access_id ; path ; cache_size; right = R_Mode}
-                | (false,false,true) -> { uid = access_id ; path ; cache_size; right = W_Mode}
-                | _ -> failwith "Error! On create_access_with_id when checking rights on the access is not matched in the pattern matching") (* TODO this is to remove *)
+                let create info =
+                  MVar.return () {self with accs = (AccessMap.add access_id info self.accs)}
                 in
-                MVar.return () {self with accs = (AccessMap.add access_id info self.accs)}
+                (match (List.exists (fun ie -> Selector.match_path ie path) g.rw_paths),(List.exists (fun ie -> Selector.match_path ie path) g.r_paths),(List.exists (fun ie -> Selector.match_path ie path) g.w_paths) with
+                | (true,_,_) -> create { uid = access_id ; path ; cache_size; right = RW_Mode }
+                | (false,true,false) ->create { uid = access_id ; path ; cache_size; right = R_Mode}
+                | (false,false,true) -> create { uid = access_id ; path ; cache_size; right = W_Mode}
+                | (false,false,false) -> 
+                  let v = Printf.sprintf "No rights for path %s" @@ Path.to_string path in
+                  MVar.return_lwt (Lwt.fail @@ YException (`Forbidden (`Msg v))) self
+                | _ -> 
+                  let v = Printf.sprintf "Group is ill formed no rights for path %s" @@ Path.to_string path in
+                  MVar.return_lwt (Lwt.fail @@ YException (`Forbidden (`Msg v))) self
+                )
           | None -> 
             let v = Printf.sprintf "User %s Unknown" @@ User.Id.to_string user_id in
             MVar.return_lwt (Lwt.fail @@ YException (`Forbidden (`Msg v))) self)
