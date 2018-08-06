@@ -4,6 +4,7 @@ open Yaks_access
 open Yaks_be 
 open Apero.LwtM.InfixM
 open Yaks_user
+open Yaks_group
 
 module SEngine = struct
 
@@ -11,8 +12,8 @@ module SEngine = struct
     type t 
       
     val make : unit -> t 
-    val create_access : t  -> Path.t -> int64 -> User.t ->  Access.Id.t Lwt.t
-    val create_access_with_id : t -> Path.t -> int64 -> User.t  -> Access.Id.t -> unit Lwt.t
+    val create_access : t  -> Path.t -> int64 -> User.Id.t ->  Access.Id.t Lwt.t
+    val create_access_with_id : t -> Path.t -> int64 -> User.Id.t  -> Access.Id.t -> unit Lwt.t
     val get_access : t -> Access.Id.t -> Access.Id.t option Lwt.t
     val dispose_access : t -> Access.Id.t -> unit Lwt.t
 
@@ -20,6 +21,12 @@ module SEngine = struct
     val create_storage_with_id : t -> Path.t -> Property.t list -> StorageId.t -> unit Lwt.t 
     val get_storage : t -> StorageId.t -> StorageId.t option Lwt.t
     val dispose_storage : t -> StorageId.t -> unit Lwt.t
+
+    val create_group : t -> string -> Selector.t list -> Selector.t list -> Selector.t list -> Group.Id.t Lwt.t
+    val create_group_with_id : t -> string -> Selector.t list -> Selector.t list -> Selector.t list -> Group.Id.t -> unit Lwt.t
+
+    val create_user : t -> string -> string -> Group.Id.t list -> User.Id.t Lwt.t
+    val create_user_with_id : t -> string -> string -> Group.Id.t list -> User.Id.t -> unit Lwt.t
 
     val create_subscriber : t -> Path.t -> Selector.t -> bool -> SubscriberId.t Lwt.t  
 
@@ -51,11 +58,17 @@ module SEngine = struct
     module BackendMap  = Map.Make (StorageId)
     module AccessMap = Map.Make (Access.Id)
     
+    module GroupMap = Map.Make(Group.Id)
+    module UserMap = Map.Make(User.Id) 
+
 
     type state = 
       { bes : backend_info BackendMap.t 
       ; befs : (module Yaks_be.BackendFactory) BackendFactoryMap.t 
-      ; accs : access_info AccessMap.t } 
+      ; accs : access_info AccessMap.t
+      ; groups : Group.t GroupMap.t
+      ; users : User.t UserMap.t
+     } 
       
     type t = state MVar.t
     
@@ -71,7 +84,10 @@ module SEngine = struct
       MVar.create 
       { bes = BackendMap.empty 
       ; befs = BackendFactoryMap.empty 
-      ; accs = AccessMap.empty }
+      ; accs = AccessMap.empty
+      ; groups = GroupMap.empty
+      ; users = UserMap.empty
+      }
 
     (* @TODO: Implement read/write check  *)
     let check_write_access _ access_info path (*self access_info path*) = 
@@ -81,7 +97,7 @@ module SEngine = struct
       | R_Mode -> Lwt.fail @@ YException (`UnauthorizedAccess (`Msg (Printf.sprintf "Cannot write to %s" (Selector.to_string path))))
       
     let check_read_access (* self access_info selector *) _ access_info (selector : Selector.t) =
-    match access_info.right with 
+    match access_info.right with
     | R_Mode -> Lwt.return_unit
     | RW_Mode -> Lwt.return_unit
     | W_Mode -> Lwt.fail @@ YException (`UnauthorizedAccess (`Msg (Printf.sprintf "Cannot read from to %s" (Selector.to_string selector))))
@@ -92,98 +108,120 @@ module SEngine = struct
       sufficient *)
     type access_check = state -> access_info -> Selector.t -> unit Lwt.t
 
-    let get_matching_bes (self:state) (access_id : Access.Id.t) (selector: Selector.t) (access_controller : access_check)  = 
-       match AccessMap.find_opt access_id  self.accs with 
-        | Some access -> 
-          Lwt.try_bind 
+    let get_matching_bes (self:state) (access_id : Access.Id.t) (selector: Selector.t) (access_controller : access_check) =
+       match AccessMap.find_opt access_id  self.accs with
+        | Some access ->
+          Lwt.try_bind
             (fun () -> access_controller self access selector)
-            (fun () -> 
+            (fun () ->
               Lwt.return @@
-              BackendMap.filter 
-                (fun _ (info:backend_info) -> Path.is_prefix info.path (Selector.path selector)) 
+              BackendMap.filter
+                (fun _ (info:backend_info) -> Path.is_prefix info.path (Selector.path selector))
                 self.bes)
             (fun e -> Lwt.fail e)
-        | None -> 
-          let ei : error_info = `Msg (Access.Id.to_string access_id) in 
-          let err : yerror = `UnknownAccess ei in 
+        | None ->
+          let ei : error_info = `Msg (Access.Id.to_string access_id) in
+          let err : yerror = `UnknownAccess ei in
           Lwt.fail @@ YException err
 
-    let create_access_with_id engine path cache_size _ access_id = 
-      let%lwt _ = Logs_lwt.debug (fun m -> m "Engine.create_access path: %s " (Path.to_string path)) in 
-      let info = { uid = access_id ; path ; cache_size; right = RW_Mode } in (* At the moment the a *)
+    let create_group_with_id engine name rw_paths r_paths w_paths group_id = 
+      let%lwt _ = Logs_lwt.debug (fun m -> m "Engine.create group id: %s " (Group.Id.to_string group_id)) in
+      let g = Group.{id=group_id; name=name; rw_paths=rw_paths; r_paths=r_paths; w_paths =w_paths} in
+      MVar.guarded engine 
+        (fun self ->  MVar.return () {self with groups = (GroupMap.add group_id g self.groups)})
+
+    let create_group engine name rw_paths r_paths w_paths = 
+      let%lwt _ = Logs_lwt.debug (fun m -> m "Engine.create group name: %s " name) in
+      let uid = Group.Id.next_id () in
+      create_group_with_id engine name rw_paths r_paths w_paths uid >|= fun () -> uid
+    
+    let create_user_with_id engine name password groups user_id =
+      let%lwt _ = Logs_lwt.debug (fun m -> m "Engine.create user id: %s " (User.Id.to_string user_id)) in
+      let u = User.{id=user_id; name; password; groups } in
+      MVar.guarded engine 
+        (fun self ->  MVar.return () {self with users = (UserMap.add user_id u self.users)})
+
+    let create_user engine name password groups = 
+      let%lwt _ = Logs_lwt.debug (fun m -> m "Engine.create user name: %s " name) in
+      let uid = User.Id.next_id () in
+      create_user_with_id engine name password groups uid >|= fun () -> uid
+
+    let create_access_with_id engine path cache_size _ access_id = (* unsed is userid *)
+      let%lwt _ = Logs_lwt.debug (fun m -> m "Engine.create_access path: %s " (Path.to_string path)) in
+      let info = { uid = access_id ; path ; cache_size; right = RW_Mode } in (* At the moment the all access created with RW rights for the path *)
       MVar.guarded engine
         (fun self -> MVar.return () {self with accs = (AccessMap.add access_id info self.accs)})
 
-    let create_access engine path cache_size user = 
+    let create_access engine path cache_size userid =
       let%lwt _ = Logs_lwt.debug (fun m -> m "Engine.create_access path: %s " (Path.to_string path)) in
-      let uid = Access.Id.next_id () in 
-      create_access_with_id engine path cache_size user uid >|= fun () -> uid    
+      let uid = Access.Id.next_id () in
+      create_access_with_id engine path cache_size userid uid >|= fun () -> uid
       
-    let get_access engine access_id = 
-      MVar.read engine      
+    let get_access engine access_id =
+      MVar.read engine
       >|= fun self -> Apero.Option.bind (AccessMap.find_opt access_id self.accs) (fun _ -> Some access_id)
 
-    let dispose_access engine access_id = 
-      MVar.guarded engine @@ 
-      fun self -> 
-        let self' = {self with accs =  AccessMap.remove access_id self.accs } in 
+    let dispose_access engine access_id =
+      MVar.guarded engine @@
+      fun self ->
+        let self' = {self with accs =  AccessMap.remove access_id self.accs } in
         MVar.return () self'
 
-    let create_storage_with_id engine path properties storage_id =                 
-      match get_property yaks_backend properties with 
-      | Some (_,v) -> 
-        let _ = Logs_lwt.debug (fun m -> m "SEngine:  create %s storage\n" v) in      
-        MVar.guarded engine 
-        @@ fun (self:state) -> 
+    let create_storage_with_id engine path properties storage_id =
+      match get_property yaks_backend properties with
+      | Some (_,v) ->
+        let _ = Logs_lwt.debug (fun m -> m "SEngine:  create %s storage\n" v) in
+        MVar.guarded engine
+        @@ fun (self:state) ->
           (match BackendFactoryMap.find_opt v self.befs with
-          | Some bef -> 
-            let module BEF = (val bef : BackendFactory) in 
+          | Some bef ->
+            let module BEF = (val bef : BackendFactory) in
             let bem =  BEF.make path properties in
-            let be_info = 
+            let be_info =
               { kind = BEF.kind
               ; uid = storage_id
               ; path
-              ; be = bem } in 
-           MVar.return () {self with bes = (BackendMap.add storage_id be_info self.bes)}          
-          | None ->           
+              ; be = bem } in
+           MVar.return () {self with bes = (BackendMap.add storage_id be_info self.bes)}
+          | None ->
             MVar.return_lwt (Lwt.fail @@ YException (`UnavailableStorageFactory (`Msg v))) self)
       | None -> Lwt.fail @@ YException `UnknownStorageKind
 
-    let create_storage engine path properties =     
-      let%lwt _ = Logs_lwt.debug (fun m -> m "Engine:  create %s storage\n" (Path.to_string path)) in      
-      let id = StorageId.next_id () in 
+    let create_storage engine path properties =
+      let%lwt _ = Logs_lwt.debug (fun m -> m "Engine:  create %s storage\n" (Path.to_string path)) in
+      let id = StorageId.next_id () in
       create_storage_with_id engine path properties id >|= fun () -> id
       
-    let get_storage engine storage_id = 
+    let get_storage engine storage_id =
       MVar.read engine >>=
       (fun self -> Lwt.return
         (Apero.Option.bind (BackendMap.find_opt storage_id self.bes) (fun _ -> Some storage_id)))
 
-    let dispose_storage engine storage_id = 
-      MVar.guarded engine 
-      @@ fun self -> 
-        let self' = {self with bes =  BackendMap.remove storage_id self.bes } in 
+    let dispose_storage engine storage_id =
+      MVar.guarded engine
+      @@ fun self ->
+        let self' = {self with bes =  BackendMap.remove storage_id self.bes } in
         MVar.return () self'
 
     let create_subscriber _ _ _ _ = Lwt.return @@  SubscriberId.next_id ()
     
    
-    let be_get be selector = 
-      let module BE = (val be : Backend) in 
+    let be_get be selector =
+      let module BE = (val be : Backend) in
       BE.get selector
 
-    let get engine access_id selector = 
-    let%lwt _ = Logs_lwt.debug (fun m -> m "[YE]: put") in      
+    let get engine access_id selector =
+    let%lwt _ = Logs_lwt.debug (fun m -> m "[YE]: put") in
       MVar.read engine 
-      >>= fun self ->       
+      >>= fun self ->
         get_matching_bes self access_id selector check_read_access
         >>= fun mbes -> 
-         let (m_be, o_be) = mbes          
-          |> BackendMap.partition (fun _ info -> info.kind = Yaks_be.Memory)  in 
+         let (m_be, o_be) = mbes
+          |> BackendMap.partition (fun _ info -> info.kind = Yaks_be.Memory) in
           (* Try to always resolve Get out of memory back-end if available *)
           (match BackendMap.find_first_opt (fun _ -> true) m_be with 
           | Some (_, info) -> be_get info.be selector 
-          | None -> 
+          | None ->
             (match BackendMap.find_first_opt (fun _ -> true) o_be with 
             | Some (_, info) -> be_get info.be selector
             | None -> Lwt.return []))
@@ -194,26 +232,26 @@ module SEngine = struct
       let module BE = (val be: Backend) in 
       BE.put selector 
 
-    let put (engine: t) access_id (selector:Selector.t) (value:Value.t) =     
-      let%lwt _ = Logs_lwt.debug (fun m -> m "[YE]: put") in      
+    let put (engine: t) access_id (selector:Selector.t) (value:Value.t) =
+      let%lwt _ = Logs_lwt.debug (fun m -> m "[YE]: put") in
       MVar.read engine 
-      >>= fun self ->       
+      >>= fun self ->
         get_matching_bes self access_id selector check_write_access
-        >>= fun mbes -> 
+        >>= fun mbes ->
           mbes |> BackendMap.iter (fun _ (info:backend_info) -> let _ = be_put info.be selector value in ()) 
           ; Lwt.return_unit
         
 
-    let be_put_delta be selector =   
+    let be_put_delta be selector =
       let module BE = (val be: Backend) in 
       BE.put_delta selector
     
     let put_delta engine access_id selector value = 
-    let%lwt _ = Logs_lwt.debug (fun m -> m "[YE]: put_delta") in      
+    let%lwt _ = Logs_lwt.debug (fun m -> m "[YE]: put_delta") in
       MVar.read engine 
-      >>= fun self ->       
+      >>= fun self ->
         get_matching_bes self access_id selector check_write_access
-        >>= fun mbes -> 
+        >>= fun mbes ->
           mbes |> BackendMap.iter (fun _ (info:backend_info) -> let _ = be_put_delta info.be selector value in ()) 
           ; Lwt.return_unit
 
@@ -221,15 +259,15 @@ module SEngine = struct
       let module BE = (val be: Backend) in BE.remove
 
     let remove engine access_id selector = 
-      let%lwt self = MVar.read engine in       
+      let%lwt self = MVar.read engine in
       get_matching_bes self access_id selector check_write_access
       >>= fun bes -> 
-        Lwt.return @@ BackendMap.iter (fun _ bei -> Lwt.ignore_result @@ be_remove bei.be selector) bes                 
+        Lwt.return @@ BackendMap.iter (fun _ bei -> Lwt.ignore_result @@ be_remove bei.be selector) bes
 
-    let add_backend_factory engine name factory =  
+    let add_backend_factory engine name factory =
       Logs_lwt.debug (fun m -> m "add_backend_factory : %s" name) >>
       MVar.guarded engine 
-      @@ fun self ->         
+      @@ fun self ->
         MVar.return () { self with befs = BackendFactoryMap.add name factory self.befs }
   end
 

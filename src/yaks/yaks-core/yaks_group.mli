@@ -1,4 +1,3 @@
-
 open Yaks_types
 
 module Group : sig 
@@ -14,15 +13,21 @@ module Group : sig
     val to_string : ?upper:bool -> t -> string
   end [@@deriving show]
 
-  type t 
+  type t = 
+    { id : Id.t 
+    ; name : string
+    ; rw_paths : Selector.t list
+    ; r_paths : Selector.t list
+    ; w_paths : Selector.t list
+    } 
 
 
   val make : string -> Selector.t list -> Selector.t list -> Selector.t list ->  t 
-  val id : t -> Id.t 
+  (* val id : t -> Id.t 
   val name : t -> string
   val rw_paths : t -> Selector.t list
   val r_paths : t -> Selector.t list 
-  val w_paths : t -> Selector.t list
+  val w_paths : t -> Selector.t list *)
 
 
 end  [@@deriving show]

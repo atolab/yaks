@@ -13,14 +13,19 @@ module User : sig
     val to_string : ?upper:bool -> t -> string
   end [@@deriving show]
 
-  type t 
+  type t = 
+    { id : Id.t 
+    ; name : string
+    ; password : string
+    ; groups : Group.Id.t list
+    } 
 
 
   val make : string -> string -> Group.Id.t list -> t 
-  val id : t -> Id.t 
+  (* val id : t -> Id.t 
   val name : t -> string
   val pwd : t -> string
-  val groups : t -> Group.Id.t list
+  val groups : t -> Group.Id.t list *)
   val add_group : t -> Group.Id.t -> t
   val remove_group : t -> Group.Id.t -> t
 

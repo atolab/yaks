@@ -23,6 +23,7 @@ let yaks_control_uri_prefix = "/"^yaks_control_keyword
 
 let cookie_name_access_id = "is.yaks.access"
 let cookie_name_storage_id = "is.yaks.storage"
+let cookie_name_user_id = "is.yaks.user"
 
 (**********************************)
 (*      helpers functions         *)
@@ -119,12 +120,11 @@ let invalid_selector s =
 (*      Control operations        *)
 (**********************************)
 
-let create_access_with_id fe (path:Path.t) cache_size access_id user pwd = 
+let create_access_with_id fe (path:Path.t) cache_size access_id user_id = 
   let aid = Access.Id.to_string access_id in 
-  let user = User.make user pwd [] in
   let%lwt _ = Logs_lwt.debug (fun m -> m "[FER]   create_access_with_id %s %s %Ld" aid (Path.to_string path) cache_size) in
   Lwt.try_bind 
-    (fun () -> YEngine.create_access_with_id fe.engine path cache_size user access_id)
+    (fun () -> YEngine.create_access_with_id fe.engine path cache_size user_id access_id)
     (fun () ->      
       
       Logs_lwt.debug (fun m -> m "Created Access with id : %s responding client" aid) >>      
@@ -134,11 +134,10 @@ let create_access_with_id fe (path:Path.t) cache_size access_id user pwd =
         Server.respond_string ~status:`Created ~headers ~body:"" ())
     (fun _ -> insufficient_storage cache_size)
 
-let create_access fe (path:Path.t) cache_size user pwd = 
-  let user = User.make user pwd [] in
+let create_access fe (path:Path.t) cache_size user_id = 
   let%lwt _ = Logs_lwt.debug (fun m -> m "[FER]   create_access %s %Ld"  (Path.to_string path) cache_size) in
   Lwt.try_bind 
-    (fun () -> YEngine.create_access fe.engine path cache_size user )
+    (fun () -> YEngine.create_access fe.engine path cache_size user_id )
     (fun access_id ->
       let aid = Access.Id.to_string access_id in  
       Logs_lwt.debug (fun m -> m "Created Access with id : %s responding client" aid) >>      
@@ -314,43 +313,45 @@ let remove_key_value fe access_id selector =
 (*   HTTP requests dispatching    *)
 (**********************************)
 (*let execute_control_operation fe meth path query headers body =  *)
-let execute_control_operation fe meth path query _ _ =
+let execute_control_operation fe meth path query headers _ =
   let%lwt _ = Logs_lwt.debug (fun m -> m "-- execute_control_operation --" ) in  
   match (meth, path) with
   (* POST /yaks/access ? path & cacheSize *)
   | (`POST, ["yaks"; "access"]) -> (
       let open Option.Infix in
-      let user =  query_get_opt query "username" >== List.hd in
-      let pwd =  query_get_opt query "password" >== List.hd in
+      let user_id : User.Id.t option = 
+          (Cookie.Cookie_hdr.extract headers
+          |> List.find_opt (fun (key, _) -> key = cookie_name_user_id) 
+          >== fun (_, value) -> value) >>= (fun aid -> User.Id.of_string aid) 
+      in  
       let access_path =  query_get_opt query "path" >== List.hd in
       let cache_size = query_get_opt query "cacheSize" >== List.hd >>= Int64.of_string_opt in
-      match (user,pwd) with
-      | (None,None) -> missing_query (["username:string"; "password:string"])
-      | (None, _) -> missing_query(["username:string"])
-      | (_, None) -> missing_query  (["password:string"])
-      | (Some usr, Some pass) -> 
+      match user_id with
+      | None -> missing_cookie cookie_name_user_id
+      | Some uid -> 
         match (access_path, cache_size) with
         | (None, None) -> missing_query (["path:string"; "cacheSize:int"])
         | (None, _)    -> missing_query (["path:string"])
         | (_, None)    -> missing_query (["cacheSize:int"])
         | (Some(path), Some(cache_size)) -> (
           match Path.of_string path with 
-          | Some p -> create_access fe p cache_size usr pass
+          | Some p -> create_access fe p cache_size uid
           | None -> invalid_path path)
     )
-  (* PUT /yaks/access/id ? path & cacheSize *)
-  | (`PUT, ["yaks"; "access"; id]) -> (
+  (* PUT /yaks/group/ *)
+  (* | (`PUT, ["yaks"; "group"]) -> (
       let open Option.Infix in
       (* Very dummy authentication method *)
-      let user =  query_get_opt query "username" >== List.hd in
-      let pwd =  query_get_opt query "password" >== List.hd in
+      let user_id : User.Id.t option = 
+          (Cookie.Cookie_hdr.extract headers
+          |> List.find_opt (fun (key, _) -> key = cookie_name_user_id) 
+          >== fun (_, value) -> value) >>= (fun aid -> User.Id.of_string aid) 
+      in  
       let access_path =  query_get_opt query "path" >== List.hd in
       let cache_size = query_get_opt query "cacheSize" >== List.hd >>= Int64.of_string_opt in
-      match (user,pwd) with
-      | (None,None) -> missing_query (["username:string"; "password:string"])
-      | (None, _) -> missing_query(["username:string"])
-      | (_, None) -> missing_query  (["password:string"])
-      | (Some usr, Some pass) -> 
+      match user_id with
+      | None -> missing_cookie cookie_name_user_id
+      | Some uid -> 
       match (access_path, cache_size) with
       | (None, None) -> missing_query (["path:string"; "cacheSize:int"])
       | (None, _)    -> missing_query (["path:string"])
@@ -359,7 +360,33 @@ let execute_control_operation fe meth path query _ _ =
         match Access.Id.of_string id with 
         | Some access_id -> (
           match Path.of_string path with 
-          |Some p -> create_access_with_id fe p cache_size access_id usr pass
+          |Some p -> create_access_with_id fe p cache_size access_id uid
+          | None -> invalid_path path)
+        | None -> invalid_access id
+    ) *)
+  (* PUT /yaks/access/id ? path & cacheSize *)
+  | (`PUT, ["yaks"; "access"; id]) -> (
+      let open Option.Infix in
+      (* Very dummy authentication method *)
+      let user_id : User.Id.t option = 
+          (Cookie.Cookie_hdr.extract headers
+          |> List.find_opt (fun (key, _) -> key = cookie_name_user_id) 
+          >== fun (_, value) -> value) >>= (fun aid -> User.Id.of_string aid) 
+      in  
+      let access_path =  query_get_opt query "path" >== List.hd in
+      let cache_size = query_get_opt query "cacheSize" >== List.hd >>= Int64.of_string_opt in
+      match user_id with
+      | None -> missing_cookie cookie_name_user_id
+      | Some uid -> 
+      match (access_path, cache_size) with
+      | (None, None) -> missing_query (["path:string"; "cacheSize:int"])
+      | (None, _)    -> missing_query (["path:string"])
+      | (_, None)    -> missing_query (["cacheSize:int"])
+      | (Some(path), Some(cache_size)) -> 
+        match Access.Id.of_string id with 
+        | Some access_id -> (
+          match Path.of_string path with 
+          |Some p -> create_access_with_id fe p cache_size access_id uid
           | None -> invalid_path path)
         | None -> invalid_access id
     )
@@ -447,28 +474,35 @@ let execute_data_operation fe meth (selector: Selector.t) headers body =
   let%lwt _ = Logs_lwt.debug (fun m -> m "(-- execute_data_operation --" ) in 
   let open Apero.Option.Infix in
 
+  let user_id : User.Id.t option = 
+    (Cookie.Cookie_hdr.extract headers
+    |> List.find_opt (fun (key, _) -> key = cookie_name_user_id)
+       >== fun (_, value) -> value) >>= (fun aid -> User.Id.of_string aid) in  
   let access_id : Access.Id.t option = 
     (Cookie.Cookie_hdr.extract headers
     |> List.find_opt (fun (key, _) -> key = cookie_name_access_id)
        >== fun (_, value) -> value) >>= (fun aid -> Access.Id.of_string aid) in  
   
-  match (meth, access_id) with
-  | (_, None) ->
-    missing_cookie cookie_name_access_id
-  | (`GET, Some(aid)) ->
-    let%lwt _ = Logs_lwt.debug (fun m -> m "(-- get_key_value --" ) in 
-    get_key_value fe aid selector
-  | (`PUT, Some(aid)) ->
-    let%lwt value = Cohttp_lwt.Body.to_string body in
-    put fe aid selector (Value.JSonValue value)     
+  match user_id with
+  | None -> missing_cookie cookie_name_user_id
+  | Some _ -> (* Should be passed to all functions? *)
+    match (meth, access_id) with
+    | (_, None) ->
+      missing_cookie cookie_name_access_id
+    | (`GET, Some(aid)) ->
+      let%lwt _ = Logs_lwt.debug (fun m -> m "(-- get_key_value --" ) in 
+      get_key_value fe aid selector
+    | (`PUT, Some(aid)) ->
+      let%lwt value = Cohttp_lwt.Body.to_string body in
+      put fe aid selector (Value.JSonValue value)     
     
-  | (`PATCH, Some(aid)) ->
-    let%lwt value = Cohttp_lwt.Body.to_string body in
-    put fe aid selector (Value.JSonValue value)
-    (* put_delta_key_value fe aid selector value *)
-  | (`DELETE, Some(_)) -> unsupported_operation meth (Selector.to_string selector)
-    (* remove_key_value fe aid selector *)
-  | _ -> unsupported_operation meth (Selector.to_string selector)
+    | (`PATCH, Some(aid)) ->
+      let%lwt value = Cohttp_lwt.Body.to_string body in
+      put fe aid selector (Value.JSonValue value)
+      (* put_delta_key_value fe aid selector value *)
+    | (`DELETE, Some(_)) -> unsupported_operation meth (Selector.to_string selector)
+      (* remove_key_value fe aid selector *)
+    | _ -> unsupported_operation meth (Selector.to_string selector)
 
 
 let execute_http_request fe req body =

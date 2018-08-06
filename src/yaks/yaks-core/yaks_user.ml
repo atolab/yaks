@@ -16,11 +16,11 @@ module User = struct
 
   let make name password groups = { id = Id.next_id (); name; password; groups }
   
-  let id u = u.id
+  (* let id u = u.id
   let name u = u.name 
   let pwd u = u.password
+  let groups u = u.groups *)
 
-  let groups u = u.groups
   let add_group u gid = {u with groups = u.groups @ [gid]}
   let remove_group u gid = {u with groups = List.filter (fun e -> e = gid) u.groups}
 
