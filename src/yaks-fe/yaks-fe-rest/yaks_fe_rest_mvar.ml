@@ -121,7 +121,7 @@ let invalid_selector s =
 
 let create_access_with_id fe (path:Path.t) cache_size access_id user pwd = 
   let aid = Access.Id.to_string access_id in 
-  let user = User.make user pwd in
+  let user = User.make user pwd [] in
   let%lwt _ = Logs_lwt.debug (fun m -> m "[FER]   create_access_with_id %s %s %Ld" aid (Path.to_string path) cache_size) in
   Lwt.try_bind 
     (fun () -> YEngine.create_access_with_id fe.engine path cache_size user access_id)
@@ -135,7 +135,7 @@ let create_access_with_id fe (path:Path.t) cache_size access_id user pwd =
     (fun _ -> insufficient_storage cache_size)
 
 let create_access fe (path:Path.t) cache_size user pwd = 
-  let user = User.make user pwd in
+  let user = User.make user pwd [] in
   let%lwt _ = Logs_lwt.debug (fun m -> m "[FER]   create_access %s %Ld"  (Path.to_string path) cache_size) in
   Lwt.try_bind 
     (fun () -> YEngine.create_access fe.engine path cache_size user )

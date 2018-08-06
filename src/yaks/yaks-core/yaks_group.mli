@@ -1,6 +1,7 @@
-open Yaks_group
 
-module User : sig 
+open Yaks_types
+
+module Group : sig 
   module Id : sig 
     type t
     val make : unit -> t
@@ -16,13 +17,12 @@ module User : sig
   type t 
 
 
-  val make : string -> string -> Group.Id.t list -> t 
+  val make : string -> Selector.t list -> Selector.t list -> Selector.t list ->  t 
   val id : t -> Id.t 
   val name : t -> string
-  val pwd : t -> string
-  val groups : t -> Group.Id.t list
-  val add_group : t -> Group.Id.t -> t
-  val remove_group : t -> Group.Id.t -> t
+  val rw_paths : t -> Selector.t list
+  val r_paths : t -> Selector.t list 
+  val w_paths : t -> Selector.t list
 
 
 end  [@@deriving show]
