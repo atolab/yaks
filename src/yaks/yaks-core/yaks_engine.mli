@@ -2,6 +2,7 @@ open Yaks_types
 open Yaks_access
 open Yaks_property
 open Yaks_be
+open Yaks_user
 
 module SEngine : sig 
 
@@ -9,8 +10,8 @@ module SEngine : sig
     type t 
       
     val make : unit -> t 
-    val create_access : t  -> Path.t -> int64 ->  Access.Id.t Lwt.t
-    val create_access_with_id : t -> Path.t -> int64 ->  Access.Id.t -> unit Lwt.t
+    val create_access : t  -> Path.t -> int64 -> User.t ->  Access.Id.t Lwt.t
+    val create_access_with_id : t -> Path.t -> int64 -> User.t -> Access.Id.t -> unit Lwt.t
     val get_access : t -> Access.Id.t -> Access.Id.t option Lwt.t
     val dispose_access : t -> Access.Id.t -> unit Lwt.t
 

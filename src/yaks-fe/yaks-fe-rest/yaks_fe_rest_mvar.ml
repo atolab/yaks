@@ -4,6 +4,7 @@ open Yaks_access
 open Cohttp
 open Cohttp_lwt_unix
 open LwtM.InfixM
+open Yaks_user
 
 type config = { port : int }
 
@@ -118,11 +119,12 @@ let invalid_selector s =
 (*      Control operations        *)
 (**********************************)
 
-let create_access_with_id fe (path:Path.t) cache_size access_id= 
+let create_access_with_id fe (path:Path.t) cache_size access_id user pwd = 
   let aid = Access.Id.to_string access_id in 
+  let user = User.make user pwd in
   let%lwt _ = Logs_lwt.debug (fun m -> m "[FER]   create_access_with_id %s %s %Ld" aid (Path.to_string path) cache_size) in
   Lwt.try_bind 
-    (fun () -> YEngine.create_access_with_id fe.engine path cache_size access_id)
+    (fun () -> YEngine.create_access_with_id fe.engine path cache_size user access_id)
     (fun () ->      
       
       Logs_lwt.debug (fun m -> m "Created Access with id : %s responding client" aid) >>      
@@ -132,10 +134,11 @@ let create_access_with_id fe (path:Path.t) cache_size access_id=
         Server.respond_string ~status:`Created ~headers ~body:"" ())
     (fun _ -> insufficient_storage cache_size)
 
-let create_access fe (path:Path.t) cache_size =  
+let create_access fe (path:Path.t) cache_size user pwd = 
+  let user = User.make user pwd in
   let%lwt _ = Logs_lwt.debug (fun m -> m "[FER]   create_access %s %Ld"  (Path.to_string path) cache_size) in
   Lwt.try_bind 
-    (fun () -> YEngine.create_access fe.engine path cache_size)
+    (fun () -> YEngine.create_access fe.engine path cache_size user )
     (fun access_id ->
       let aid = Access.Id.to_string access_id in  
       Logs_lwt.debug (fun m -> m "Created Access with id : %s responding client" aid) >>      
@@ -317,22 +320,37 @@ let execute_control_operation fe meth path query _ _ =
   (* POST /yaks/access ? path & cacheSize *)
   | (`POST, ["yaks"; "access"]) -> (
       let open Option.Infix in
+      let user =  query_get_opt query "username" >== List.hd in
+      let pwd =  query_get_opt query "password" >== List.hd in
       let access_path =  query_get_opt query "path" >== List.hd in
       let cache_size = query_get_opt query "cacheSize" >== List.hd >>= Int64.of_string_opt in
-      match (access_path, cache_size) with
-      | (None, None) -> missing_query (["path:string"; "cacheSize:int"])
-      | (None, _)    -> missing_query (["path:string"])
-      | (_, None)    -> missing_query (["cacheSize:int"])
-      | (Some(path), Some(cache_size)) -> (
-        match Path.of_string path with 
-        | Some p -> create_access fe p cache_size
-        | None -> invalid_path path)
+      match (user,pwd) with
+      | (None,None) -> missing_query (["username:string"; "password:string"])
+      | (None, _) -> missing_query(["username:string"])
+      | (_, None) -> missing_query  (["password:string"])
+      | (Some usr, Some pass) -> 
+        match (access_path, cache_size) with
+        | (None, None) -> missing_query (["path:string"; "cacheSize:int"])
+        | (None, _)    -> missing_query (["path:string"])
+        | (_, None)    -> missing_query (["cacheSize:int"])
+        | (Some(path), Some(cache_size)) -> (
+          match Path.of_string path with 
+          | Some p -> create_access fe p cache_size usr pass
+          | None -> invalid_path path)
     )
   (* PUT /yaks/access/id ? path & cacheSize *)
   | (`PUT, ["yaks"; "access"; id]) -> (
       let open Option.Infix in
+      (* Very dummy authentication method *)
+      let user =  query_get_opt query "username" >== List.hd in
+      let pwd =  query_get_opt query "password" >== List.hd in
       let access_path =  query_get_opt query "path" >== List.hd in
       let cache_size = query_get_opt query "cacheSize" >== List.hd >>= Int64.of_string_opt in
+      match (user,pwd) with
+      | (None,None) -> missing_query (["username:string"; "password:string"])
+      | (None, _) -> missing_query(["username:string"])
+      | (_, None) -> missing_query  (["password:string"])
+      | (Some usr, Some pass) -> 
       match (access_path, cache_size) with
       | (None, None) -> missing_query (["path:string"; "cacheSize:int"])
       | (None, _)    -> missing_query (["path:string"])
@@ -341,7 +359,7 @@ let execute_control_operation fe meth path query _ _ =
         match Access.Id.of_string id with 
         | Some access_id -> (
           match Path.of_string path with 
-          |Some p -> create_access_with_id fe p cache_size access_id
+          |Some p -> create_access_with_id fe p cache_size access_id usr pass
           | None -> invalid_path path)
         | None -> invalid_access id
     )

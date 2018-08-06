@@ -3,7 +3,7 @@ open Yaks_property
 open Yaks_access
 open Yaks_be 
 open Apero.LwtM.InfixM
-
+open Yaks_user
 
 module SEngine = struct
 
@@ -11,8 +11,8 @@ module SEngine = struct
     type t 
       
     val make : unit -> t 
-    val create_access : t  -> Path.t -> int64 ->  Access.Id.t Lwt.t
-    val create_access_with_id : t -> Path.t -> int64 ->  Access.Id.t -> unit Lwt.t
+    val create_access : t  -> Path.t -> int64 -> User.t ->  Access.Id.t Lwt.t
+    val create_access_with_id : t -> Path.t -> int64 -> User.t  -> Access.Id.t -> unit Lwt.t
     val get_access : t -> Access.Id.t -> Access.Id.t option Lwt.t
     val dispose_access : t -> Access.Id.t -> unit Lwt.t
 
@@ -108,16 +108,16 @@ module SEngine = struct
           let err : yerror = `UnknownAccess ei in 
           Lwt.fail @@ YException err
 
-    let create_access_with_id engine path cache_size access_id = 
+    let create_access_with_id engine path cache_size _ access_id = 
       let%lwt _ = Logs_lwt.debug (fun m -> m "Engine.create_access path: %s " (Path.to_string path)) in 
       let info = { uid = access_id ; path ; cache_size; right = RW_Mode } in (* At the moment the a *)
       MVar.guarded engine
         (fun self -> MVar.return () {self with accs = (AccessMap.add access_id info self.accs)})
 
-    let create_access engine path cache_size = 
+    let create_access engine path cache_size user = 
       let%lwt _ = Logs_lwt.debug (fun m -> m "Engine.create_access path: %s " (Path.to_string path)) in
       let uid = Access.Id.next_id () in 
-      create_access_with_id engine path cache_size uid >|= fun () -> uid    
+      create_access_with_id engine path cache_size user uid >|= fun () -> uid    
       
     let get_access engine access_id = 
       MVar.read engine      
