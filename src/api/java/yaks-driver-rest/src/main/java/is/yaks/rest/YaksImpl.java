@@ -134,14 +134,15 @@ public class YaksImpl implements Yaks {
 				.accept(MediaType.APPLICATION_JSON_TYPE)
 				.get(ClientResponse.class);
 
+		String data = response.getEntity(String.class);
 		if (response.getStatus() == HttpURLConnection.HTTP_OK) {
 			List<String> idList = config.getGson().fromJson(
-					response.getEntity(String.class),
+					data,
 					gsonTypes.getCollectionTypeToken(String.class));
 			return idList;
 		} else {
 			Utils.fail("Yaks instance failed to getAccess():\ncode: "+response.getStatus()+"\n" 
-					+ "body: "+response.getEntity(String.class));
+					+ "body: "+data);
 			return null;
 		}
 	}
@@ -159,7 +160,7 @@ public class YaksImpl implements Yaks {
 				.accept(MediaType.APPLICATION_JSON_TYPE)
 				.get(ClientResponse.class);
 
-		String data = response.getEntity(String.class);		
+		String data = response.getEntity(String.class);
 		switch (response.getStatus()) {
 		case HttpURLConnection.HTTP_OK:
 			Access access = config.getGson().fromJson(
