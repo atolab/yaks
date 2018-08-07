@@ -78,6 +78,9 @@ let empty_path =
   )
     ()
 
+let forbidden s =
+  Server.respond_error ~status:`Forbidden ~body:("Unauthorized access to  \""^s) ()
+
 let unsupported_uri path =
   Server.respond_error ~status:`Bad_request ~body:("No operation available on path: "^path) ()
 
@@ -370,28 +373,6 @@ let remove_key_value fe access_id selector =
 let execute_control_operation fe meth path query headers _ =
   let%lwt _ = Logs_lwt.debug (fun m -> m "-- execute_control_operation --" ) in  
   match (meth, path) with
-  (* POST /yaks/access ? path & cacheSize *)
-  | (`POST, ["yaks"; "access"]) -> (
-      let open Option.Infix in
-      let user_id : User.Id.t option = 
-          (Cookie.Cookie_hdr.extract headers
-          |> List.find_opt (fun (key, _) -> key = cookie_name_user_token) 
-          >== fun (_, value) -> value) >>= (fun aid -> TokenMap.find_opt aid fe.tokens)
-      in  
-      let access_path =  query_get_opt query "path" >== List.hd in
-      let cache_size = query_get_opt query "cacheSize" >== List.hd >>= Int64.of_string_opt in
-      match user_id with
-      | None -> missing_cookie cookie_name_user_token
-      | Some uid -> 
-        match (access_path, cache_size) with
-        | (None, None) -> missing_query (["path:string"; "cacheSize:int"])
-        | (None, _)    -> missing_query (["path:string"])
-        | (_, None)    -> missing_query (["cacheSize:int"])
-        | (Some(path), Some(cache_size)) -> (
-          match Path.of_string path with 
-          | Some p -> create_access fe p cache_size uid
-          | None -> invalid_path path)
-    )
   (* PUT /yaks/group/ *)
   | (`PUT, ["yaks"; "group"]) -> (
       let open Option.Infix in
@@ -426,7 +407,7 @@ let execute_control_operation fe meth path query headers _ =
         | None -> 0L
       in
       match user_id with
-      (* | None -> missing_cookie cookie_name_user_token
+      (* | None -> forbidden @@ "yaks/group/"
       | Some _ ->  *)
       | _ -> 
       match (name,rws,rs,ws) with
@@ -464,7 +445,7 @@ let execute_control_operation fe meth path query headers _ =
       let name =  query_get_opt query "name" >== List.hd in
       let group =  query_get_opt query "group" >== List.hd in
       match user_id with
-      (* | None -> missing_cookie cookie_name_user_token
+      (* | None -> forbidden @@ "yaks/user/"
       | Some _ ->  *)
       | _ -> 
       match (name,group,pwd) with
@@ -499,6 +480,28 @@ let execute_control_operation fe meth path query headers _ =
         authenticate_user fe name password
       (* | _ -> bad_request "Malformed Group creation request" *)
     )
+  (* POST /yaks/access ? path & cacheSize *)
+  | (`POST, ["yaks"; "access"]) -> (
+      let open Option.Infix in
+      let user_id : User.Id.t option = 
+          (Cookie.Cookie_hdr.extract headers
+          |> List.find_opt (fun (key, _) -> key = cookie_name_user_token) 
+          >== fun (_, value) -> value) >>= (fun aid -> TokenMap.find_opt aid fe.tokens)
+      in  
+      let access_path =  query_get_opt query "path" >== List.hd in
+      let cache_size = query_get_opt query "cacheSize" >== List.hd >>= Int64.of_string_opt in
+      match user_id with
+      | None -> forbidden @@ "yaks/access/"
+      | Some uid -> 
+        match (access_path, cache_size) with
+        | (None, None) -> missing_query (["path:string"; "cacheSize:int"])
+        | (None, _)    -> missing_query (["path:string"])
+        | (_, None)    -> missing_query (["cacheSize:int"])
+        | (Some(path), Some(cache_size)) -> (
+          match Path.of_string path with 
+          | Some p -> create_access fe p cache_size uid
+          | None -> invalid_path path)
+    )
   (* PUT /yaks/access/id ? path & cacheSize *)
   | (`PUT, ["yaks"; "access"; id]) -> (
       let open Option.Infix in
@@ -511,7 +514,7 @@ let execute_control_operation fe meth path query headers _ =
       let access_path =  query_get_opt query "path" >== List.hd in
       let cache_size = query_get_opt query "cacheSize" >== List.hd >>= Int64.of_string_opt in
       match user_id with
-      | None -> missing_cookie cookie_name_user_token
+      | None -> forbidden @@ "yaks/access/"^id
       | Some uid -> 
       match (access_path, cache_size) with
       | (None, None) -> missing_query (["path:string"; "cacheSize:int"])
@@ -528,6 +531,7 @@ let execute_control_operation fe meth path query headers _ =
   (* GET /yaks/access *)
   | (`GET, ["yaks"; "access"]) -> (      
       (* get_access fe  *)
+      
       unsupported_uri "/yaks/access"
     )
   (* GET /yaks/access/id *)
@@ -545,6 +549,11 @@ let execute_control_operation fe meth path query headers _ =
   (* POST /yaks/storages ? path & options... *)
   | (`POST, ["yaks"; "storages"]) -> (
       let open Option.Infix in
+      let _ : User.Id.t option = (* user_id *)
+          (Cookie.Cookie_hdr.extract headers
+          |> List.find_opt (fun (key, _) -> key = cookie_name_user_token) 
+          >== fun (_, value) -> value) >>= (fun aid -> TokenMap.find_opt aid fe.tokens) 
+      in 
       let storage_path =  query_get_opt query "path" >== List.hd in
       match storage_path with
       | None -> missing_query (["path:string"])
@@ -558,6 +567,11 @@ let execute_control_operation fe meth path query headers _ =
   (* PUT /yaks/storages/id ? path & options... *)
   | (`PUT, ["yaks"; "storages"; id ]) -> (
       let open Option.Infix in
+      let _ : User.Id.t option = (* user_id *)
+          (Cookie.Cookie_hdr.extract headers
+          |> List.find_opt (fun (key, _) -> key = cookie_name_user_token) 
+          >== fun (_, value) -> value) >>= (fun aid -> TokenMap.find_opt aid fe.tokens) 
+      in 
       let storage_path =  query_get_opt query "path" >== List.hd in
       match storage_path with
       | None -> missing_query (["path:string"])
@@ -590,6 +604,11 @@ let execute_control_operation fe meth path query headers _ =
   (* POST /yaks/access/id/subs *)
   | (`POST, ["yaks"; "access"; aid; "subs"]) -> (
       let open Option.Infix in
+      let _ : User.Id.t option = (* user_id *)
+          (Cookie.Cookie_hdr.extract headers
+          |> List.find_opt (fun (key, _) -> key = cookie_name_user_token) 
+          >== fun (_, value) -> value) >>= (fun aid -> TokenMap.find_opt aid fe.tokens) 
+      in 
       let selector =  query_get_opt query "selector" >== List.hd in
       match selector with
       | None -> missing_query (["selector:string"])
@@ -610,17 +629,20 @@ let execute_data_operation fe meth (selector: Selector.t) headers body =
   let open Apero.Option.Infix in
 
   let user_id : User.Id.t option = 
-    (Cookie.Cookie_hdr.extract headers
-    |> List.find_opt (fun (key, _) -> key = cookie_name_user_token)
-       >== fun (_, value) -> value) >>= (fun aid -> User.Id.of_string aid) in  
+          (Cookie.Cookie_hdr.extract headers
+          |> List.find_opt (fun (key, _) -> key = cookie_name_user_token) 
+          >== fun (_, value) -> value) >>= (fun aid -> TokenMap.find_opt aid fe.tokens) 
+  in
   let access_id : Access.Id.t option = 
     (Cookie.Cookie_hdr.extract headers
     |> List.find_opt (fun (key, _) -> key = cookie_name_access_id)
-       >== fun (_, value) -> value) >>= (fun aid -> Access.Id.of_string aid) in  
+       >== fun (_, value) -> value) >>= (fun aid -> Access.Id.of_string aid) 
+  in  
   
   match user_id with
-  | None -> missing_cookie cookie_name_user_token
-  | Some _ -> (* Should be passed to all functions? *)
+  | None -> forbidden @@ Selector.to_string selector
+  | Some i -> (* Should be passed to all functions? *)
+    ignore @@ Logs_lwt.debug (fun m -> m "[FER] Userid is %s" @@ User.Id.to_string i);
     match (meth, access_id) with
     | (_, None) ->
       missing_cookie cookie_name_access_id

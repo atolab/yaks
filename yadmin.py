@@ -5,9 +5,7 @@ from time import time
 from colorama import Fore
 from colorama import Style
 import sys
-import statistics
-import scipy.io
-
+import uuid
 
 
 
@@ -132,7 +130,7 @@ def main(ip, port):
     print(resp)
 
 
-    input("press enter for a get(unauthorized)")
+    input("press enter for a get(unauthorized - access is in another path)")
     cookies = {
             'is.yaks.user.token': token,
             'is.yaks.access':access_id
@@ -141,6 +139,45 @@ def main(ip, port):
     resp = requests.get(uri,cookies=cookies)
     print(resp.text)
 
+    input("press enter for a put (unauthorized - token absent)")
+    value = {'value': randint(0, 65535)}
+    cookies = {
+            'is.yaks.access':access_id
+            }
+    uri = SERVER + 'this/data'
+    resp = requests.put(uri,data=json.dumps(value),cookies=cookies)
+    print(resp)
+
+
+    input("press enter for a get(unauthorized - token absent)")
+    cookies = {
+            'is.yaks.access':access_id
+            }
+    uri = SERVER + 'this/data'
+    resp = requests.get(uri,cookies=cookies)
+    print(resp.text)
+
+    
+    wrong_token = '{}'.format(uuid.uuid4())
+    input("press enter for a put (unauthorized - token wrong)")
+    value = {'value': randint(0, 65535)}
+    cookies = {
+            'is.yaks.user.token': token,
+            'is.yaks.access':access_id
+            }
+    uri = SERVER + 'that_ones/data'
+    resp = requests.put(uri,data=json.dumps(value),cookies=cookies)
+    print(resp)
+
+
+    input("press enter for a get(unauthorized - token wrong)")
+    cookies = {
+            'is.yaks.user.token': token,
+            'is.yaks.access':access_id
+            }
+    uri = SERVER + 'that_ones/data'
+    resp = requests.get(uri,cookies=cookies)
+    print(resp.text)
 
     input("Press enter to exit")
     exit(0)
