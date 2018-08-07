@@ -177,6 +177,11 @@ module Selector = struct
     match Path.of_string str with 
     | Some p -> match_path sel p
     | None -> false
+
+  let of_string_list selectors = 
+    List.map (fun e -> match of_string e with | Some s -> s | _ -> failwith "Selector.of_string_list error non valid selector after check ??") @@ List.filter (fun e -> is_valid e) selectors
+  let to_string_list selectors = 
+    List.map (fun e -> to_string e) selectors
 end
 
 module Value = struct 

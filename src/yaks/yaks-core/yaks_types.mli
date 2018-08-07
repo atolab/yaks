@@ -54,6 +54,8 @@ module Selector : sig
   val fragment : t -> string option
   val match_path : t -> Path.t -> bool
   val match_string : t -> string -> bool
+  val of_string_list : string list -> t list
+  val to_string_list : t list -> string list
 end [@@deriving show]
 
 type error_info = [`NoMsg | `Msg of string | `Code of int | `Pos of (string * int * int * int) | `Loc of string] [@@deriving show]  

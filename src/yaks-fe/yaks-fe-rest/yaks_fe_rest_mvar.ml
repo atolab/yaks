@@ -8,12 +8,15 @@ open Yaks_user
 
 type config = { port : int }
 
+module TokenMap = Map.Make(String)
+
 type t = 
   { cfg: config
   ; engine: YEngine.t 
   ; stop: unit Lwt.t
   ; stopper: unit Lwt.u
-  ; mutable request_counter: int64 }
+  ; mutable request_counter: int64
+  ; mutable tokens : User.Id.t TokenMap.t }
 
 (** TODO: This should also be a functor configured by the serialier  *)
 
@@ -23,7 +26,9 @@ let yaks_control_uri_prefix = "/"^yaks_control_keyword
 
 let cookie_name_access_id = "is.yaks.access"
 let cookie_name_storage_id = "is.yaks.storage"
-let cookie_name_user_id = "is.yaks.user"
+let cookie_name_user_token = "is.yaks.user.token"
+let cookie_name_group_id = "is.yaks.groupid"
+
 
 (**********************************)
 (*      helpers functions         *)
@@ -115,6 +120,9 @@ let no_matching_key selector =
 let invalid_selector s =
   Server.respond_error ~status:`Not_found ~body:("Invalid Selector  \""^s) ()
 
+let bad_request s =
+  Server.respond_error ~status:`Bad_request ~body:("Invalid Request  \""^s) ()
+
 
 (**********************************)
 (*      Control operations        *)
@@ -146,6 +154,25 @@ let create_access fe (path:Path.t) cache_size user_id =
           (set_cookie cookie_name_access_id aid)] in
         Server.respond_string ~status:`Created ~headers ~body:"" ())
     (fun _ -> insufficient_storage cache_size)
+
+
+let create_group fe name rw_paths r_paths w_paths level = 
+  let%lwt _ = Logs_lwt.debug (fun m -> m "[FER]   create_group %s "  name) in
+  let level = 
+    match level with
+    | 1L -> Group.Admins
+    | _ -> Group.Users
+  in
+  Lwt.try_bind 
+    (fun () -> YEngine.create_group fe.engine name rw_paths r_paths w_paths level )
+    (fun group_id ->
+      let aid = Group.Id.to_string group_id in  
+      Logs_lwt.debug (fun m -> m "Created Group with id : %s responding client" aid) >>      
+      let headers = Header.add_list (Header.init()) 
+        [("Location", aid);
+          (set_cookie "is.yaks.groupid" aid)] in
+        Server.respond_string ~status:`Created ~headers ~body:"" ())
+    (fun _ -> bad_request "Cannot create this group")
 
 
 let get_access fe access_id =
@@ -321,14 +348,15 @@ let execute_control_operation fe meth path query headers _ =
       let open Option.Infix in
       let user_id : User.Id.t option = 
           (Cookie.Cookie_hdr.extract headers
-          |> List.find_opt (fun (key, _) -> key = cookie_name_user_id) 
-          >== fun (_, value) -> value) >>= (fun aid -> User.Id.of_string aid) 
+          |> List.find_opt (fun (key, _) -> key = cookie_name_user_token) 
+          >== fun (_, value) -> value) >>= (fun aid -> TokenMap.find_opt aid fe.tokens)
       in  
       let access_path =  query_get_opt query "path" >== List.hd in
       let cache_size = query_get_opt query "cacheSize" >== List.hd >>= Int64.of_string_opt in
       match user_id with
-      | None -> missing_cookie cookie_name_user_id
-      | Some uid -> 
+      (* | None -> missing_cookie cookie_name_user_token
+      | Some uid ->  *)
+      | _ ->
         match (access_path, cache_size) with
         | (None, None) -> missing_query (["path:string"; "cacheSize:int"])
         | (None, _)    -> missing_query (["path:string"])
@@ -339,44 +367,70 @@ let execute_control_operation fe meth path query headers _ =
           | None -> invalid_path path)
     )
   (* PUT /yaks/group/ *)
-  (* | (`PUT, ["yaks"; "group"]) -> (
+  | (`PUT, ["yaks"; "group"]) -> (
       let open Option.Infix in
       (* Very dummy authentication method *)
+      (* User should be authenticated before creating a group
+      only admin users can create a group *)
+      (* retrieve the user id from the access token *)
       let user_id : User.Id.t option = 
           (Cookie.Cookie_hdr.extract headers
-          |> List.find_opt (fun (key, _) -> key = cookie_name_user_id) 
-          >== fun (_, value) -> value) >>= (fun aid -> User.Id.of_string aid) 
+          |> List.find_opt (fun (key, _) -> key = cookie_name_user_token) 
+          >== fun (_, value) -> value) >>= (fun aid -> TokenMap.find_opt aid fe.tokens) 
+      in
+      let rws : string option = 
+          (Cookie.Cookie_hdr.extract headers
+          |> List.find_opt (fun (key, _) -> key = "yaks.rws") 
+          >== fun (_, value) -> value) >>= (fun aid -> Some aid) 
       in  
-      let access_path =  query_get_opt query "path" >== List.hd in
-      let cache_size = query_get_opt query "cacheSize" >== List.hd >>= Int64.of_string_opt in
+      let rs : string option = 
+          (Cookie.Cookie_hdr.extract headers
+          |> List.find_opt (fun (key, _) -> key = "yaks.rs") 
+          >== fun (_, value) -> value) >>= (fun aid -> Some aid) 
+      in  
+      let ws : string option = 
+          (Cookie.Cookie_hdr.extract headers
+          |> List.find_opt (fun (key, _) -> key = "yaks.ws") 
+          >== fun (_, value) -> value) >>= (fun aid -> Some aid) 
+      in   
+      let name =  query_get_opt query "name" >== List.hd in
+      let isadmin = 
+        match query_get_opt query "is_admin" >== List.hd >>= Int64.of_string_opt with
+        | Some i -> i
+        | None -> 0L
+      in
       match user_id with
-      | None -> missing_cookie cookie_name_user_id
-      | Some uid -> 
-      match (access_path, cache_size) with
-      | (None, None) -> missing_query (["path:string"; "cacheSize:int"])
-      | (None, _)    -> missing_query (["path:string"])
-      | (_, None)    -> missing_query (["cacheSize:int"])
-      | (Some(path), Some(cache_size)) -> 
-        match Access.Id.of_string id with 
-        | Some access_id -> (
-          match Path.of_string path with 
-          |Some p -> create_access_with_id fe p cache_size access_id uid
-          | None -> invalid_path path)
-        | None -> invalid_access id
-    ) *)
+      (* | None -> missing_cookie cookie_name_user_token
+      | Some _ ->  *)
+      | _ -> 
+      match (name,rws,rs,ws) with
+      | (None,None,None,None) -> missing_query (["name:string"])
+      | (None, _,_,_)    -> missing_query (["name:string"])
+      | (_,None,_, _)    -> missing_cookie "yaks.rws"
+      | (_,_,None, _)    -> missing_cookie "yaks.rs"
+      | (_,_,_, None)    -> missing_cookie "yaks.ws"
+      | (Some(name), Some(rw_paths), Some(r_paths),Some(w_paths)) ->
+        let to_list var = 
+          let s = String.sub var 1 ((String.length var)-2) in
+          let l_s = Str.split (Str.regexp ",") s in
+          List.map (fun e -> Str.global_replace (Str.regexp "\"") "" e) l_s
+        in
+        create_group fe name (Selector.of_string_list @@ to_list rw_paths) (Selector.of_string_list @@ to_list r_paths) (Selector.of_string_list @@ to_list w_paths) isadmin
+      (* | _ -> bad_request "Malformed Group creation request" *)
+    )
   (* PUT /yaks/access/id ? path & cacheSize *)
   | (`PUT, ["yaks"; "access"; id]) -> (
       let open Option.Infix in
       (* Very dummy authentication method *)
       let user_id : User.Id.t option = 
           (Cookie.Cookie_hdr.extract headers
-          |> List.find_opt (fun (key, _) -> key = cookie_name_user_id) 
-          >== fun (_, value) -> value) >>= (fun aid -> User.Id.of_string aid) 
+          |> List.find_opt (fun (key, _) -> key = cookie_name_user_token) 
+          >== fun (_, value) -> value) >>= (fun aid -> TokenMap.find_opt aid fe.tokens) 
       in  
       let access_path =  query_get_opt query "path" >== List.hd in
       let cache_size = query_get_opt query "cacheSize" >== List.hd >>= Int64.of_string_opt in
       match user_id with
-      | None -> missing_cookie cookie_name_user_id
+      | None -> missing_cookie cookie_name_user_token
       | Some uid -> 
       match (access_path, cache_size) with
       | (None, None) -> missing_query (["path:string"; "cacheSize:int"])
@@ -476,7 +530,7 @@ let execute_data_operation fe meth (selector: Selector.t) headers body =
 
   let user_id : User.Id.t option = 
     (Cookie.Cookie_hdr.extract headers
-    |> List.find_opt (fun (key, _) -> key = cookie_name_user_id)
+    |> List.find_opt (fun (key, _) -> key = cookie_name_user_token)
        >== fun (_, value) -> value) >>= (fun aid -> User.Id.of_string aid) in  
   let access_id : Access.Id.t option = 
     (Cookie.Cookie_hdr.extract headers
@@ -484,7 +538,7 @@ let execute_data_operation fe meth (selector: Selector.t) headers body =
        >== fun (_, value) -> value) >>= (fun aid -> Access.Id.of_string aid) in  
   
   match user_id with
-  | None -> missing_cookie cookie_name_user_id
+  | None -> missing_cookie cookie_name_user_token
   | Some _ -> (* Should be passed to all functions? *)
     match (meth, access_id) with
     | (_, None) ->
@@ -527,13 +581,12 @@ let execute_http_request fe req body =
     (match Selector.of_string path with 
     | Some selector -> execute_data_operation fe meth selector headers body
     | None -> invalid_path path)
-    
 
 
 let create cfg engine = 
   let _ = Logs_lwt.debug (fun m -> m "[FER] REST-FE preparing HTTP server") in
   let stop, stopper = Lwt.wait () in
-  { cfg; engine; stop; stopper; request_counter=0L }
+  { cfg; engine; stop; stopper; request_counter=0L; tokens= TokenMap.empty }
 
 let start fe =
   let _ = Logs_lwt.debug (fun m -> m "[FER] REST-FE starting HTTP server on port %d" fe.cfg.port) in
