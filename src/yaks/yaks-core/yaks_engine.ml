@@ -27,6 +27,7 @@ module SEngine = struct
 
     val create_user : t -> string -> string -> Group.Id.t -> User.Id.t Lwt.t
     val create_user_with_id : t -> string -> string -> Group.Id.t -> User.Id.t -> unit Lwt.t
+    val authenticate_user : t -> string -> string -> User.Id.t Lwt.t 
 
     val create_subscriber : t -> Path.t -> Selector.t -> bool -> SubscriberId.t Lwt.t  
 
@@ -146,6 +147,14 @@ module SEngine = struct
       let uid = User.Id.next_id () in
       create_user_with_id engine name password group uid >|= fun () -> uid
 
+    let authenticate_user engine name password =
+      MVar.read engine >>= (fun e ->
+      let b = UserMap.bindings e.users in
+      let open User in
+      let k,_ = List.find (fun (_,v) -> (v.name=name && v.password = password) ) b in
+      Lwt.return k)
+
+
     let create_access_with_id engine path cache_size user_id access_id = (* unsed is userid *)
       let%lwt _ = Logs_lwt.debug (fun m -> m "Engine.create_access path: %s " (Path.to_string path)) in
       (* Should get the user groups and depend on the group assign the rights for the access *)
@@ -164,6 +173,7 @@ module SEngine = struct
                 | (false,true,false) ->create { uid = access_id ; path ; cache_size; right = R_Mode}
                 | (false,false,true) -> create { uid = access_id ; path ; cache_size; right = W_Mode}
                 | (false,false,false) -> 
+                  let%lwt _ = Logs_lwt.debug (fun m -> m "Engine.create_access cannot create access for path %s user has no rights" (Path.to_string path)) in
                   let v = Printf.sprintf "No rights for path %s" @@ Path.to_string path in
                   MVar.return_lwt (Lwt.fail @@ YException (`Forbidden (`Msg v))) self
                 | _ -> 
@@ -174,6 +184,7 @@ module SEngine = struct
             let v = Printf.sprintf "User %s Unknown" @@ User.Id.to_string user_id in
             MVar.return_lwt (Lwt.fail @@ YException (`Forbidden (`Msg v))) self)
         
+    
 
     let create_access engine path cache_size userid =
       let%lwt _ = Logs_lwt.debug (fun m -> m "Engine.create_access path: %s " (Path.to_string path)) in

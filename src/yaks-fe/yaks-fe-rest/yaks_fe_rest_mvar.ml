@@ -189,6 +189,19 @@ let create_user fe name password group =
         Server.respond_string ~status:`Created ~headers ~body:"" ())
     (fun _ -> bad_request "Cannot create this user")
 
+let authenticate_user fe name password = 
+  let%lwt _ = Logs_lwt.debug (fun m -> m "[FER] create_group %s "  name) in
+  Lwt.try_bind 
+    (fun () -> YEngine.authenticate_user fe.engine name password )
+    (fun user_id ->
+        let token = Apero.Uuid.to_string @@ Apero.Uuid.next_id () in
+        fe.tokens <- TokenMap.add token user_id fe.tokens;
+        let headers = Header.add_list (Header.init()) 
+        [("Location", token);
+          (set_cookie cookie_name_user_token token)] in
+        Server.respond_string ~status:`Created ~headers ~body:"" ())
+    (fun _ -> bad_request "Cannot create this user")
+
 let get_access fe access_id =
   let aid = Access.Id.to_string access_id in 
   let%lwt _ = Logs_lwt.debug (fun m -> m "[FER]   get_access %s" aid) in
@@ -463,6 +476,27 @@ let execute_control_operation fe meth path query headers _ =
         match Group.Id.of_string group with
         | Some g -> create_user fe name password g
         | None -> bad_request "Malformed Group id"
+      (* | _ -> bad_request "Malformed Group creation request" *)
+    )
+  (* POST /yaks/authenticate ? name *)
+  | (`POST, ["yaks"; "authenticate";]) -> (
+      let open Option.Infix in
+      (* Very dummy authentication method *)
+      (* User should be authenticated before creating a group
+      only admin users can create a group *)
+      (* retrieve the user id from the access token *)
+      let pwd : string option = 
+          (Cookie.Cookie_hdr.extract headers
+          |> List.find_opt (fun (key, _) -> key = "yaks.user.pwd") 
+          >== fun (_, value) -> value) >>= (fun aid -> Some aid) 
+      in  
+      let name =  query_get_opt query "name" >== List.hd in
+      match (name,pwd) with
+      | (None, None)    -> missing_query (["name:string"])
+      | (None, _)    -> missing_query (["name:string"])
+      | (_,None)    -> missing_cookie "yaks.user.pwd"
+      | (Some(name), Some(password)) ->
+        authenticate_user fe name password
       (* | _ -> bad_request "Malformed Group creation request" *)
     )
   (* PUT /yaks/access/id ? path & cacheSize *)

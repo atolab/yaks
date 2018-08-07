@@ -38,6 +38,35 @@ def main(ip, port):
     resp = requests.put(uri,cookies=cookies)
     print(resp.cookies)
     userid = resp.cookies.get('is.yaks.user.id')
+
+
+    input("Press for authenticate the user")
+
+    uri = SERVER+'yaks/authenticate?name=user'
+    cookies = {
+            'yaks.user.pwd': "hello"
+            }
+    resp = requests.post(uri,cookies=cookies)
+    print(resp.cookies)
+    token = resp.cookies.get('is.yaks.user.token')
+
+    input("Press for authenticate the access (no rights creation will fail)")
+    uri = SERVER+'yaks/access?path=/prova&cacheSize=100'
+    cookies = {
+            'is.yaks.user.token': token
+            }
+    resp = requests.post(uri,cookies=cookies)
+    access_id = resp.cookies.get('is.yaks.access')
+
+
+    input("Press for authenticate the access (with rights creation will be ok)")
+    uri = SERVER+'yaks/access?path=/these&cacheSize=100'
+    cookies = {
+            'is.yaks.user.token': token
+            }
+    resp = requests.post(uri,cookies=cookies)
+    access_id = resp.cookies.get('is.yaks.access')
+
     
     input("Press enter to exit")
     exit(0)
