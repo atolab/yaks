@@ -56,15 +56,17 @@ def main(ip, port):
             'is.yaks.user.token': token
             }
     resp = requests.post(uri,cookies=cookies)
+    print(resp.cookies)
     access_id = resp.cookies.get('is.yaks.access')
 
 
     input("Press for authenticate the access (with rights creation will be ok)")
-    uri = SERVER+'yaks/access?path=/these&cacheSize=100'
+    uri = SERVER+'yaks/access?path=/these/data&cacheSize=100'
     cookies = {
             'is.yaks.user.token': token
             }
     resp = requests.post(uri,cookies=cookies)
+    print(resp.cookies)
     access_id = resp.cookies.get('is.yaks.access')
 
     
