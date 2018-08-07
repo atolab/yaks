@@ -162,7 +162,7 @@ def main(ip, port):
     input("press enter for a put (unauthorized - token wrong)")
     value = {'value': randint(0, 65535)}
     cookies = {
-            'is.yaks.user.token': token,
+            'is.yaks.user.token': wrong_token,
             'is.yaks.access':access_id
             }
     uri = SERVER + 'that_ones/data'
@@ -172,7 +172,7 @@ def main(ip, port):
 
     input("press enter for a get(unauthorized - token wrong)")
     cookies = {
-            'is.yaks.user.token': token,
+            'is.yaks.user.token': wrong_token,
             'is.yaks.access':access_id
             }
     uri = SERVER + 'that_ones/data'

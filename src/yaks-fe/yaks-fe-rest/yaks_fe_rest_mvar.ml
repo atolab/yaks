@@ -641,8 +641,7 @@ let execute_data_operation fe meth (selector: Selector.t) headers body =
   
   match user_id with
   | None -> forbidden @@ Selector.to_string selector
-  | Some i -> (* Should be passed to all functions? *)
-    ignore @@ Logs_lwt.debug (fun m -> m "[FER] Userid is %s" @@ User.Id.to_string i);
+  | Some _ -> (* Should be passed to all functions? *)
     match (meth, access_id) with
     | (_, None) ->
       missing_cookie cookie_name_access_id
