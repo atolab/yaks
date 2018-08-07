@@ -92,16 +92,36 @@ module SEngine = struct
 
     (* @TODO: Implement read/write check  *)
     let check_write_access _ access_info path (*self access_info path*) = 
-      match access_info.right with
-      | RW_Mode ->  Lwt.return_unit
-      | W_Mode -> Lwt.return_unit
-      | R_Mode -> Lwt.fail @@ YException (`UnauthorizedAccess (`Msg (Printf.sprintf "Cannot write to %s" (Selector.to_string path))))
+      if Selector.match_path path access_info.path then
+        match access_info.right with
+        | RW_Mode ->  
+          let%lwt _ = Logs_lwt.debug (fun m -> m "Engine.check_write_access access granted for: %s by permissions" (Selector.to_string path)) in
+          Lwt.return_unit
+        | W_Mode -> 
+          let%lwt _ = Logs_lwt.debug (fun m -> m "Engine.check_write_access access granted for: %s by permissions" (Selector.to_string path)) in
+          Lwt.return_unit
+        | R_Mode -> 
+          let%lwt _ = Logs_lwt.debug (fun m -> m "Engine.check_write_access access denied for: %s by permissions" (Selector.to_string path)) in
+          Lwt.fail @@ YException (`UnauthorizedAccess (`Msg (Printf.sprintf "Cannot write to %s" (Selector.to_string path))))
+      else
+        let%lwt _ = Logs_lwt.debug (fun m -> m "Engine.check_write_access access denied for: %s by matching" (Selector.to_string path)) in
+        Lwt.fail @@ YException (`UnauthorizedAccess (`Msg (Printf.sprintf "Cannot write to %s" (Selector.to_string path))))
       
-    let check_read_access (* self access_info selector *) _ access_info (selector : Selector.t) =
-    match access_info.right with
-    | R_Mode -> Lwt.return_unit
-    | RW_Mode -> Lwt.return_unit
-    | W_Mode -> Lwt.fail @@ YException (`UnauthorizedAccess (`Msg (Printf.sprintf "Cannot read from to %s" (Selector.to_string selector))))
+    let check_read_access (* self access_info selector *) _ access_info selector =
+    if Selector.match_path selector access_info.path then
+      match access_info.right with
+      | R_Mode -> 
+        let%lwt _ = Logs_lwt.debug (fun m -> m "Engine.check_read_access access granted for: %s by permissions" (Selector.to_string selector)) in
+        Lwt.return_unit
+      | RW_Mode -> 
+        let%lwt _ = Logs_lwt.debug (fun m -> m "Engine.check_read_access access granted for: %s by permissions" (Selector.to_string selector)) in
+        Lwt.return_unit
+      | W_Mode -> 
+        let%lwt _ = Logs_lwt.debug (fun m -> m "Engine.check_read_access access denied for: %s by permissions" (Selector.to_string selector)) in
+        Lwt.fail @@ YException (`UnauthorizedAccess (`Msg (Printf.sprintf "Cannot read from to %s" (Selector.to_string selector))))
+    else
+      let%lwt _ = Logs_lwt.debug (fun m -> m "Engine.check_read_access access denied for: %s by matching" (Selector.to_string selector)) in
+      Lwt.fail @@ YException (`UnauthorizedAccess (`Msg (Printf.sprintf "Cannot read from to %s" (Selector.to_string selector))))
      
 
     (* Checks if the access can read data addressed by this selector. It 
@@ -245,7 +265,7 @@ module SEngine = struct
       BE.get selector
 
     let get engine access_id selector =
-    let%lwt _ = Logs_lwt.debug (fun m -> m "[YE]: put") in
+    let%lwt _ = Logs_lwt.debug (fun m -> m "[YE]: get") in
       MVar.read engine 
       >>= fun self ->
         get_matching_bes self access_id selector check_read_access

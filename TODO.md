@@ -1,9 +1,15 @@
 ## Yaks Core
 
 - Introduce the concept of identity and authentication which will represent the credentials used to:
-  - Create an Access
-  - Check access rights
-
+  - ~Create an Access~
+  - ~Check access rights~
+  - ~Create user~
+  - ~Create group~
+  - ~Authenticate~
+  - Deauthenticate
+  - Delete User
+  - Delete Group
+  
 ## Yaks FE
 
 - Add socket-based front-end

@@ -69,7 +69,79 @@ def main(ip, port):
     print(resp.cookies)
     access_id = resp.cookies.get('is.yaks.access')
 
-    
+    input("press enter for a put (authorized)")
+    value = {'value': randint(0, 65535)}
+    cookies = {
+            'is.yaks.user.token': token,
+            'is.yaks.access':access_id
+            }
+    uri = SERVER + 'these/data'
+    resp = requests.put(uri,data=json.dumps(value),cookies=cookies)
+    print(resp)
+
+
+    input("press enter for a get(authorized)")
+    cookies = {
+            'is.yaks.user.token': token,
+            'is.yaks.access':access_id
+            }
+    uri = SERVER + 'these/data'
+    resp = requests.get(uri,cookies=cookies)
+    print(resp.text)
+
+    input("Press for authenticate a new access (with read only rights)")
+    uri = SERVER+'yaks/access?path=/that_ones/data&cacheSize=100'
+    cookies = {
+            'is.yaks.user.token': token
+            }
+    resp = requests.post(uri,cookies=cookies)
+    print(resp.cookies)
+    access_id = resp.cookies.get('is.yaks.access')
+
+    input("press enter for a put (unauthorized)")
+    value = {'value': randint(0, 65535)}
+    cookies = {
+            'is.yaks.user.token': token,
+            'is.yaks.access':access_id
+            }
+    uri = SERVER + 'that_ones/data'
+    resp = requests.put(uri,data=json.dumps(value),cookies=cookies)
+    print(resp)
+
+
+    input("press enter for a get(authorized)")
+    cookies = {
+            'is.yaks.user.token': token,
+            'is.yaks.access':access_id
+            }
+    uri = SERVER + 'that_ones/data'
+    resp = requests.get(uri,cookies=cookies)
+    print(resp.text)
+
+
+
+
+    input("press enter for a put (unauthorized - access is in another path)")
+    value = {'value': randint(0, 65535)}
+    cookies = {
+            'is.yaks.user.token': token,
+            'is.yaks.access':access_id
+            }
+    uri = SERVER + 'this/data'
+    resp = requests.put(uri,data=json.dumps(value),cookies=cookies)
+    print(resp)
+
+
+    input("press enter for a get(unauthorized)")
+    cookies = {
+            'is.yaks.user.token': token,
+            'is.yaks.access':access_id
+            }
+    uri = SERVER + 'this/data'
+    resp = requests.get(uri,cookies=cookies)
+    print(resp.text)
+
+
     input("Press enter to exit")
     exit(0)
 
@@ -83,47 +155,7 @@ def main(ip, port):
     uri = SERVER+'yaks/access?path=/afos/0/1/&cacheSize=100'
     resp = requests.post(uri)
     access_id = resp.cookies.get('is.yaks.access')
-    # #print('Access created with id {}\n'.format(access_id))
-    # i = 0
-    # tries = times
-    # #input('Press enter to send {} values and calculate response time'.format(tries))
-    # successed = 0
-    # failed = 0 
-    # results = []
-    # resp_times = []
-    # while i < tries:
-    #     #print('Press enter to put a random value to /afos/0/1/data-{}'.format(i))
-    #     value = {'value': randint(0, 65535)}
-    #     cookies = {'is.yaks.access':access_id}
-    #     uri = SERVER + 'afos/0/1/data-{}'.format(i)
-    #     try:
-    #         starttime = time()
-    #         resp = requests.put(uri,data=json.dumps(value),cookies=cookies)
-    #         timetaken = time() - starttime
-    #         resp_times.append(timetaken)
-    #         successed = successed+1
-    #         results.append(0)
-    #         print(f'[{Fore.GREEN}SUCCESS{Style.RESET_ALL}] Run {i}')
-    #     except:
-    #         failed = failed + 1
-    #         results.append(-1)
-    #         print(f'[{Fore.RED}FAILED{Style.RESET_ALL}] Run {i}')
-    #     finally:
-    #         i = i + 1
-    # print('Results:')
-    # print('Successful: {} Failed: {}'.format(successed,failed))
-    # print('Success Rate: {}%'.format((float(successed)/float(tries))*100))
-    # print('Total: {} \nMin: {} \nMax: {} \nAvg: {}'.format(sum(resp_times),min(resp_times),max(resp_times),statistics.mean(resp_times)))
-    # print('Variance: {}'.format(statistics.variance(resp_times)))
-    # print('Std Deviation: {}'.format(statistics.stdev(resp_times)))
-    # print('Saving results into MAT file -> put_results-{}.mat'.format(token))
 
-    # data = {
-    #     'put_total_tries':tries,
-    #     'put_response_times': resp_times,
-    #     'put_results':results    
-    # }
-    # scipy.io.savemat('put_results-{}.mat'.format(token),data)
 
 if __name__ == "__main__":
     if len(sys.argv) < 3:
