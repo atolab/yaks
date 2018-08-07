@@ -90,7 +90,13 @@ module SEngine = struct
       ; users = UserMap.empty
       }
 
-    (* @TODO: Implement read/write check  *)
+    (* @TODO: This check should also verify that the user is in the right groups 
+      Nasty users can use access coming from an authorized user to get access to data
+      that they may not have access rights.
+      So the check should be at access level and user level
+      GB: We can store the user id in the access, in this way an user is coupled to one or more access, but an access can be used only by
+      the user that created that access
+     *)
     let check_write_access _ access_info path (*self access_info path*) = 
       if Selector.match_path path access_info.path then
         match access_info.right with
@@ -130,7 +136,7 @@ module SEngine = struct
     type access_check = state -> access_info -> Selector.t -> unit Lwt.t
 
     let get_matching_bes (self:state) (access_id : Access.Id.t) (selector: Selector.t) (access_controller : access_check) =
-       match AccessMap.find_opt access_id  self.accs with
+       match AccessMap.find_opt access_id self.accs with
         | Some access ->
           Lwt.try_bind
             (fun () -> access_controller self access selector)
