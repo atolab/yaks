@@ -27,7 +27,17 @@ def main(ip, port):
             }
     resp = requests.put(uri,cookies=cookies)
     print(resp.cookies)
-    storageid = resp.cookies.get('is.yaks.storage')
+    groupid = resp.cookies.get('is.yaks.group.id')
+
+    input("Press for create a user")
+
+    uri = SERVER+'yaks/user?name=user&group='+groupid
+    cookies = {
+            'yaks.user.pwd': "hello"
+            }
+    resp = requests.put(uri,cookies=cookies)
+    print(resp.cookies)
+    userid = resp.cookies.get('is.yaks.user.id')
     
     input("Press enter to exit")
     exit(0)

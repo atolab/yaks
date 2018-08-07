@@ -27,7 +27,9 @@ let yaks_control_uri_prefix = "/"^yaks_control_keyword
 let cookie_name_access_id = "is.yaks.access"
 let cookie_name_storage_id = "is.yaks.storage"
 let cookie_name_user_token = "is.yaks.user.token"
-let cookie_name_group_id = "is.yaks.groupid"
+let cookie_name_user_id = "is.yaks.user.id"
+let cookie_name_group_id = "is.yaks.group.id"
+
 
 
 (**********************************)
@@ -170,10 +172,22 @@ let create_group fe name rw_paths r_paths w_paths level =
       Logs_lwt.debug (fun m -> m "Created Group with id : %s responding client" aid) >>      
       let headers = Header.add_list (Header.init()) 
         [("Location", aid);
-          (set_cookie "is.yaks.groupid" aid)] in
+          (set_cookie cookie_name_group_id aid)] in
         Server.respond_string ~status:`Created ~headers ~body:"" ())
     (fun _ -> bad_request "Cannot create this group")
 
+let create_user fe name password group = 
+  let%lwt _ = Logs_lwt.debug (fun m -> m "[FER]   create_group %s "  name) in
+  Lwt.try_bind 
+    (fun () -> YEngine.create_user fe.engine name password group )
+    (fun user_id ->
+      let aid = User.Id.to_string user_id in  
+      Logs_lwt.debug (fun m -> m "Created user with id : %s responding client" aid) >>      
+      let headers = Header.add_list (Header.init()) 
+        [("Location", aid);
+          (set_cookie cookie_name_user_id aid)] in
+        Server.respond_string ~status:`Created ~headers ~body:"" ())
+    (fun _ -> bad_request "Cannot create this user")
 
 let get_access fe access_id =
   let aid = Access.Id.to_string access_id in 
@@ -354,9 +368,8 @@ let execute_control_operation fe meth path query headers _ =
       let access_path =  query_get_opt query "path" >== List.hd in
       let cache_size = query_get_opt query "cacheSize" >== List.hd >>= Int64.of_string_opt in
       match user_id with
-      (* | None -> missing_cookie cookie_name_user_token
-      | Some uid ->  *)
-      | _ ->
+      | None -> missing_cookie cookie_name_user_token
+      | Some uid -> 
         match (access_path, cache_size) with
         | (None, None) -> missing_query (["path:string"; "cacheSize:int"])
         | (None, _)    -> missing_query (["path:string"])
@@ -416,6 +429,40 @@ let execute_control_operation fe meth path query headers _ =
           List.map (fun e -> Str.global_replace (Str.regexp "\"") "" e) l_s
         in
         create_group fe name (Selector.of_string_list @@ to_list rw_paths) (Selector.of_string_list @@ to_list r_paths) (Selector.of_string_list @@ to_list w_paths) isadmin
+      (* | _ -> bad_request "Malformed Group creation request" *)
+    )
+      (* PUT /yaks/user/?name&group*)
+  | (`PUT, ["yaks"; "user"]) -> (
+      let open Option.Infix in
+      (* Very dummy authentication method *)
+      (* User should be authenticated before creating a group
+      only admin users can create a group *)
+      (* retrieve the user id from the access token *)
+      let user_id : User.Id.t option = 
+          (Cookie.Cookie_hdr.extract headers
+          |> List.find_opt (fun (key, _) -> key = cookie_name_user_token) 
+          >== fun (_, value) -> value) >>= (fun aid -> TokenMap.find_opt aid fe.tokens) 
+      in
+      let pwd : string option = 
+          (Cookie.Cookie_hdr.extract headers
+          |> List.find_opt (fun (key, _) -> key = "yaks.user.pwd") 
+          >== fun (_, value) -> value) >>= (fun aid -> Some aid) 
+      in  
+      let name =  query_get_opt query "name" >== List.hd in
+      let group =  query_get_opt query "group" >== List.hd in
+      match user_id with
+      (* | None -> missing_cookie cookie_name_user_token
+      | Some _ ->  *)
+      | _ -> 
+      match (name,group,pwd) with
+      | (None,None,None) -> missing_query (["name:string"; "group:string"])
+      | (None, _,_)    -> missing_query (["name:string"])
+      | (_,None,_)    -> missing_query (["name:string"])
+      | (_,_,None)    -> missing_cookie "yaks.user.pwd"
+      | (Some(name), Some(group), Some(password)) ->
+        match Group.Id.of_string group with
+        | Some g -> create_user fe name password g
+        | None -> bad_request "Malformed Group id"
       (* | _ -> bad_request "Malformed Group creation request" *)
     )
   (* PUT /yaks/access/id ? path & cacheSize *)
