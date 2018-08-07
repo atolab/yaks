@@ -152,28 +152,29 @@ module SEngine = struct
           Lwt.fail @@ YException err
 
     let create_group_with_id engine name rw_paths r_paths w_paths level group_id = 
-      let%lwt _ = Logs_lwt.debug (fun m -> m "Engine.create group id: %s " (Group.Id.to_string group_id)) in
+      let%lwt _ = Logs_lwt.debug (fun m -> m "Engine.create_group  id: %s " (Group.Id.to_string group_id)) in
       let g = Group.{id=group_id; name; rw_paths; r_paths; w_paths; group_level=level} in
       MVar.guarded engine 
         (fun self ->  MVar.return () {self with groups = (GroupMap.add group_id g self.groups)})
 
     let create_group engine name rw_paths r_paths w_paths level = 
-      let%lwt _ = Logs_lwt.debug (fun m -> m "Engine.create group name: %s " name) in
+      let%lwt _ = Logs_lwt.debug (fun m -> m "Engine.create_group name: %s " name) in
       let uid = Group.Id.next_id () in
       create_group_with_id engine name rw_paths r_paths w_paths level uid >|= fun () -> uid
     
     let create_user_with_id engine name password group user_id =
-      let%lwt _ = Logs_lwt.debug (fun m -> m "Engine.create user id: %s " (User.Id.to_string user_id)) in
+      let%lwt _ = Logs_lwt.debug (fun m -> m "Engine.create_user_with_id id: %s " (User.Id.to_string user_id)) in
       let u = User.{id=user_id; name; password; group } in
       MVar.guarded engine 
         (fun self ->  MVar.return () {self with users = (UserMap.add user_id u self.users)})
 
     let create_user engine name password group = 
-      let%lwt _ = Logs_lwt.debug (fun m -> m "Engine.create user name: %s " name) in
+      let%lwt _ = Logs_lwt.debug (fun m -> m "Engine.create_user name: %s " name) in
       let uid = User.Id.next_id () in
       create_user_with_id engine name password group uid >|= fun () -> uid
 
     let authenticate_user engine name password =
+      let%lwt _ = Logs_lwt.debug (fun m -> m "Engine.authenticate_user name: %s " name) in
       MVar.read engine >>= (fun e ->
       let b = UserMap.bindings e.users in
       let open User in

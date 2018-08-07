@@ -29,9 +29,9 @@ let cookie_name_storage_id = "is.yaks.storage"
 let cookie_name_user_token = "is.yaks.user.token"
 let cookie_name_user_id = "is.yaks.user.id"
 let cookie_name_group_id = "is.yaks.group.id"
-
-
-
+let cookie_mame_group_rws = "is.yaks.group.rws"
+let cookie_mame_group_rs = "is.yaks.group.rs"
+let cookie_mame_group_ws = "is.yaks.group.ws"
 (**********************************)
 (*      helpers functions         *)
 (**********************************)
@@ -162,7 +162,7 @@ let create_access fe (path:Path.t) cache_size user_id =
 
 
 let create_group fe name rw_paths r_paths w_paths level = 
-  let%lwt _ = Logs_lwt.debug (fun m -> m "[FER]   create_group %s "  name) in
+  let%lwt _ = Logs_lwt.debug (fun m -> m "[ENG]   create_group %s "  name) in
   let level = 
     match level with
     | 1L -> Group.Admins
@@ -180,7 +180,7 @@ let create_group fe name rw_paths r_paths w_paths level =
     (fun _ -> bad_request "Cannot create this group")
 
 let create_user fe name password group = 
-  let%lwt _ = Logs_lwt.debug (fun m -> m "[FER]   create_group %s "  name) in
+  let%lwt _ = Logs_lwt.debug (fun m -> m "[FER]   create_user %s "  name) in
   Lwt.try_bind 
     (fun () -> YEngine.create_user fe.engine name password group )
     (fun user_id ->
@@ -193,7 +193,7 @@ let create_user fe name password group =
     (fun _ -> bad_request "Cannot create this user")
 
 let authenticate_user fe name password = 
-  let%lwt _ = Logs_lwt.debug (fun m -> m "[FER] create_group %s "  name) in
+  let%lwt _ = Logs_lwt.debug (fun m -> m "[FER] authenticate_user %s "  name) in
   Lwt.try_bind 
     (fun () -> YEngine.authenticate_user fe.engine name password )
     (fun user_id ->
@@ -387,17 +387,17 @@ let execute_control_operation fe meth path query headers _ =
       in
       let rws : string option = 
           (Cookie.Cookie_hdr.extract headers
-          |> List.find_opt (fun (key, _) -> key = "yaks.rws") 
+          |> List.find_opt (fun (key, _) -> key = cookie_mame_group_rws) 
           >== fun (_, value) -> value) >>= (fun aid -> Some aid) 
       in  
       let rs : string option = 
           (Cookie.Cookie_hdr.extract headers
-          |> List.find_opt (fun (key, _) -> key = "yaks.rs") 
+          |> List.find_opt (fun (key, _) -> key = cookie_mame_group_rs) 
           >== fun (_, value) -> value) >>= (fun aid -> Some aid) 
       in  
       let ws : string option = 
           (Cookie.Cookie_hdr.extract headers
-          |> List.find_opt (fun (key, _) -> key = "yaks.ws") 
+          |> List.find_opt (fun (key, _) -> key = cookie_mame_group_ws) 
           >== fun (_, value) -> value) >>= (fun aid -> Some aid) 
       in   
       let name =  query_get_opt query "name" >== List.hd in

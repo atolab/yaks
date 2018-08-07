@@ -19,9 +19,9 @@ def main(ip, port):
 
     uri = SERVER+'yaks/group?name=test1'
     cookies = {
-            'yaks.rws': "[\"/these/*\",\"/those/*\"]",
-            'yaks.rs': "[\"/that_ones/*\"]",
-            'yaks.ws': "[]",
+            'is.yaks.group.rws': "[\"/these/*\",\"/those/*\"]",
+            'is.yaks.group.rs': "[\"/that_ones/*\"]",
+            'is.yaks.group.ws': "[]",
             }
     resp = requests.put(uri,cookies=cookies)
     print(resp.cookies)
