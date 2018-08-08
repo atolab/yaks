@@ -27,3 +27,7 @@
 
 - Add DB backend
 
+## MirageOS
+
+- Try to have Yaks with REST FE running on MirageOS (Gabriele can you give it a try?)
+
