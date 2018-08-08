@@ -128,6 +128,8 @@ let invalid_selector s =
 let bad_request s =
   Server.respond_error ~status:`Bad_request ~body:("Invalid Request  \""^s) ()
 
+let invalid_id id =
+  Server.respond_error ~status:`Not_found ~body:("Invalid Id  \""^id) ()
 
 (**********************************)
 (*      Control operations        *)
@@ -279,6 +281,14 @@ let dispose_storage fe storage_id =
      The operation always succeeds *)
   YEngine.dispose_storage fe.engine storage_id 
   >>= fun () -> Server.respond_string ~status:`No_content ~body:"" ()
+
+let dispose_group fe group_id = 
+  YEngine.dispose_group fe.engine group_id >>= 
+    fun () -> Server.respond_string ~status:`No_content ~body:"" ()
+
+let dispose_user fe user_id = 
+  YEngine.dispose_user fe.engine user_id >>= 
+    fun () -> Server.respond_string ~status:`No_content ~body:"" ()
 
 (* @AC: We should add subscriptions only once we'll have a front-end that can 
         deal with them. Notice that subscriptions introduce potentially concurrent
@@ -455,7 +465,13 @@ let execute_control_operation fe meth path query headers _ =
         in
         create_group fe name (Selector.of_string_list @@ to_list rw_paths) (Selector.of_string_list @@ to_list r_paths) (Selector.of_string_list @@ to_list w_paths) isadmin
     )
-      (* PUT /yaks/user/?name&group*)
+   (* DELETE /yaks/group/id *)
+  | (`DELETE, ["yaks"; "group"; id]) -> (
+      match (Group.Id.of_string id) with
+      | Some id -> dispose_group fe id
+      | None -> invalid_id id
+      )
+    (* PUT /yaks/user/?name&group*)
   | (`PUT, ["yaks"; "user"]) -> (
       let open Option.Infix in
       (* Very dummy authentication method *)
@@ -517,6 +533,12 @@ let execute_control_operation fe meth path query headers _ =
       | Some tok ->
         deauthenticate_user fe tok 
     )
+   (* DELETE /yaks/user/id *)
+  | (`DELETE, ["yaks"; "user"; id]) -> (
+      match (User.Id.of_string id) with
+      | Some id -> dispose_user fe id
+      | None -> invalid_id id
+      )
   (* POST /yaks/access ? path & cacheSize *)
   | (`POST, ["yaks"; "access"]) -> (
       let open Option.Infix in
