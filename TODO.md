@@ -6,8 +6,8 @@
   - ~Create user~
   - ~Create group~
   - ~Authenticate~
-  - Delete User
-  - Delete Group
+  - ~Delete User~
+  - ~Delete Group~
   - ~get, put, delta_put should be used only after authetication~
   - User types? (Now we have only Admin, Users, we may need operator?
   - Only Admin can create storages, groups and users

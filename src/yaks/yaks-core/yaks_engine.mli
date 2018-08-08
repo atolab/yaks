@@ -23,10 +23,12 @@ module SEngine : sig
 
     val create_group : t -> string -> Selector.t list -> Selector.t list -> Selector.t list -> Group.group_level -> Group.Id.t Lwt.t
     val create_group_with_id : t -> string -> Selector.t list -> Selector.t list -> Selector.t list -> Group.group_level -> Group.Id.t -> unit Lwt.t
+    val dispose_group : t -> Group.Id.t -> unit Lwt.t 
 
     val create_user : t -> string -> string -> Group.Id.t -> User.Id.t Lwt.t
     val create_user_with_id : t -> string -> string -> Group.Id.t -> User.Id.t -> unit Lwt.t
-    val authenticate_user : t -> string -> string -> User.Id.t Lwt.t 
+    val authenticate_user : t -> string -> string -> User.Id.t Lwt.t
+    val dispose_user : t -> User.Id.t -> unit Lwt.t 
 
     val create_subscriber : t -> Path.t -> Selector.t -> bool -> SubscriberId.t Lwt.t  
 

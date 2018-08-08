@@ -24,10 +24,12 @@ module SEngine = struct
 
     val create_group : t -> string -> Selector.t list -> Selector.t list -> Selector.t list -> Group.group_level -> Group.Id.t Lwt.t
     val create_group_with_id : t -> string -> Selector.t list -> Selector.t list -> Selector.t list -> Group.group_level -> Group.Id.t -> unit Lwt.t
+    val dispose_group : t -> Group.Id.t -> unit Lwt.t 
 
     val create_user : t -> string -> string -> Group.Id.t -> User.Id.t Lwt.t
     val create_user_with_id : t -> string -> string -> Group.Id.t -> User.Id.t -> unit Lwt.t
-    val authenticate_user : t -> string -> string -> User.Id.t Lwt.t 
+    val authenticate_user : t -> string -> string -> User.Id.t Lwt.t
+    val dispose_user : t -> User.Id.t -> unit Lwt.t 
 
     val create_subscriber : t -> Path.t -> Selector.t -> bool -> SubscriberId.t Lwt.t  
 
@@ -169,6 +171,15 @@ module SEngine = struct
       let%lwt _ = Logs_lwt.debug (fun m -> m "Engine.create_group name: %s " name) in
       let uid = Group.Id.next_id () in
       create_group_with_id engine name rw_paths r_paths w_paths level uid >|= fun () -> uid
+
+    let dispose_group engine group_id = 
+      MVar.guarded engine 
+        @@ fun (self:state) -> 
+          (match GroupMap.mem group_id self.groups with
+          | true -> 
+                MVar.return () {self with groups = (GroupMap.remove group_id self.groups)}
+          | false -> 
+            MVar.return_lwt (Lwt.fail @@ YException (`InvalidParameters )) self)
     
     let create_user_with_id engine name password group user_id =
       (* 
@@ -200,6 +211,14 @@ module SEngine = struct
       let k,_ = List.find (fun (_,v) -> (v.name=name && v.password = password) ) b in
       Lwt.return k)
 
+    let dispose_user engine user_id = 
+      MVar.guarded engine 
+        @@ fun (self:state) -> 
+          (match UserMap.mem user_id self.users with
+          | true -> 
+                MVar.return () {self with users = (UserMap.remove user_id self.users)}
+          | false -> 
+            MVar.return_lwt (Lwt.fail @@ YException (`InvalidParameters )) self)
 
     let create_access_with_id engine path cache_size user_id access_id = (* unsed is userid *)
       let%lwt _ = Logs_lwt.debug (fun m -> m "Engine.create_access path: %s " (Path.to_string path)) in
