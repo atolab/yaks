@@ -22,6 +22,12 @@ module SEngine = struct
     val get_storage : t -> StorageId.t -> StorageId.t option Lwt.t
     val dispose_storage : t -> StorageId.t -> unit Lwt.t
 
+    (* @AC: I am not convinced that group  user management functionalities belong to YAKS. 
+            This should be provided by another service which YAKS relies upon. 
+            The specifics of how the athentication happens, etc. should be transparent for YAKS.
+            The only thing that YAKS should do is to check for access with this access management 
+            module and act accordingly.                     
+      *)
     val create_group : t -> string -> Selector.t list -> Selector.t list -> Selector.t list -> Group.group_level -> Group.Id.t Lwt.t
     val create_group_with_id : t -> string -> Selector.t list -> Selector.t list -> Selector.t list -> Group.group_level -> Group.Id.t -> unit Lwt.t
     val dispose_group : t -> Group.Id.t -> unit Lwt.t 
@@ -30,7 +36,7 @@ module SEngine = struct
     val create_user_with_id : t -> string -> string -> Group.Id.t -> User.Id.t -> unit Lwt.t
     val authenticate_user : t -> string -> string -> User.Id.t Lwt.t
     val dispose_user : t -> User.Id.t -> unit Lwt.t 
-
+    
     val create_subscriber : t -> Path.t -> Selector.t -> bool -> SubscriberId.t Lwt.t  
 
     val get : t -> Access.Id.t -> Selector.t -> (string * Value.t) list  Lwt.t
