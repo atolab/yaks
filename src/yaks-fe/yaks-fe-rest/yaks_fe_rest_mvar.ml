@@ -217,7 +217,25 @@ let authenticate_user fe name password =
         [("Location", token);
           (set_cookie cookie_name_user_token token)] in
         Server.respond_string ~status:`Created ~headers ~body:"" ())
-    (fun _ -> bad_request "Cannot create this user")
+    (fun _ -> bad_request "Cannot authenticate this user")
+
+(* logout the user 
+GB: this should call a function of the engine to also destroy all the access created by this user?
+*)
+let deauthenticate_user fe token = 
+  let%lwt _ = Logs_lwt.debug (fun m -> m "[FER] deauthenticate_user %s "  token) in
+  Lwt.try_bind 
+    (fun () -> 
+      match TokenMap.mem token fe.tokens with
+      | true -> fe.tokens <- TokenMap.remove token fe.tokens; Lwt.return token (* Here should tell the engine to eventually destroy all access *)
+      | false ->  Lwt.fail @@ YException (`InvalidParameters)
+    )
+    (fun token -> 
+      let headers = Header.add_list (Header.init()) 
+      [("Location", token);
+      (set_cookie cookie_name_user_token token)] in
+      Server.respond_string ~status:`Created ~headers ~body:"" ())
+    (fun _ -> bad_request "Cannot logout this user")
 
 let get_access fe access_id =
   let aid = Access.Id.to_string access_id in 
@@ -436,7 +454,6 @@ let execute_control_operation fe meth path query headers _ =
           List.map (fun e -> Str.global_replace (Str.regexp "\"") "" e) l_s
         in
         create_group fe name (Selector.of_string_list @@ to_list rw_paths) (Selector.of_string_list @@ to_list r_paths) (Selector.of_string_list @@ to_list w_paths) isadmin
-      (* | _ -> bad_request "Malformed Group creation request" *)
     )
       (* PUT /yaks/user/?name&group*)
   | (`PUT, ["yaks"; "user"]) -> (
@@ -470,7 +487,6 @@ let execute_control_operation fe meth path query headers _ =
         match Group.Id.of_string group with
         | Some g -> create_user fe name password g
         | None -> bad_request "Malformed Group id"
-      (* | _ -> bad_request "Malformed Group creation request" *)
     )
   (* POST /yaks/authenticate ? name *)
   | (`POST, ["yaks"; "authenticate";]) -> (
@@ -487,7 +503,19 @@ let execute_control_operation fe meth path query headers _ =
       | (_,None)    -> missing_cookie "yaks.user.pwd"
       | (Some(name), Some(password)) ->
         authenticate_user fe name password
-      (* | _ -> bad_request "Malformed Group creation request" *)
+    )
+  (* POST /yaks/deauthenticate *)
+  | (`POST, ["yaks"; "deauthenticate";]) -> (
+      let open Option.Infix in
+      let token : string option = 
+          (Cookie.Cookie_hdr.extract headers
+          |> List.find_opt (fun (key, _) -> key = cookie_name_user_token) 
+          >== fun (_, value) -> value) >>= (fun aid -> Some aid) 
+      in  
+      match token with
+      | None -> missing_cookie cookie_name_user_token
+      | Some tok ->
+        deauthenticate_user fe tok 
     )
   (* POST /yaks/access ? path & cacheSize *)
   | (`POST, ["yaks"; "access"]) -> (

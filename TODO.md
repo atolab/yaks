@@ -6,7 +6,7 @@
   - ~Create user~
   - ~Create group~
   - ~Authenticate~
-  - Deauthenticate
+  - ~Deauthenticate~
   - Delete User
   - Delete Group
   - ~get, put, delta_put should be used only after authetication~

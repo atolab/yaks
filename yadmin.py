@@ -179,19 +179,40 @@ def main(ip, port):
     resp = requests.get(uri,cookies=cookies)
     print(resp.text)
 
+
+    input("Press for deauthenticate the user")
+
+    uri = SERVER+'yaks/deauthenticate'
+    cookies = {
+            'is.yaks.user.token': token
+            }
+    resp = requests.post(uri,cookies=cookies)
+    print(resp.cookies)
+
+    input("press enter for a put (unauthorized - user not authenticated)")
+    value = {'value': randint(0, 65535)}
+    cookies = {
+            'is.yaks.user.token': token,
+            'is.yaks.access':access_id
+            }
+    uri = SERVER + 'these/data'
+    resp = requests.put(uri,data=json.dumps(value),cookies=cookies)
+    print(resp)
+
+
+    input("press enter for a get(authorized - user not authenticated)")
+    cookies = {
+            'is.yaks.user.token': token,
+            'is.yaks.access':access_id
+            }
+    uri = SERVER + 'these/data'
+    resp = requests.get(uri,cookies=cookies)
+    print(resp.text)
+
+
     input("Press enter to exit")
     exit(0)
 
-    uri = SERVER+'yaks/storages?path=/afos/0/1/&yaks.backend=memory'
-    resp = requests.post(uri)
-    storageid = resp.cookies.get('is.yaks.storage')
-    #print('Storage created with id {}\n'.format(storageid))
-
-    #input('Press enter to create access')
-
-    uri = SERVER+'yaks/access?path=/afos/0/1/&cacheSize=100'
-    resp = requests.post(uri)
-    access_id = resp.cookies.get('is.yaks.access')
 
 
 if __name__ == "__main__":
