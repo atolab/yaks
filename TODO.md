@@ -1,8 +1,3 @@
-
-## Architecture
-
-![YAKS Architecture](arch.eps)
-
 ## Yaks Core
 
 - Introduce the concept of identity and authentication which will represent the credentials used to:
