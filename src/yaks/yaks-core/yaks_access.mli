@@ -13,6 +13,13 @@ module Access : sig
     val to_string : ?upper:bool -> t -> string
   end [@@deriving show]
 
+
+(* 
+  This module rapresent an YAKS Access
+  An access is created by a user and is below a group and it inherit the access rights from the user group
+  GB: Not sure if we add to link the access to the user that created it, to avoid nasty user steal access
+ *)
+
   type t 
 
   type access_right =  R_Mode | W_Mode | RW_Mode

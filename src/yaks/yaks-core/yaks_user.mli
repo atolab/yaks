@@ -13,6 +13,14 @@ module User : sig
     val to_string : ?upper:bool -> t -> string
   end [@@deriving show]
 
+(* This module rapresent an YAKS User
+  Each user as:
+    - ID 
+    - Username
+    - Password
+    - Group
+ *)
+
   type t = 
     { id : Id.t 
     ; name : string

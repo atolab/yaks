@@ -13,7 +13,20 @@ module Group : sig
     val to_string : ?upper:bool -> t -> string
   end [@@deriving show]
 
+  (* 
+    This module rapresent a YAKS User Group
+    Groups are repsonsible for the access rights.
+    Each group as:
+    - ID
+    - Name
+    - Level (if is and admin group (admins can create storages, users, groups..) or a user group)
+    - RW_Paths - selectors for which this group as RW rights
+    - R_Paths - selectors for which this group as read only rights
+    - W_Paths - selectors for which this group as write only rights
 
+   *)
+
+  (* Not sure if we may need an Operator level that can create storage for instance *)
   type group_level =  Admins | Users
 
   type t = 

@@ -160,7 +160,10 @@ let create_access fe (path:Path.t) cache_size user_id =
         Server.respond_string ~status:`Created ~headers ~body:"" ())
     (fun _ -> insufficient_storage cache_size)
 
-
+(* 
+  Creating a user group 
+  return the groupid as a cookie, this allow the creation of a user in the already created group
+*)
 let create_group fe name rw_paths r_paths w_paths level = 
   let%lwt _ = Logs_lwt.debug (fun m -> m "[ENG]   create_group %s "  name) in
   let level = 
@@ -179,6 +182,11 @@ let create_group fe name rw_paths r_paths w_paths level =
         Server.respond_string ~status:`Created ~headers ~body:"" ())
     (fun _ -> bad_request "Cannot create this group")
 
+(* 
+  creating a new user 
+  this return as a cookie the userid
+  GB: can we authenticate users also using the tuple (userid, password)?
+*)
 let create_user fe name password group = 
   let%lwt _ = Logs_lwt.debug (fun m -> m "[FER]   create_user %s "  name) in
   Lwt.try_bind 
@@ -192,6 +200,12 @@ let create_user fe name password group =
         Server.respond_string ~status:`Created ~headers ~body:"" ())
     (fun _ -> bad_request "Cannot create this user")
 
+(* 
+  authenticating the user using the tuple (username, password) and creating the session token
+  token is used for authenticate the user in all the functions.
+  The session token is managed by the frontend, the engine only tells if an user can or cannot authenticate
+  This token will be destroyed when the user logout from YAKS
+ *)
 let authenticate_user fe name password = 
   let%lwt _ = Logs_lwt.debug (fun m -> m "[FER] authenticate_user %s "  name) in
   Lwt.try_bind 
@@ -376,7 +390,6 @@ let execute_control_operation fe meth path query headers _ =
   (* PUT /yaks/group/ *)
   | (`PUT, ["yaks"; "group"]) -> (
       let open Option.Infix in
-      (* Very dummy authentication method *)
       (* User should be authenticated before creating a group
       only admin users can create a group *)
       (* retrieve the user id from the access token *)
@@ -430,7 +443,7 @@ let execute_control_operation fe meth path query headers _ =
       let open Option.Infix in
       (* Very dummy authentication method *)
       (* User should be authenticated before creating a group
-      only admin users can create a group *)
+      only admin users can create other users *)
       (* retrieve the user id from the access token *)
       let user_id : User.Id.t option = 
           (Cookie.Cookie_hdr.extract headers
@@ -462,10 +475,6 @@ let execute_control_operation fe meth path query headers _ =
   (* POST /yaks/authenticate ? name *)
   | (`POST, ["yaks"; "authenticate";]) -> (
       let open Option.Infix in
-      (* Very dummy authentication method *)
-      (* User should be authenticated before creating a group
-      only admin users can create a group *)
-      (* retrieve the user id from the access token *)
       let pwd : string option = 
           (Cookie.Cookie_hdr.extract headers
           |> List.find_opt (fun (key, _) -> key = "yaks.user.pwd") 

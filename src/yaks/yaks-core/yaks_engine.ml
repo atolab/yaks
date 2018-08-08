@@ -98,6 +98,7 @@ module SEngine = struct
       the user that created that access
      *)
     let check_write_access _ access_info path (*self access_info path*) = 
+    (* check if an access as writing rights for a specified selector *)
       if Selector.match_path path access_info.path then
         match access_info.right with
         | RW_Mode ->  
@@ -112,8 +113,9 @@ module SEngine = struct
       else
         let%lwt _ = Logs_lwt.debug (fun m -> m "Engine.check_write_access access denied for: %s by matching" (Selector.to_string path)) in
         Lwt.fail @@ YException (`UnauthorizedAccess (`Msg (Printf.sprintf "Cannot write to %s" (Selector.to_string path))))
-      
+     
     let check_read_access (* self access_info selector *) _ access_info selector =
+    (* check if an access as reading rights on a specified selector *)
     if Selector.match_path selector access_info.path then
       match access_info.right with
       | R_Mode -> 
@@ -152,28 +154,45 @@ module SEngine = struct
           Lwt.fail @@ YException err
 
     let create_group_with_id engine name rw_paths r_paths w_paths level group_id = 
+      (* 
+      Create a group with the parameters, return unit
+     *)
       let%lwt _ = Logs_lwt.debug (fun m -> m "Engine.create_group  id: %s " (Group.Id.to_string group_id)) in
       let g = Group.{id=group_id; name; rw_paths; r_paths; w_paths; group_level=level} in
       MVar.guarded engine 
         (fun self ->  MVar.return () {self with groups = (GroupMap.add group_id g self.groups)})
 
     let create_group engine name rw_paths r_paths w_paths level = 
+    (* 
+      Create a group with the parameters, return the group id
+     *)
       let%lwt _ = Logs_lwt.debug (fun m -> m "Engine.create_group name: %s " name) in
       let uid = Group.Id.next_id () in
       create_group_with_id engine name rw_paths r_paths w_paths level uid >|= fun () -> uid
     
     let create_user_with_id engine name password group user_id =
+      (* 
+        Create a new user with specgied id in the group identified by the group parameter
+        return unit
+       *)
       let%lwt _ = Logs_lwt.debug (fun m -> m "Engine.create_user_with_id id: %s " (User.Id.to_string user_id)) in
       let u = User.{id=user_id; name; password; group } in
       MVar.guarded engine 
         (fun self ->  MVar.return () {self with users = (UserMap.add user_id u self.users)})
 
     let create_user engine name password group = 
+      (* 
+        Create a new user in the group identified by the group parameter
+        return the userid
+       *)
       let%lwt _ = Logs_lwt.debug (fun m -> m "Engine.create_user name: %s " name) in
       let uid = User.Id.next_id () in
       create_user_with_id engine name password group uid >|= fun () -> uid
 
     let authenticate_user engine name password =
+      (* Authenticate an user based on username and password
+        The creation of a token to manage the session is at front-end level
+      *)
       let%lwt _ = Logs_lwt.debug (fun m -> m "Engine.authenticate_user name: %s " name) in
       MVar.read engine >>= (fun e ->
       let b = UserMap.bindings e.users in
