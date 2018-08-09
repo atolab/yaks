@@ -35,6 +35,7 @@
 - ~Try to have Yaks with REST FE running on MirageOS (Gabriele can you give it a try?)~ 
   
 Is running fine on MirageOS as Unix Process, see in ocaml-examples
+
 If trying to build an image using ukvm or the virtio this error raises
 ```
 Error: No implementations provided for the following modules:
@@ -49,4 +50,5 @@ Error: No implementations provided for the following modules:
            /home/ubuntu/.opam/4.06.0/lib/cohttp-lwt-unix/cohttp_lwt_unix.cmxa(Cohttp_lwt_unix__Server)
 ```
 A good replacement for `Str` should be [ocaml-re](https://github.com/ocaml/ocaml-re)  (See this [Issue on MirageOS](https://github.com/mirage/mirage/issues/901) )
+
 While instead of `Cohttp-lwt-unix` we should use `Cohttp-lwt` because provide a OS-indipendent interface (See the repo for details [Ocaml-Cohttp](https://github.com/mirage/ocaml-cohttp))
