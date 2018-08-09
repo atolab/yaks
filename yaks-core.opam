@@ -10,11 +10,12 @@ version:"0.1"
 license: "EPL 2"
 
 build: [
- ["jbuilder" "build" "-p" yaks-core "-j" jobs]
+ ["dune" "subst"] {pinned}
+ ["dune" "dune" "-p" name "-j" jobs]
 ]
 
 depends: [
-  "jbuilder"
+  "dune"
   "atdgen"
 ]
 
