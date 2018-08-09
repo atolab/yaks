@@ -32,5 +32,7 @@
 
 ## MirageOS
 
-- Try to have Yaks with REST FE running on MirageOS (Gabriele can you give it a try?)
+- ~Try to have Yaks with REST FE running on MirageOS (Gabriele can you give it a try?)~ 
+  
+    Is running fine on MirageOS as Unix Process, see in ocaml-examples
 
