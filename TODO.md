@@ -34,5 +34,17 @@
 
 - ~Try to have Yaks with REST FE running on MirageOS (Gabriele can you give it a try?)~ 
   
-    Is running fine on MirageOS as Unix Process, see in ocaml-examples
-
+Is running fine on MirageOS as Unix Process, see in ocaml-examples
+If trying to build an image using ukvm or the virtio this error raises
+```
+Error: No implementations provided for the following modules:
+         Str referenced from /home/ubuntu/.opam/4.06.0/lib/yaks-core/yaks_core.cmxa(Yaks_types),
+           /home/ubuntu/.opam/4.06.0/lib/yaks-fe-rest/yaks_fe_rest.cmxa(Yaks_fe_rest_mvar)
+         Unix referenced from /home/ubuntu/.opam/4.06.0/lib/lwt/unix/lwt_unix.cmxa(Lwt_engine),
+           /home/ubuntu/.opam/4.06.0/lib/lwt/unix/lwt_unix.cmxa(Lwt_unix),
+           /home/ubuntu/.opam/4.06.0/lib/lwt/unix/lwt_unix.cmxa(Lwt_io),
+           /home/ubuntu/.opam/4.06.0/lib/ipaddr/unix/ipaddr_unix.cmxa(Ipaddr_unix),
+           /home/ubuntu/.opam/4.06.0/lib/conduit-lwt-unix/conduit_lwt_unix.cmxa(Conduit_lwt_server),
+           /home/ubuntu/.opam/4.06.0/lib/conduit-lwt-unix/conduit_lwt_unix.cmxa(Conduit_lwt_unix),
+           /home/ubuntu/.opam/4.06.0/lib/cohttp-lwt-unix/cohttp_lwt_unix.cmxa(Cohttp_lwt_unix__Server)
+```
