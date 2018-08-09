@@ -17,6 +17,22 @@ build: [
 depends: [
   "dune"
   "atdgen"
+  "apero-core"
+  "cmdliner"
+  "fmt" 
+  "logs" 
+  "lwt" 
+  "ppx_deriving" 
+  "uuidm" 
+  "yojson"
+  "lwt_ppx"
+  "lwt_log"
+  "ppx_cstruct"
 ]
+
+conflicts: [
+  "lwt" {< "4.0.0"}
+]
+
 
 available: [ocaml-version >= "4.03.0"]

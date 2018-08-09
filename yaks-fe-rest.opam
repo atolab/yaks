@@ -17,6 +17,13 @@ build: [
 depends: [
   "dune"
   "yaks-core"
+  "cohttp-lwt-unix"
 ]
+
+conflicts: [
+  "lwt" {< "4.0.0"}
+  "cohttp-lwt-unix" {< "1.0.2"}
+]
+
 
 available: [ocaml-version >= "4.03.0"]

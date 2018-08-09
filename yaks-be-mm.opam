@@ -17,7 +17,11 @@ build: [
 depends: [
   "dune"
   "yaks-core"
-  "atdgen"
 ]
+
+conflicts: [
+  "lwt" {< "4.0.0"}
+]
+
 
 available: [ocaml-version >= "4.03.0"]
