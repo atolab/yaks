@@ -11,7 +11,7 @@ license: "EPL 2"
 
 build: [
  ["dune" "subst"] {pinned}
- ["dune" "dune" "-p" name "-j" jobs]
+ ["dune" "-p" name "-j" jobs]
 ]
 
 depends: [
