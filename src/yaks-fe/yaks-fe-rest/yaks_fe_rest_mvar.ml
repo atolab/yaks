@@ -2,9 +2,12 @@ open Apero
 open Yaks_core
 open Yaks_access
 open Cohttp
-open Cohttp_lwt_unix
+open Cohttp_lwt
 open LwtM.InfixM
 open Yaks_user
+
+
+module Server = Cohttp_lwt.Make_server(Cohttp_lwt_unix.IO)
 
 type config = { port : int }
 
@@ -752,8 +755,10 @@ let create cfg engine =
 let start fe =
   let _ = Logs_lwt.debug (fun m -> m "[FER] REST-FE starting HTTP server on port %d" fe.cfg.port) in
   let callback _conn req body = execute_http_request fe req body in
-  Server.create ~stop:fe.stop  ~mode:(`TCP (`Port fe.cfg.port)) (Server.make ~callback ())
-
+  (* let u = Cohttp_lwt_unix.Server.create ~stop:fe.stop  ~mode:(`TCP (`Port fe.cfg.port)) (Cohttp_lwt_unix.Server.make ~callback ()) in u *)
+  let s = Server.make ~callback () in 
+  let tcp = `TCP (`Port fe.cfg.port) in 
+  Conduit_lwt_unix.serve ~ctx:Conduit_lwt_unix.default_ctx ~mode:tcp (Server.callback s)
 
 let stop fe =
   let _ = Logs_lwt.debug (fun m -> m "[FER] REST-FE stopping HTTP server") in

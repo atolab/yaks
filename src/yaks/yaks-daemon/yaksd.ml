@@ -26,7 +26,7 @@ let setup_log =
    (* let _ = (mm_actor <!> (None, Create { cid=Int64.of_int 112; entity = Storage {path = "/root/home"; properties = [] }; entity_id = StorageId "112" } )) *)
    let _ = mm_loop in Lwt.return_unit  *)
 
-let yaksd () = 
+(* let yaksd () = 
   let mm_actor, mm_loop = Yaks_be_mm.create "" in
   let ecfg = Engine.{channel_len = 32 } in
   (* let engine = Engine.create ecfg mm_actor in  *)
@@ -39,7 +39,7 @@ let yaksd () =
   let sockfe = Yaks_fe_sock.create sockfecfg (Engine.mailbox engine) in
   let restfecfg = Yaks_fe_rest.{ port = 8000 } in
   let restfe = Yaks_fe_rest.create restfecfg (Engine.mailbox engine) in
-  Lwt.join [Engine.start engine; Yaks_fe_sock.start sockfe; Yaks_fe_rest.start restfe; mm_loop ]
+  Lwt.join [Engine.start engine; Yaks_fe_sock.start sockfe; Yaks_fe_rest.start restfe; mm_loop ] *)
 
 
 let yaksd_mvar () = 
