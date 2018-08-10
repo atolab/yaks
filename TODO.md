@@ -52,3 +52,5 @@ Error: No implementations provided for the following modules:
 ~A good replacement for `Str` should be [ocaml-re](https://github.com/ocaml/ocaml-re)  (See this [Issue on MirageOS](https://github.com/mirage/mirage/issues/901) )~
 
 While instead of `Cohttp-lwt-unix` we should use `Cohttp-lwt` because provide a OS-indipendent interface (See the repo for details [Ocaml-Cohttp](https://github.com/mirage/ocaml-cohttp))
+
+Some Lwt_unix module are used also by apero, this mean that also in apero we have to migrate to something not unix-depend.
