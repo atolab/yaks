@@ -1,5 +1,7 @@
 module Property = Apero.KeyValueF.Make (String) (String) [@@deriving show]
 
+module Str = Re.Str
+
 module EventStream  = struct 
   include  Apero.EventStream
 end 

@@ -6,6 +6,7 @@ open Cohttp_lwt
 open LwtM.InfixM
 open Yaks_user
 
+module Str = Re.Str
 
 module Server = Cohttp_lwt.Make_server(Cohttp_lwt_unix.IO)
 
