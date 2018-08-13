@@ -49,7 +49,7 @@ module SEngine = struct
     val add_backend_factory : t -> string -> (module BackendFactory) -> unit Lwt.t
   end
 
-  module Make (MVar: Apero.MVar) = struct
+  module Make (MVar: Apero.MVar)(Sec : Yaks_sec.Security) = struct
     type backend_info = 
       { kind : backend_kind
       ; uid : StorageId.t
@@ -75,8 +75,8 @@ module SEngine = struct
       { bes : backend_info BackendMap.t 
       ; befs : (module Yaks_be.BackendFactory) BackendFactoryMap.t 
       ; accs : access_info AccessMap.t
-      ; groups : Group.t GroupMap.t
-      ; users : User.t UserMap.t
+      (* ; groups : Group.t GroupMap.t
+      ; users : User.t UserMap.t *)
      } 
       
     type t = state MVar.t
@@ -94,9 +94,10 @@ module SEngine = struct
       { bes = BackendMap.empty 
       ; befs = BackendFactoryMap.empty 
       ; accs = AccessMap.empty
-      ; groups = GroupMap.empty
-      ; users = UserMap.empty
+      (* ; groups = GroupMap.empty
+      ; users = UserMap.empty  *)
       }
+
 
     (* @TODO: This check should also verify that the user is in the right groups 
       Nasty users can use access coming from an authorized user to get access to data
@@ -161,14 +162,16 @@ module SEngine = struct
           let err : yerror = `UnknownAccess ei in
           Lwt.fail @@ YException err
 
-    let create_group_with_id engine name rw_paths r_paths w_paths level group_id = 
+    let create_group_with_id _ name rw_paths r_paths w_paths level group_id = 
       (* 
       Create a group with the parameters, return unit
      *)
       let%lwt _ = Logs_lwt.debug (fun m -> m "Engine.create_group  id: %s " (Group.Id.to_string group_id)) in
-      let g = Group.{id=group_id; name; rw_paths; r_paths; w_paths; group_level=level} in
+      Sec.create_group_with_id name rw_paths r_paths w_paths level group_id
+
+      (* let g = Group.{id=group_id; name; rw_paths; r_paths; w_paths; group_level=level} in
       MVar.guarded engine 
-        (fun self ->  MVar.return () {self with groups = (GroupMap.add group_id g self.groups)})
+        (fun self ->  MVar.return () {self with groups = (GroupMap.add group_id g self.groups)}) *)
 
     let create_group engine name rw_paths r_paths w_paths level = 
     (* 
@@ -178,24 +181,27 @@ module SEngine = struct
       let uid = Group.Id.next_id () in
       create_group_with_id engine name rw_paths r_paths w_paths level uid >|= fun () -> uid
 
-    let dispose_group engine group_id = 
-      MVar.guarded engine 
+    let dispose_group _ group_id =
+      Sec.dispose_group group_id
+      (* MVar.guarded engine 
         @@ fun (self:state) -> 
           (match GroupMap.mem group_id self.groups with
           | true -> 
                 MVar.return () {self with groups = (GroupMap.remove group_id self.groups)}
           | false -> 
-            MVar.return_lwt (Lwt.fail @@ YException (`InvalidParameters )) self)
+            MVar.return_lwt (Lwt.fail @@ YException (`InvalidParameters )) self) *)
     
-    let create_user_with_id engine name password group user_id =
+    let create_user_with_id _ name password group user_id =
       (* 
         Create a new user with specgied id in the group identified by the group parameter
         return unit
        *)
-      let%lwt _ = Logs_lwt.debug (fun m -> m "Engine.create_user_with_id id: %s " (User.Id.to_string user_id)) in
+      (* let%lwt _ = Logs_lwt.debug (fun m -> m "Engine.create_user_with_id id: %s " (User.Id.to_string user_id)) in
       let u = User.{id=user_id; name; password; group } in
       MVar.guarded engine 
-        (fun self ->  MVar.return () {self with users = (UserMap.add user_id u self.users)})
+        (fun self ->  MVar.return () {self with users = (UserMap.add user_id u self.users)}) *)
+      let%lwt _ = Logs_lwt.debug (fun m -> m "Engine.create_user_with_id id: %s " (User.Id.to_string user_id)) in
+      Sec.create_user_with_id name password group user_id
 
     let create_user engine name password group = 
       (* 
@@ -206,25 +212,24 @@ module SEngine = struct
       let uid = User.Id.next_id () in
       create_user_with_id engine name password group uid >|= fun () -> uid
 
-    let authenticate_user engine name password =
+    let authenticate_user _ name password =
       (* Authenticate an user based on username and password
         The creation of a token to manage the session is at front-end level
       *)
       let%lwt _ = Logs_lwt.debug (fun m -> m "Engine.authenticate_user name: %s " name) in
-      MVar.read engine >>= (fun e ->
-      let b = UserMap.bindings e.users in
+      Sec.authenticate_user name password
+      (* let b = UserMap.bindings e.users in
       let open User in
       let k,_ = List.find (fun (_,v) -> (v.name=name && v.password = password) ) b in
-      Lwt.return k)
+      Lwt.return k) *)
 
-    let dispose_user engine user_id = 
-      MVar.guarded engine 
-        @@ fun (self:state) -> 
-          (match UserMap.mem user_id self.users with
+    let dispose_user _ user_id = 
+      Sec.dispose_user user_id
+          (* (match UserMap.mem user_id self.users with
           | true -> 
                 MVar.return () {self with users = (UserMap.remove user_id self.users)}
           | false -> 
-            MVar.return_lwt (Lwt.fail @@ YException (`InvalidParameters )) self)
+            MVar.return_lwt (Lwt.fail @@ YException (`InvalidParameters )) self) *)
 
     let create_access_with_id engine path cache_size user_id access_id = (* unsed is userid *)
       let%lwt _ = Logs_lwt.debug (fun m -> m "Engine.create_access path: %s " (Path.to_string path)) in
@@ -233,27 +238,37 @@ module SEngine = struct
       (* An user is part of only one group *)
       MVar.guarded engine 
         @@ fun (self:state) -> 
-          (match UserMap.find_opt user_id self.users with
+          Sec.get_user user_id >>= 
+          (fun pu -> 
+          (match pu with
           | Some u -> 
-                let g = GroupMap.find u.group self.groups in
-                let create info =
+                Sec.get_group u.group >>=
+                (fun pg -> 
+                (match pg with
+                | Some g -> 
+                  let create info =
                   MVar.return () {self with accs = (AccessMap.add access_id info self.accs)}
-                in
-                (match (List.exists (fun ie -> Selector.match_path ie path) g.rw_paths),(List.exists (fun ie -> Selector.match_path ie path) g.r_paths),(List.exists (fun ie -> Selector.match_path ie path) g.w_paths) with
-                | (true,_,_) -> create { uid = access_id ; path ; cache_size; right = RW_Mode }
-                | (false,true,false) ->create { uid = access_id ; path ; cache_size; right = R_Mode}
-                | (false,false,true) -> create { uid = access_id ; path ; cache_size; right = W_Mode}
-                | (false,false,false) -> 
-                  let%lwt _ = Logs_lwt.debug (fun m -> m "Engine.create_access cannot create access for path %s user has no rights" (Path.to_string path)) in
-                  let v = Printf.sprintf "No rights for path %s" @@ Path.to_string path in
-                  MVar.return_lwt (Lwt.fail @@ YException (`Forbidden (`Msg v))) self
-                | _ -> 
-                  let v = Printf.sprintf "Group is ill formed no rights for path %s" @@ Path.to_string path in
-                  MVar.return_lwt (Lwt.fail @@ YException (`Forbidden (`Msg v))) self
+                  in
+                  (match (List.exists (fun ie -> Selector.match_path ie path) g.rw_paths),(List.exists (fun ie -> Selector.match_path ie path) g.r_paths),(List.exists (fun ie -> Selector.match_path ie path) g.w_paths) with
+                  | (true,_,_) -> create { uid = access_id ; path ; cache_size; right = RW_Mode }
+                  | (false,true,false) ->create { uid = access_id ; path ; cache_size; right = R_Mode}
+                  | (false,false,true) -> create { uid = access_id ; path ; cache_size; right = W_Mode}
+                  | (false,false,false) -> 
+                    let%lwt _ = Logs_lwt.debug (fun m -> m "Engine.create_access cannot create access for path %s user has no rights" (Path.to_string path)) in
+                    let v = Printf.sprintf "No rights for path %s" @@ Path.to_string path in
+                    MVar.return_lwt (Lwt.fail @@ YException (`Forbidden (`Msg v))) self
+                  | _ -> 
+                    let v = Printf.sprintf "Group is ill formed no rights for path %s" @@ Path.to_string path in
+                    MVar.return_lwt (Lwt.fail @@ YException (`Forbidden (`Msg v))) self
                 )
+                | None -> 
+                  let v = Printf.sprintf "User %s not allowed" @@ User.Id.to_string user_id in
+                  MVar.return_lwt (Lwt.fail @@ YException (`Forbidden (`Msg v))) self)
+                )
+                
           | None -> 
             let v = Printf.sprintf "User %s Unknown" @@ User.Id.to_string user_id in
-            MVar.return_lwt (Lwt.fail @@ YException (`Forbidden (`Msg v))) self)
+            MVar.return_lwt (Lwt.fail @@ YException (`Forbidden (`Msg v))) self))
         
     
 

@@ -40,8 +40,9 @@ module SEngine : sig
     val remove : t -> Access.Id.t -> Selector.t -> unit Lwt.t
     
     val add_backend_factory : t -> string -> (module BackendFactory) -> unit Lwt.t
+
   end
 
-  module Make (MVar: Apero.MVar) : S 
+  module Make (MVar: Apero.MVar)(Sec : Yaks_sec.Security) : S 
 
 end

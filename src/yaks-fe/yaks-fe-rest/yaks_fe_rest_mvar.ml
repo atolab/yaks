@@ -6,6 +6,9 @@ open Cohttp_lwt
 open LwtM.InfixM
 open Yaks_user
 
+
+module Make (YEngine : Yaks_engine.SEngine.S) = struct 
+
 module Str = Re.Str
 
 module Server = Cohttp_lwt.Make_server(Cohttp_lwt_unix.IO)
@@ -765,3 +768,4 @@ let stop fe =
   let _ = Logs_lwt.debug (fun m -> m "[FER] REST-FE stopping HTTP server") in
   Lwt.wakeup_later fe.stopper ()
 
+end

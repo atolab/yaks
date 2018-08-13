@@ -44,13 +44,17 @@ let setup_log =
 
 let yaksd_mvar () = 
   let open Apero.LwtM.InfixM in 
-  let engine = YEngine.make () in     
+  let module M = Yaks_sec_dum.DummySecurity.Make(Apero.MVar_lwt) in 
+  let module YEngine = Yaks_core.SEngine.Make (Apero.MVar_lwt)(M) in
+  let module YRest = Yaks_fe_rest_mvar.Make (YEngine) in 
+  let engine = YEngine.make () in
+  
   try%lwt 
-    YEngine.add_backend_factory engine (yaks_backend_memory) (module Yaks_bef_mm.MainMemoryBEF : BackendFactory) >>=
+    YEngine.add_backend_factory engine (yaks_backend_memory) (module Yaks_bef_mm.MainMemoryBEF : BackendFactory) >>= 
     fun _ -> YEngine.create_storage engine (Apero.Option.get @@ Path.of_string "/") [Property.make yaks_backend yaks_backend_memory] >>=
     fun _ ->
-      let restfecfg = Yaks_fe_rest_mvar.{ port = 8000 } in
-      let restfe = Yaks_fe_rest_mvar.create restfecfg  engine in Yaks_fe_rest_mvar.start restfe
+      let restfecfg = YRest.{ port = 8000 } in
+      let restfe = YRest.create restfecfg  engine in YRest.start restfe
   with 
   | YException e  -> Logs_lwt.err (fun m -> m "%s" (show_yerror e)) >> Lwt.return_unit
   | exn -> Logs_lwt.err (fun m -> m "Exception %s raised" (Printexc.to_string exn)) >> Lwt.return_unit
