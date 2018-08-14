@@ -15,6 +15,7 @@ build: [
 ]
 
 install: [
+  ["dune" "build" "@install"]
   ["dune" "install" name]
 ]
 
