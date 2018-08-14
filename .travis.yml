@@ -1,7 +1,6 @@
 language: c
-    script: bash -ex .apero-ci.sh
 env:
  global:
-   - PRE_INSTALL_HOOK="cd /home/opam/opam-repository && git pull origin master && opam update -u -y"
+  - PRE_INSTALL_HOOK="cd /home/opam/opam-repository && git pull origin master && opam update -u -y"
   - POST_INSTALL_HOOK="sh ./.yaks-ci.sh"
   - OCAML_VERSION=4.07.0 OPAM_VERSION=2.0.0
