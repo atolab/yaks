@@ -14,6 +14,10 @@ build: [
  ["dune" "-p" name "-j" jobs]
 ]
 
+install: [
+  ["dune" "install" name]
+]
+
 depends: [
   "dune"
   "atdgen"
