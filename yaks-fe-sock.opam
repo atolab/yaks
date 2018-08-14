@@ -15,8 +15,7 @@ build: [
 
 depends: [
   "jbuilder"  
-  "yaks_core"
-  "yaks_codec"
+  "yaks-core"
   "atdgen"
 ]
 
