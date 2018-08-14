@@ -3,6 +3,6 @@ sudo: required
 install: wget https://raw.githubusercontent.com/ocaml/ocaml-ci-scripts/master/.travis-opam.sh
 script: bash -ex .yaks-ci.sh
 env:
-    - PACKAGE=yaks
-    - DEPOPTS=lwt dune logs fmt cmdliner cmdliner ppx_deriving uuidm yojson lwt_ppx lwt_log ppx_cstruct atdgen cohttp-lwt-unix
     - OCAML_VERSION=4.07
+    - DEPOPTS=lwt dune logs fmt cmdliner cmdliner ppx_deriving uuidm yojson lwt_ppx lwt_log ppx_cstruct atdgen cohttp-lwt-unix
+    - PACKAGE=yaks
