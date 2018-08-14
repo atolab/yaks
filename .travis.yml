@@ -1,4 +1,4 @@
 language: c
-    script: bash -ex .yaks-ci.sh
+script: bash -ex .yaks-ci.sh
 env:
     - OCAML_VERSION=4.07.0 OPAM_VERSION=2.0.0
