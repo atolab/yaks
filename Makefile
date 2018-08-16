@@ -1,6 +1,6 @@
 .PHONY: all demo clean test doc
 
-BUILD_LIB=dune build 
+BUILD_LIB=dune build --only-packages=yaks-core,yaks-sec-dum,yaks-be-mm,yaks-fe-rest,yaks-fe-sock
 EXES=src/yaks/yaks-daemon/yaksd.exe #src/yaks-tools/yaks-cat/yaksc.exe
 BUILD_EXE=dune build ${EXES}
 CLEAN= dune clean
