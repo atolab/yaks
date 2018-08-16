@@ -249,16 +249,14 @@ module SEngine = struct
         let self' = {self with accs =  AccessMap.remove access_id self.accs } in
         MVar.return () self'
 
-    let create_storage_with_id engine path properties storage_id =
-      match get_property yaks_backend properties with
-      | Some (_,v) ->
-        let _ = Logs_lwt.debug (fun m -> m "SEngine:  create %s storage\n" v) in
+    let create_storare_with_id_kind engine path storage_id kind = 
+      let _ = Logs_lwt.debug (fun m -> m "SEngine:  create %s storage\n" kind) in
         MVar.guarded engine
         @@ fun (self:state) ->
-          (match BackendFactoryMap.find_opt v self.befs with
+          (match BackendFactoryMap.find_opt kind self.befs with
           | Some bef ->
             let module BEF = (val bef : BackendFactory) in
-            let bem =  BEF.make path properties in
+            let bem =  BEF.make path [] in
             let be_info =
               { kind = BEF.kind
               ; uid = storage_id
@@ -266,8 +264,17 @@ module SEngine = struct
               ; be = bem } in
            MVar.return () {self with bes = (BackendMap.add storage_id be_info self.bes)}
           | None ->
-            MVar.return_lwt (Lwt.fail @@ YException (`UnavailableStorageFactory (`Msg v))) self)
-      | None -> Lwt.fail @@ YException `UnknownStorageKind
+            MVar.return_lwt (Lwt.fail @@ YException (`UnavailableStorageFactory (`Msg kind))) self)
+
+    let create_storage_with_id engine path properties storage_id =
+      match get_property yaks_backend properties with
+      | Some (_,v) ->
+        create_storare_with_id_kind engine path storage_id v
+      | None -> 
+        let _ = Logs_lwt.debug (fun m -> m "SEngine:  Creating with default Memory Backend\n") in
+        let v = yaks_backend_memory in
+        create_storare_with_id_kind engine path storage_id v
+        (* Lwt.fail @@ YException `UnknownStorageKind *)
 
     let create_storage engine path properties =
       let%lwt _ = Logs_lwt.debug (fun m -> m "Engine:  create %s storage\n" (Path.to_string path)) in

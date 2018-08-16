@@ -34,6 +34,7 @@ depends: [
   "lwt_ppx"
   "lwt_log"
   "ppx_cstruct"
+  "cohttp-mirage"
 ]
 
 conflicts: [

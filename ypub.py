@@ -17,7 +17,7 @@ def main(times, ip, port):
     token = time()
     #print ("Creating storage /afos/0/1/\n")
 
-    uri = SERVER+'yaks/storages?path=/afos/0/1/&yaks.backend=memory'
+    uri = SERVER+'yaks/storages?path=/afos/0/1'
     resp = requests.post(uri)
     storageid = resp.cookies.get('is.yaks.storage')
     #print('Storage created with id {}\n'.format(storageid))
