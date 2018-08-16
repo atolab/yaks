@@ -24,7 +24,8 @@ module Access : sig
 
   type access_right =  R_Mode | W_Mode | RW_Mode
 
-  val make : Path.t -> int64 -> t 
+  val make : Path.t -> int64 -> access_right -> t 
+  val make_with_id : Id.t -> Path.t -> int64 -> access_right -> t 
   val id : t -> Id.t 
   val path : t -> Path.t
   val cache_size : t -> int64

@@ -1,6 +1,7 @@
 open Yaks_core
 open Lwt.Infix
 open Yaks_sec
+
 module DummySecurity = struct 
 
   module Make (MVar : Apero.MVar) = struct
@@ -97,7 +98,57 @@ module DummySecurity = struct
   let get_group id =
     MVar.read mvar_self >>= 
       (fun s -> Lwt.return @@ GroupMap.find_opt id s.groups )
-    
+  
+
+  let check_write_access access path = 
+     if Selector.match_path path (Access.path access) then
+        match (Access.right access)  with
+        | RW_Mode ->  
+          let%lwt _ = Logs_lwt.debug (fun m -> m "Engine.check_write_access access granted for: %s by permissions" (Selector.to_string path)) in
+          Lwt.return_unit
+        | W_Mode -> 
+          let%lwt _ = Logs_lwt.debug (fun m -> m "Engine.check_write_access access granted for: %s by permissions" (Selector.to_string path)) in
+          Lwt.return_unit
+        | R_Mode -> 
+          let%lwt _ = Logs_lwt.debug (fun m -> m "Engine.check_write_access access denied for: %s by permissions" (Selector.to_string path)) in
+          Lwt.fail @@ YException (`UnauthorizedAccess (`Msg (Printf.sprintf "Cannot write to %s" (Selector.to_string path))))
+      else
+        let%lwt _ = Logs_lwt.debug (fun m -> m "Engine.check_write_access access denied for: %s by matching" (Selector.to_string path)) in
+        Lwt.fail @@ YException (`UnauthorizedAccess (`Msg (Printf.sprintf "Cannot write to %s" (Selector.to_string path))))
+
+
+  let check_read_access access selector =
+    (* check if an access as reading rights on a specified selector *)
+    if Selector.match_path selector (Access.path access) then
+      match (Access.right access) with
+      | R_Mode -> 
+        let%lwt _ = Logs_lwt.debug (fun m -> m "Engine.check_read_access access granted for: %s by permissions" (Selector.to_string selector)) in
+        Lwt.return_unit
+      | RW_Mode -> 
+        let%lwt _ = Logs_lwt.debug (fun m -> m "Engine.check_read_access access granted for: %s by permissions" (Selector.to_string selector)) in
+        Lwt.return_unit
+      | W_Mode -> 
+        let%lwt _ = Logs_lwt.debug (fun m -> m "Engine.check_read_access access denied for: %s by permissions" (Selector.to_string selector)) in
+        Lwt.fail @@ YException (`UnauthorizedAccess (`Msg (Printf.sprintf "Cannot read from to %s" (Selector.to_string selector))))
+    else
+      let%lwt _ = Logs_lwt.debug (fun m -> m "Engine.check_read_access access denied for: %s by matching" (Selector.to_string selector)) in
+      Lwt.fail @@ YException (`UnauthorizedAccess (`Msg (Printf.sprintf "Cannot read from to %s" (Selector.to_string selector))))
+     
+  let get_access_creation_rights (group:G.t) path = 
+    match (List.exists (fun ie -> Selector.match_path ie path) group.rw_paths),(List.exists (fun ie -> Selector.match_path ie path) group.r_paths),(List.exists (fun ie -> Selector.match_path ie path) group.w_paths) with
+    | (true,_,_) -> Common.Result.return Access.RW_Mode
+    | (false,true,false) ->  Common.Result.return Access.R_Mode
+    | (false,false,true) -> Common.Result.return Access.W_Mode
+    | (false,false,false) -> 
+      ignore @@ Logs_lwt.debug (fun m -> m "Engine.create_access cannot create access for path %s user has no rights" (Path.to_string path));
+      let v = Printf.sprintf "No rights for path %s" @@ Path.to_string path in
+      let (r:Yaks_types.yerror) = (`Forbidden (`Msg v)) in
+      Common.Result.fail r
+    | _ -> 
+      let v = Printf.sprintf "Group is ill formed no rights for path %s" @@ Path.to_string path in
+      Common.Result.fail (`Forbidden (`Msg v))
+
+
   end
 end
 

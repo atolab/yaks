@@ -44,8 +44,8 @@ let setup_log =
 
 let yaksd_mvar () = 
   let open Apero.LwtM.InfixM in 
-  let module M = Yaks_sec_dum.DummySecurity.Make(Apero.MVar_lwt) in 
-  let module YEngine = Yaks_core.SEngine.Make (Apero.MVar_lwt)(M) in
+  (* let module M = Yaks_sec_dum.DummySecurity.Make(Apero.MVar_lwt) in  *)
+  let module YEngine = Yaks_core.SEngine.Make (Apero.MVar_lwt) in
   let module YRest = Yaks_fe_rest_mvar.Make (YEngine) in 
   let engine = YEngine.make () in
   

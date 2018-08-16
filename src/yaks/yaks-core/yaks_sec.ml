@@ -2,6 +2,7 @@ open Yaks_types
 open Yaks_property
 open Yaks_user
 open Yaks_group
+open Yaks_access
 
 module type Security = sig 
 
@@ -18,6 +19,12 @@ module type Security = sig
 
   val get_user : User.Id.t -> User.t option Lwt.t
   val get_group : Group.Id.t -> Group.t option Lwt.t
+
+
+  val check_write_access : Access.t -> Selector.t -> unit Lwt.t
+  val check_read_access : Access.t -> Selector.t -> unit Lwt.t
+
+  val get_access_creation_rights : Group.t -> Path.t -> (Access.access_right, yerror) Common.Result.t  
 
 end
 

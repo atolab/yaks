@@ -41,8 +41,11 @@ module SEngine : sig
     
     val add_backend_factory : t -> string -> (module BackendFactory) -> unit Lwt.t
 
+    val add_security : t -> (module Yaks_sec.Security) -> unit Lwt.t
+    val is_secure : t -> bool Lwt.t
+
   end
 
-  module Make (MVar: Apero.MVar)(Sec : Yaks_sec.Security) : S 
+  module Make (MVar: Apero.MVar) : S 
 
 end

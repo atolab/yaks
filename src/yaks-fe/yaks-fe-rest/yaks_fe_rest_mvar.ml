@@ -556,6 +556,12 @@ let execute_control_operation fe meth path query headers _ =
       in  
       let access_path =  query_get_opt query "path" >== List.hd in
       let cache_size = query_get_opt query "cacheSize" >== List.hd >>= Int64.of_string_opt in
+      let%lwt secure = YEngine.is_secure fe.engine in
+      let user_id = 
+        (match secure with
+        | true -> user_id
+        | false -> Some (User.Id.next_id ()))
+      in
       match user_id with
       | None -> forbidden @@ "yaks/access/"
       | Some uid -> 
@@ -579,6 +585,12 @@ let execute_control_operation fe meth path query headers _ =
       in  
       let access_path =  query_get_opt query "path" >== List.hd in
       let cache_size = query_get_opt query "cacheSize" >== List.hd >>= Int64.of_string_opt in
+      let%lwt secure = YEngine.is_secure fe.engine in
+      let user_id = 
+        (match secure with
+        | true -> user_id
+        | false -> Some (User.Id.next_id ()))
+      in
       match user_id with
       | None -> forbidden @@ "yaks/access/"^id
       | Some uid -> 
@@ -704,7 +716,12 @@ let execute_data_operation fe meth (selector: Selector.t) headers body =
     |> List.find_opt (fun (key, _) -> key = cookie_name_access_id)
        >== fun (_, value) -> value) >>= (fun aid -> Access.Id.of_string aid) 
   in  
-  
+  let%lwt secure = YEngine.is_secure fe.engine in
+      let user_id = 
+        (match secure with
+        | true -> user_id
+        | false -> Some (User.Id.next_id ()))
+  in
   match user_id with
   | None -> forbidden @@ Selector.to_string selector
   | Some _ -> (* Should be passed to all functions? *)

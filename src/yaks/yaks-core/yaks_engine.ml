@@ -47,20 +47,24 @@ module SEngine = struct
     val remove : t -> Access.Id.t -> Selector.t -> unit Lwt.t
 
     val add_backend_factory : t -> string -> (module BackendFactory) -> unit Lwt.t
+
+    val add_security : t -> (module Yaks_sec.Security) -> unit Lwt.t
+    val is_secure : t -> bool Lwt.t
+
   end
 
-  module Make (MVar: Apero.MVar)(Sec : Yaks_sec.Security) = struct
+  module Make (MVar: Apero.MVar) = struct
     type backend_info = 
       { kind : backend_kind
       ; uid : StorageId.t
       ; path : Path.t
       ; be : (module Backend) }
 
-    type access_info = 
+    (* type access_info = 
       { uid : Access.Id.t 
       ; path : Path.t 
       ; cache_size : int64
-      ; right : Access.access_right } 
+      ; right : Access.access_right }  *)
       (* at some point we may also keep a list of  backend_info matching this access  *)
     
     module BackendFactoryMap = Map.Make (String)  
@@ -72,9 +76,10 @@ module SEngine = struct
 
 
     type state = 
-      { bes : backend_info BackendMap.t 
+      { bes : backend_info BackendMap.t
       ; befs : (module Yaks_be.BackendFactory) BackendFactoryMap.t 
-      ; accs : access_info AccessMap.t
+      ; accs : Access.t AccessMap.t
+      ; sec : (module Yaks_sec.Security) option
       (* ; groups : Group.t GroupMap.t
       ; users : User.t UserMap.t *)
      } 
@@ -94,63 +99,23 @@ module SEngine = struct
       { bes = BackendMap.empty 
       ; befs = BackendFactoryMap.empty 
       ; accs = AccessMap.empty
+      ; sec = None
       (* ; groups = GroupMap.empty
       ; users = UserMap.empty  *)
       }
 
 
-    (* @TODO: This check should also verify that the user is in the right groups 
-      Nasty users can use access coming from an authorized user to get access to data
-      that they may not have access rights.
-      So the check should be at access level and user level
-      GB: We can store the user id in the access, in this way an user is coupled to one or more access, but an access can be used only by
-      the user that created that access
-     *)
-    let check_write_access _ access_info path (*self access_info path*) = 
-    (* check if an access as writing rights for a specified selector *)
-      if Selector.match_path path access_info.path then
-        match access_info.right with
-        | RW_Mode ->  
-          let%lwt _ = Logs_lwt.debug (fun m -> m "Engine.check_write_access access granted for: %s by permissions" (Selector.to_string path)) in
-          Lwt.return_unit
-        | W_Mode -> 
-          let%lwt _ = Logs_lwt.debug (fun m -> m "Engine.check_write_access access granted for: %s by permissions" (Selector.to_string path)) in
-          Lwt.return_unit
-        | R_Mode -> 
-          let%lwt _ = Logs_lwt.debug (fun m -> m "Engine.check_write_access access denied for: %s by permissions" (Selector.to_string path)) in
-          Lwt.fail @@ YException (`UnauthorizedAccess (`Msg (Printf.sprintf "Cannot write to %s" (Selector.to_string path))))
-      else
-        let%lwt _ = Logs_lwt.debug (fun m -> m "Engine.check_write_access access denied for: %s by matching" (Selector.to_string path)) in
-        Lwt.fail @@ YException (`UnauthorizedAccess (`Msg (Printf.sprintf "Cannot write to %s" (Selector.to_string path))))
-     
-    let check_read_access (* self access_info selector *) _ access_info selector =
-    (* check if an access as reading rights on a specified selector *)
-    if Selector.match_path selector access_info.path then
-      match access_info.right with
-      | R_Mode -> 
-        let%lwt _ = Logs_lwt.debug (fun m -> m "Engine.check_read_access access granted for: %s by permissions" (Selector.to_string selector)) in
-        Lwt.return_unit
-      | RW_Mode -> 
-        let%lwt _ = Logs_lwt.debug (fun m -> m "Engine.check_read_access access granted for: %s by permissions" (Selector.to_string selector)) in
-        Lwt.return_unit
-      | W_Mode -> 
-        let%lwt _ = Logs_lwt.debug (fun m -> m "Engine.check_read_access access denied for: %s by permissions" (Selector.to_string selector)) in
-        Lwt.fail @@ YException (`UnauthorizedAccess (`Msg (Printf.sprintf "Cannot read from to %s" (Selector.to_string selector))))
-    else
-      let%lwt _ = Logs_lwt.debug (fun m -> m "Engine.check_read_access access denied for: %s by matching" (Selector.to_string selector)) in
-      Lwt.fail @@ YException (`UnauthorizedAccess (`Msg (Printf.sprintf "Cannot read from to %s" (Selector.to_string selector))))
-     
-
+    
     (* Checks if the access can read data addressed by this selector. It 
       returns a Lwt.fail with the proper exception set if the rights are not 
       sufficient *)
-    type access_check = state -> access_info -> Selector.t -> unit Lwt.t
+    type access_check = Access.t -> Selector.t -> unit Lwt.t
 
     let get_matching_bes (self:state) (access_id : Access.Id.t) (selector: Selector.t) (access_controller : access_check) =
        match AccessMap.find_opt access_id self.accs with
         | Some access ->
           Lwt.try_bind
-            (fun () -> access_controller self access selector)
+            (fun () -> access_controller access selector)
             (fun () ->
               Lwt.return @@
               BackendMap.filter
@@ -162,113 +127,110 @@ module SEngine = struct
           let err : yerror = `UnknownAccess ei in
           Lwt.fail @@ YException err
 
-    let create_group_with_id _ name rw_paths r_paths w_paths level group_id = 
+    let create_group_with_id engine name rw_paths r_paths w_paths level group_id = 
       (* 
       Create a group with the parameters, return unit
      *)
+     MVar.read engine >>= (fun state -> 
       let%lwt _ = Logs_lwt.debug (fun m -> m "Engine.create_group  id: %s " (Group.Id.to_string group_id)) in
-      Sec.create_group_with_id name rw_paths r_paths w_paths level group_id
-
-      (* let g = Group.{id=group_id; name; rw_paths; r_paths; w_paths; group_level=level} in
-      MVar.guarded engine 
-        (fun self ->  MVar.return () {self with groups = (GroupMap.add group_id g self.groups)}) *)
+      match state.sec with
+      | Some sec -> 
+        let module Sec = (val sec : Yaks_sec.Security) in
+        Sec.create_group_with_id name rw_paths r_paths w_paths level group_id
+      | None -> Lwt.return_unit)
+      
 
     let create_group engine name rw_paths r_paths w_paths level = 
-    (* 
-      Create a group with the parameters, return the group id
-     *)
       let%lwt _ = Logs_lwt.debug (fun m -> m "Engine.create_group name: %s " name) in
       let uid = Group.Id.next_id () in
       create_group_with_id engine name rw_paths r_paths w_paths level uid >|= fun () -> uid
 
-    let dispose_group _ group_id =
-      Sec.dispose_group group_id
-      (* MVar.guarded engine 
-        @@ fun (self:state) -> 
-          (match GroupMap.mem group_id self.groups with
-          | true -> 
-                MVar.return () {self with groups = (GroupMap.remove group_id self.groups)}
-          | false -> 
-            MVar.return_lwt (Lwt.fail @@ YException (`InvalidParameters )) self) *)
-    
-    let create_user_with_id _ name password group user_id =
-      (* 
-        Create a new user with specgied id in the group identified by the group parameter
-        return unit
-       *)
-      (* let%lwt _ = Logs_lwt.debug (fun m -> m "Engine.create_user_with_id id: %s " (User.Id.to_string user_id)) in
-      let u = User.{id=user_id; name; password; group } in
-      MVar.guarded engine 
-        (fun self ->  MVar.return () {self with users = (UserMap.add user_id u self.users)}) *)
-      let%lwt _ = Logs_lwt.debug (fun m -> m "Engine.create_user_with_id id: %s " (User.Id.to_string user_id)) in
+    let dispose_group engine group_id =
+      MVar.read engine >>= (fun state -> 
+      match state.sec with
+      | Some sec -> 
+        let module Sec = (val sec : Yaks_sec.Security) in
+        Sec.dispose_group group_id
+      | None -> Lwt.return_unit)
+      
+
+    let create_user_with_id engine name password group user_id =
+      MVar.read engine >>= (fun state -> 
+      match state.sec with
+      | Some sec -> 
+        let module Sec = (val sec : Yaks_sec.Security) in
+        let%lwt _ = Logs_lwt.debug (fun m -> m "Engine.create_user_with_id id: %s " (User.Id.to_string user_id)) in
       Sec.create_user_with_id name password group user_id
+      | None -> Lwt.return_unit)
+      
 
     let create_user engine name password group = 
-      (* 
-        Create a new user in the group identified by the group parameter
-        return the userid
-       *)
+
       let%lwt _ = Logs_lwt.debug (fun m -> m "Engine.create_user name: %s " name) in
       let uid = User.Id.next_id () in
       create_user_with_id engine name password group uid >|= fun () -> uid
 
-    let authenticate_user _ name password =
-      (* Authenticate an user based on username and password
-        The creation of a token to manage the session is at front-end level
-      *)
-      let%lwt _ = Logs_lwt.debug (fun m -> m "Engine.authenticate_user name: %s " name) in
-      Sec.authenticate_user name password
-      (* let b = UserMap.bindings e.users in
-      let open User in
-      let k,_ = List.find (fun (_,v) -> (v.name=name && v.password = password) ) b in
-      Lwt.return k) *)
+    let authenticate_user engine name password =
+      MVar.read engine >>= (fun state -> 
+       match state.sec with
+      | Some sec -> 
+        let module Sec = (val sec : Yaks_sec.Security) in
+        let%lwt _ = Logs_lwt.debug (fun m -> m "Engine.authenticate_user name: %s " name) in
+        Sec.authenticate_user name password
+      | None -> Lwt.return @@ User.Id.next_id ())
+      
 
-    let dispose_user _ user_id = 
-      Sec.dispose_user user_id
-          (* (match UserMap.mem user_id self.users with
-          | true -> 
-                MVar.return () {self with users = (UserMap.remove user_id self.users)}
-          | false -> 
-            MVar.return_lwt (Lwt.fail @@ YException (`InvalidParameters )) self) *)
+
+    let dispose_user engine user_id = 
+      MVar.read engine >>= (fun state -> 
+      match state.sec with
+      | Some sec -> 
+        let module Sec = (val sec : Yaks_sec.Security) in
+         Sec.dispose_user user_id
+      | None -> Lwt.return_unit)
+     
 
     let create_access_with_id engine path cache_size user_id access_id = (* unsed is userid *)
+
       let%lwt _ = Logs_lwt.debug (fun m -> m "Engine.create_access path: %s " (Path.to_string path)) in
       (* Should get the user groups and depend on the group assign the rights for the access *)
       (* The map between security token and userid should be managed at access level *)
       (* An user is part of only one group *)
       MVar.guarded engine 
         @@ fun (self:state) -> 
-          Sec.get_user user_id >>= 
-          (fun pu -> 
-          (match pu with
-          | Some u -> 
-                Sec.get_group u.group >>=
-                (fun pg -> 
-                (match pg with
-                | Some g -> 
-                  let create info =
-                  MVar.return () {self with accs = (AccessMap.add access_id info self.accs)}
-                  in
-                  (match (List.exists (fun ie -> Selector.match_path ie path) g.rw_paths),(List.exists (fun ie -> Selector.match_path ie path) g.r_paths),(List.exists (fun ie -> Selector.match_path ie path) g.w_paths) with
-                  | (true,_,_) -> create { uid = access_id ; path ; cache_size; right = RW_Mode }
-                  | (false,true,false) ->create { uid = access_id ; path ; cache_size; right = R_Mode}
-                  | (false,false,true) -> create { uid = access_id ; path ; cache_size; right = W_Mode}
-                  | (false,false,false) -> 
-                    let%lwt _ = Logs_lwt.debug (fun m -> m "Engine.create_access cannot create access for path %s user has no rights" (Path.to_string path)) in
-                    let v = Printf.sprintf "No rights for path %s" @@ Path.to_string path in
-                    MVar.return_lwt (Lwt.fail @@ YException (`Forbidden (`Msg v))) self
-                  | _ -> 
-                    let v = Printf.sprintf "Group is ill formed no rights for path %s" @@ Path.to_string path in
-                    MVar.return_lwt (Lwt.fail @@ YException (`Forbidden (`Msg v))) self
-                )
-                | None -> 
-                  let v = Printf.sprintf "User %s not allowed" @@ User.Id.to_string user_id in
-                  MVar.return_lwt (Lwt.fail @@ YException (`Forbidden (`Msg v))) self)
-                )
-                
+          (match self.sec with
+          | Some sec -> 
+            let module Sec = (val sec : Yaks_sec.Security) in
+             Sec.get_user user_id >>= 
+            (fun pu -> 
+            (match pu with
+            | Some u -> 
+                  Sec.get_group u.group >>=
+                  (fun pg -> 
+                  (match pg with
+                  | Some g -> 
+                    let create info =
+                    MVar.return () {self with accs = (AccessMap.add access_id info self.accs)}
+                    in
+                    (match Sec.get_access_creation_rights g path with
+                    | Ok r -> create @@ Access.make_with_id access_id path cache_size r
+                    | Error e -> 
+                      MVar.return_lwt (Lwt.fail @@ YException e) self)
+                  | None -> 
+                    let v = Printf.sprintf "User %s not allowed" @@ User.Id.to_string user_id in
+                    MVar.return_lwt (Lwt.fail @@ YException (`Forbidden (`Msg v))) self)
+                  )
+                  
+            | None -> 
+              let v = Printf.sprintf "User %s Unknown" @@ User.Id.to_string user_id in
+              MVar.return_lwt (Lwt.fail @@ YException (`Forbidden (`Msg v))) self))
           | None -> 
-            let v = Printf.sprintf "User %s Unknown" @@ User.Id.to_string user_id in
-            MVar.return_lwt (Lwt.fail @@ YException (`Forbidden (`Msg v))) self))
+              let create info =
+                MVar.return () {self with accs = (AccessMap.add access_id info self.accs)}
+              in
+              create @@ Access.make_with_id access_id path cache_size Access.RW_Mode
+          )
+         
         
     
 
@@ -334,7 +296,15 @@ module SEngine = struct
     let%lwt _ = Logs_lwt.debug (fun m -> m "[YE]: get") in
       MVar.read engine 
       >>= fun self ->
-        get_matching_bes self access_id selector check_read_access
+        let check = 
+          match self.sec with
+          | Some sec -> 
+            let module Sec = (val sec : Yaks_sec.Security) in
+            Sec.check_read_access
+          | None -> 
+            fun _ _  -> Lwt.return_unit
+          in
+        get_matching_bes self access_id selector check
         >>= fun mbes -> 
          let (m_be, o_be) = mbes
           |> BackendMap.partition (fun _ info -> info.kind = Yaks_be.Memory) in
@@ -356,7 +326,15 @@ module SEngine = struct
       let%lwt _ = Logs_lwt.debug (fun m -> m "[YE]: put") in
       MVar.read engine 
       >>= fun self ->
-        get_matching_bes self access_id selector check_write_access
+        let check = 
+          match self.sec with
+          | Some sec -> 
+            let module Sec = (val sec : Yaks_sec.Security) in
+            Sec.check_read_access
+          | None -> 
+            fun _ _  -> Lwt.return_unit
+          in
+        get_matching_bes self access_id selector check
         >>= fun mbes ->
           mbes |> BackendMap.iter (fun _ (info:backend_info) -> let _ = be_put info.be selector value in ()) 
           ; Lwt.return_unit
@@ -370,7 +348,15 @@ module SEngine = struct
     let%lwt _ = Logs_lwt.debug (fun m -> m "[YE]: put_delta") in
       MVar.read engine 
       >>= fun self ->
-        get_matching_bes self access_id selector check_write_access
+        let check = 
+          match self.sec with
+          | Some sec -> 
+            let module Sec = (val sec : Yaks_sec.Security) in
+            Sec.check_read_access
+          | None -> 
+            fun _ _  -> Lwt.return_unit
+          in
+        get_matching_bes self access_id selector check
         >>= fun mbes ->
           mbes |> BackendMap.iter (fun _ (info:backend_info) -> let _ = be_put_delta info.be selector value in ()) 
           ; Lwt.return_unit
@@ -380,7 +366,15 @@ module SEngine = struct
 
     let remove engine access_id selector = 
       let%lwt self = MVar.read engine in
-      get_matching_bes self access_id selector check_write_access
+      let check = 
+          match self.sec with
+          | Some sec -> 
+            let module Sec = (val sec : Yaks_sec.Security) in
+            Sec.check_read_access
+          | None -> 
+            fun _ _  -> Lwt.return_unit
+          in
+      get_matching_bes self access_id selector check
       >>= fun bes -> 
         Lwt.return @@ BackendMap.iter (fun _ bei -> Lwt.ignore_result @@ be_remove bei.be selector) bes
 
@@ -389,8 +383,24 @@ module SEngine = struct
       MVar.guarded engine 
       @@ fun self ->
         MVar.return () { self with befs = BackendFactoryMap.add name factory self.befs }
-  end
 
+
+  let add_security engine security = 
+    Logs_lwt.debug (fun m -> m "add_backend_security") >>
+      MVar.guarded engine 
+      @@ fun self ->
+        MVar.return () { self with sec = Some security }
+
+  let is_secure engine = 
+    MVar.read engine >>= 
+      (fun state -> 
+        match state.sec with
+        | Some _ -> Lwt.return true
+        | None -> Lwt.return false
+      )
+
+
+  end
 end
 
 
