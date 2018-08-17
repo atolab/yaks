@@ -4,7 +4,6 @@ module Access : sig
   module Id : sig 
     type t
     val make : unit -> t
-    val next_id : unit -> t
     val compare : t -> t -> int
     val equal : t -> t -> bool
     val of_bytes : ?pos:int -> string -> t option
@@ -14,7 +13,7 @@ module Access : sig
   end [@@deriving show]
 
 
-(* 
+  (* 
   This module rapresent an YAKS Access
   An access is created by a user and is below a group and it inherit the access rights from the user group
   GB: Not sure if we add to link the access to the user that created it, to avoid nasty user steal access

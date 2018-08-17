@@ -63,7 +63,7 @@ public class AccessTest {
 		String a = access1.put(Selector.ofString("//is.yaks.tests.async/a"), "ABC")
 				.thenApply((Access asyncAccess) ->{return asyncAccess.get(Path.ofString("//is.yaks.tests.async/a"), String.class);})
 				.get().get();		
-		Assert.assertEquals(a,"ABC");
+		Assert.assertEquals("ABC", a);
 		
 		//get access with id
 		CompletableFuture<Access> futureAccess = yaks.getAccess("access-async-1");

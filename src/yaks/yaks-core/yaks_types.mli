@@ -17,7 +17,6 @@ end [@@deriving show] *)
 module StorageId : sig 
   type t
   val make : unit -> t
-  val next_id : unit -> t
   val compare : t -> t -> int
   val equal : t -> t -> bool
   val of_bytes : ?pos:int -> string -> t option
@@ -30,7 +29,7 @@ module SubscriberId : Apero.Id.S
 module PluginId : Apero.Id.S
 
 module KeyValue : sig 
- include (module type of Apero.KeyValueF.Make (String) (String))
+  include (module type of Apero.KeyValueF.Make (String) (String))
 end [@@deriving show]
 
 module Path : sig
@@ -73,22 +72,22 @@ type yerror = [
   | `UnauthorizedAccess of error_info
   | `UnsupportedTranscoding of error_info
   | `UnsupportedOperation
-  ] [@@deriving show]
+] [@@deriving show]
 
 
 exception YException of yerror [@@deriving show]
 
 module Value : sig 
   type encoding = 
-  | Raw_Encoding
-  | String_Encoding 
-  | Json_Encoding  
+    | Raw_Encoding
+    | String_Encoding 
+    | Json_Encoding  
 
   type t  = 
-  | RawValue of Lwt_bytes.t 
-  | StringValue of string
-  | JSonValue of string
-  
+    | RawValue of Lwt_bytes.t 
+    | StringValue of string
+    | JSonValue of string
+
 
   val make : Lwt_bytes.t -> encoding ->  t  
   val update : t -> t -> (t, yerror) Apero.Result.t

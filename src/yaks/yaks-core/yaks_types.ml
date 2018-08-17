@@ -7,11 +7,20 @@ module EventStream  = struct
 end 
 
 (* module AccessId = struct 
- include Apero.Uuid
-end [@@deriving show] *)
+   include Apero.Uuid
+   end [@@deriving show] *)
 
 module StorageId = struct 
-  include Apero.Uuid
+  include String
+  let make () = Apero.Uuid.next_id () |> Apero.Uuid.to_string
+  let of_string ?pos s = 
+    match pos with
+    | Some(p) -> Some(String.sub s p (String.length s - p))
+    | None -> Some(s)
+  let to_string ?upper s = match upper with | Some(true) -> String.uppercase_ascii s | _ -> s
+  let to_bytes = to_string ~upper:false
+  let of_bytes = of_string
+
 end [@@deriving show]
 
 
@@ -36,7 +45,7 @@ type yerror = [
   | `UnauthorizedAccess of error_info
   | `UnsupportedTranscoding of error_info
   | `UnsupportedOperation
-  ] [@@deriving show]
+] [@@deriving show]
 
 exception YException of yerror [@@deriving show]
 
@@ -46,16 +55,16 @@ open Str
 module Path = struct
   type t = string
   (* from https://tools.ietf.org/html/rfc3986#appendix-B *)
-  let prefix = Str.regexp "\\(/[0-9A-za-z_-]+\\)+"
+  let prefix = Str.regexp "\\(/[0-9A-za-z._-]*\\)+"
   let path_regex = Str.regexp "[^?#]*"
-  
+
   let is_valid s = Str.string_match path_regex s 0
-  
+
   let is_key p = 
     match Str.string_match prefix p 0 with
     | true -> (Str.matched_string p) = p 
     | false -> false
-  
+
   let key p = 
     let _ = Logs_lwt.debug (fun m -> m "Key for path: -%s-" p) in
     match Str.string_match prefix p 0 with
@@ -69,7 +78,7 @@ module Path = struct
     match Str.string_match prefix p 0 with
     | true -> Str.matched_string p
     | false -> ""
-  
+
   let of_string s = 
     if is_valid s then Some s else None
 
@@ -91,7 +100,7 @@ module Selector = struct
   let is_valid s = Str.string_match sel_regex s 0
 
   let key s = s.key
-  
+
   let of_string s = 
     match is_valid s with
     | true ->
@@ -104,7 +113,7 @@ module Selector = struct
         Path.of_string path >>= fun p -> Path.key p in
       Some { path; key; query; fragment }
     | false -> None
-      
+
 
   let to_string s =
     Printf.sprintf "%s%s%s" s.path 
@@ -188,58 +197,58 @@ end
 
 module Value = struct 
   type encoding = 
-  | Raw_Encoding
-  | String_Encoding 
-  | Json_Encoding  
+    | Raw_Encoding
+    | String_Encoding 
+    | Json_Encoding  
 
   type t  = 
-  | RawValue of Lwt_bytes.t 
-  | StringValue of string
-  | JSonValue of string
-  
+    | RawValue of Lwt_bytes.t 
+    | StringValue of string
+    | JSonValue of string
+
   let make buf = function 
-  | Raw_Encoding -> RawValue buf
-  | String_Encoding -> StringValue (Lwt_bytes.to_string buf)
-  | Json_Encoding -> JSonValue (Lwt_bytes.to_string buf)
+    | Raw_Encoding -> RawValue buf
+    | String_Encoding -> StringValue (Lwt_bytes.to_string buf)
+    | Json_Encoding -> JSonValue (Lwt_bytes.to_string buf)
 
   let update _ _ = Apero.Result.fail `UnsupportedOperation
 
   let encoding = function 
-  | RawValue _ -> Raw_Encoding
-  | StringValue _ -> String_Encoding
-  | JSonValue _ -> Json_Encoding
-  
+    | RawValue _ -> Raw_Encoding
+    | StringValue _ -> String_Encoding
+    | JSonValue _ -> Json_Encoding
+
   let to_raw_encoding = function
-  | RawValue _ as v -> Apero.Result.ok @@ v
-  | StringValue s -> Apero.Result.ok @@ RawValue  (Lwt_bytes.of_string s)
-  | JSonValue s -> Apero.Result.ok @@ RawValue (Lwt_bytes.of_string s)
+    | RawValue _ as v -> Apero.Result.ok @@ v
+    | StringValue s -> Apero.Result.ok @@ RawValue  (Lwt_bytes.of_string s)
+    | JSonValue s -> Apero.Result.ok @@ RawValue (Lwt_bytes.of_string s)
 
   let to_string_encoding = function 
-  | RawValue r  -> Apero.Result.ok @@ StringValue (Lwt_bytes.to_string r)
-  | StringValue _ as v  -> Apero.Result.ok @@ v
-  | JSonValue s -> Apero.Result.ok @@ StringValue s 
+    | RawValue r  -> Apero.Result.ok @@ StringValue (Lwt_bytes.to_string r)
+    | StringValue _ as v  -> Apero.Result.ok @@ v
+    | JSonValue s -> Apero.Result.ok @@ StringValue s 
 
   (* @TODO: Should really do the JSON validation *)
   let to_json_encoding = function 
-  | RawValue r  -> Apero.Result.ok @@ JSonValue (Lwt_bytes.to_string r)
-  | StringValue s  -> Apero.Result.ok @@ JSonValue s
-  | JSonValue _ as v -> Apero.Result.ok @@ v
+    | RawValue r  -> Apero.Result.ok @@ JSonValue (Lwt_bytes.to_string r)
+    | StringValue s  -> Apero.Result.ok @@ JSonValue s
+    | JSonValue _ as v -> Apero.Result.ok @@ v
 
   let transcode v = function   
-  | Raw_Encoding -> to_raw_encoding v
-  | String_Encoding -> to_string_encoding v
-  | Json_Encoding -> to_json_encoding v
+    | Raw_Encoding -> to_raw_encoding v
+    | String_Encoding -> to_string_encoding v
+    | Json_Encoding -> to_json_encoding v
 
   let of_string s e = transcode (StringValue s)  e
   let to_string  = function 
-  | RawValue r -> Lwt_bytes.to_string r
-  | StringValue s -> s 
-  | JSonValue j -> j 
+    | RawValue r -> Lwt_bytes.to_string r
+    | StringValue s -> s 
+    | JSonValue j -> j 
 
   let to_bytes  = function 
-  | RawValue r ->  r
-  | StringValue s -> Lwt_bytes.of_string s 
-  | JSonValue j -> Lwt_bytes.of_string j 
+    | RawValue r ->  r
+    | StringValue s -> Lwt_bytes.of_string s 
+    | JSonValue j -> Lwt_bytes.of_string j 
 
   let of_bytes = make 
 end
