@@ -75,3 +75,5 @@ Should be possible to replace:
       - Sockets <-> [Mirage-tcpip](https://github.com/mirage/mirage-tcpip)
       - Configuration files <-> [Mirage-kv](https://github.com/mirage/mirage-kv)
       - File system  <-> Mirage-Kv can be also used in this case, there are no modules that exposes reading on a filesystem
+
+An example of Mirage-channel and Mirage-Flow can be found (here)[https://github.com/atolab/ocaml-examples/tree/master/mirage-os/cflow]
