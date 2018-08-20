@@ -51,6 +51,27 @@ Error: No implementations provided for the following modules:
 ```
 ~A good replacement for `Str` should be [ocaml-re](https://github.com/ocaml/ocaml-re)  (See this [Issue on MirageOS](https://github.com/mirage/mirage/issues/901) )~
 
-While instead of `Cohttp-lwt-unix` we should use `Cohttp-lwt` because provide a OS-indipendent interface (See the repo for details [Ocaml-Cohttp](https://github.com/mirage/ocaml-cohttp))
+~While instead of `Cohttp-lwt-unix` we should use `Cohttp-lwt` because provide a OS-indipendent interface (See the repo for details [Ocaml-Cohttp](https://github.com/mirage/ocaml-cohttp))~
 
-Some Lwt_unix module are used also by apero, this mean that also in apero we have to migrate to something not unix-depend.
+See [FE REST Mirage](https://github.com/atolab/yaks/blob/yaks_mvar/src/yaks-fe/yaks-fe-rest-mirage/yaks_fe_rest_mirage.ml) for the Front-End
+
+After those updates the build still fails:
+
+```
+File "_none_", line 1:
+Error: No implementations provided for the following modules:
+         Unix referenced from /home/ato/.opam/4.06.0/lib/lwt/unix/lwt_unix.cmxa(Lwt_engine),
+           /home/ato/.opam/4.06.0/lib/lwt/unix/lwt_unix.cmxa(Lwt_unix),
+           /home/ato/.opam/4.06.0/lib/lwt/unix/lwt_unix.cmxa(Lwt_io)
+```
+Because Lwt_unix,Lwt_io module are used also by Apero, this mean that also in apero we have to migrate to something not unix-depend.
+
+Should be possible to replace:
+  - Lwt_io <-> [Mirage-Channel](https://github.com/mirage/mirage-channel) and [Mirage-Flow](https://github.com/mirage/mirage-flow)
+  - Lwt_unix 
+    - Network addresses <-> [Ocaml-ipaddr](https://github.com/mirage/ocaml-ipaddr) and [Mirage-tcpip](https://github.com/mirage/mirage-tcpip)
+    - Sleep <->  Time.sleep_ns built-in in OS [Mirage-Platform](https://github.com/mirage/mirage-platform)
+    - File descriptors 
+      - Sockets <-> [Mirage-tcpip](https://github.com/mirage/mirage-tcpip)
+      - Configuration files <-> [Mirage-kv](https://github.com/mirage/mirage-kv)
+      - File system  <-> Mirage-Kv can be also used in this case, there are no modules that exposes reading on a filesystem
