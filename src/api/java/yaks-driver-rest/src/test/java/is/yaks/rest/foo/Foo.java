@@ -4,15 +4,15 @@ import com.google.gson.annotations.Expose;
 
 public class Foo {
 
-	@Expose
-	String bar;	
+    @Expose
+    String bar;
 
-	public Foo() {
-		bar = "Foo! Bar!";
-	}
+    public Foo() {
+        bar = "Foo! Bar!";
+    }
 
-	@Override
-	public String toString() {
-		return "Foo value: " + bar;
-	}
+    @Override
+    public String toString() {
+        return "Foo value: " + bar;
+    }
 }
