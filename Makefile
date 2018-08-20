@@ -1,12 +1,12 @@
 .PHONY: all demo clean test doc
 
-BUILD_LIB=jbuilder build 
+BUILD_LIB=dune build --only-packages=yaks-core,yaks-sec-dum,yaks-be-mm,yaks-fe-rest,yaks-fe-sock,yaks
 EXES=src/yaks/yaks-daemon/yaksd.exe #src/yaks-tools/yaks-cat/yaksc.exe
-BUILD_EXE=jbuilder build ${EXES}
-CLEAN= jbuilder clean
-TEST=jbuilder runtest -j1 --no-buffer --dev
-INSTALL=jbuilder install
-
+BUILD_EXE=dune build ${EXES}
+CLEAN= dune clean
+TEST=dune runtest -j1 --no-buffer --dev
+INSTALL=dune install --only-packages=yaks-core,yaks-sec-dum,yaks-be-mm,yaks-fe-rest,yaks-fe-sock,yaks
+UNINSTALL = dune uninstall --only-packages=yaks-core,yaks-sec-dum,yaks-be-mm,yaks-fe-rest,yaks-fe-sock,yaks
 all:
 		${BUILD_LIB}
 		${BUILD_EXE}
@@ -23,5 +23,8 @@ clean:
 	${CLEAN}
 #	make -C demo clean
 
+uninstall:
+	${UNINSTALL}
+
 doc:
-	jbuilder build  @doc
+	dune build  @doc

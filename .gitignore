@@ -9,6 +9,8 @@
 *.cmxa
 *.install
 *~
+*.iml
+tmp
 
 # ocamlbuild working directory
 _build/
@@ -31,3 +33,5 @@ setup.log
 # Maven generated files
 target
 
+# macOS DS_Store files
+.DS_Store

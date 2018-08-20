@@ -1,0 +1,6 @@
+(executable
+ (name            yaksd)
+ (modules yaksd)
+  (libraries lwt lwt.unix yaks-core biniou yaks-sec-dum yaks-fe-sock yaks-be-mm yaks-fe-rest atdgen logs logs.fmt logs.cli fmt fmt.cli fmt.tty cmdliner)
+  (preprocess
+    (pps lwt_ppx ppx_deriving.show ppx_deriving.ord)))

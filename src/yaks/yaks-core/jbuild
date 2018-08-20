@@ -1,9 +1,0 @@
-(jbuild_version 1)
-
-(library
- ((name            yaks_core)
-  (public_name     yaks-core)
-  (wrapped     false)
-  (libraries       (str apero-core apero-net biniou lwt lwt.unix logs logs.lwt ppx_deriving.show ppx_deriving.ord))
-  (preprocess
-    (pps (ppx_deriving.show ppx_deriving.ord lwt_ppx)))))
