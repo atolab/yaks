@@ -1,7 +1,5 @@
-module EventStream = Apero.EventStream
-
-type property = {key : string; value : string}
-
+open Yaks_types
+open Yaks_property
 
 type plugin_kind = 
   | Backend 
@@ -12,7 +10,7 @@ type plugin_kind =
 
 type entity = 
   | Access of { path : string; cache_size : int64 }
-  | Storage of { path : string; properties: property list }
+  | Storage of { path : string; properties: Property.t list }
   | Subscriber of { access_id: string; selector : string; push : bool}
   | Plugin of { mailbox: event Actor.Actor.actor_mailbox; kind: plugin_kind }
 (* FEBE -> plguin
@@ -71,18 +69,18 @@ type event_source = event EventStream.Source.s
 (*      helpers functions         *)
 (**********************************)
 
-let string_of_property : property -> string =
-  fun p -> Printf.sprintf "%s=%s" p.key p.value
+let string_of_property p  = 
+  Printf.sprintf "%s=%s" (Property.key p)  (Property.value p)
 
 let string_of_properties p =
   String.concat ""
     [ "["; List.map string_of_property p |> String.concat ","; "]"]
 
 let string_of_entity e = match e with
-  | Access{path; cache_size} -> Printf.sprintf "Acc(%s)" path
-  | Storage{path; properties}    -> Printf.sprintf "Str(%s)" path
-  | Subscriber{access_id; selector; push} -> Printf.sprintf "Sub(%s)" selector
-  | Plugin {mailbox; kind} -> 
+  | Access{path; cache_size=_} -> Printf.sprintf "Acc(%s)" path
+  | Storage{path; properties=_}    -> Printf.sprintf "Str(%s)" path
+  | Subscriber{access_id=_; selector; push=_} -> Printf.sprintf "Sub(%s)" selector
+  | Plugin {mailbox=_; kind} -> 
     let int_of_kind = function | Backend -> 0 | Frontend -> 1 | Transport -> 2 in 
     Printf.sprintf "Kind(%d)" @@ int_of_kind kind
 
@@ -105,17 +103,17 @@ let string_of_message msg =
     Printf.sprintf "#%Ld Create(%s, %s)" cid (string_of_entity entity) (string_of_entity_id entity_id)
   | Dispose{cid; entity_id} ->
     Printf.sprintf "#%Ld Dispose(%s)" cid (string_of_entity_id entity_id)
-  | Get{cid; entity_id; key; encoding} ->
+  | Get{cid; entity_id=_; key; encoding=_} ->
     Printf.sprintf "#%Ld Get(%s)" cid key
-  | Put{cid; access_id; key; value} ->
+  | Put{cid; access_id=_; key; value} ->
     Printf.sprintf "#%Ld Put(%s, %s)" cid key value
-  | Patch{cid; access_id; key; value} ->
+  | Patch{cid; access_id=_; key; value} ->
     Printf.sprintf "#%Ld Patch(%s, %s)" cid key value
-  | Remove{cid; access_id; key} ->
+  | Remove{cid; access_id=_; key} ->
     Printf.sprintf "#%Ld Remove(%s)" cid key
-  | Notify{cid; sid; values} ->
+  | Notify{cid; sid; values=_} ->
     Printf.sprintf "#%Ld Notify(%s)" cid (string_of_entity_id sid)
-  | Values{cid; encoding; values} ->
+  | Values{cid; encoding=_; values=_} ->
     Printf.sprintf "#%Ld Values(...)" cid
   | Error{cid; reason} ->
     Printf.sprintf "#%Ld Error(%d)" cid reason
@@ -130,9 +128,20 @@ let string_of_message msg =
   | RemovePlugin {entity_id; kind} -> 
     Printf.sprintf "# RemovePlugin(%s,%s)" (string_of_entity_id entity_id) (string_of_plugin_kind kind)
 
-let json_string_of_values values =
+(* let json_string_of_values values =
   values
-  |> List.map (fun {key; value} -> Printf.sprintf "\"%s\":%s" key (Lwt_bytes.to_string value))
+  |> List.map (fun (key, value) -> Printf.sprintf "\"%s\":%s" key (Lwt_bytes.to_string value))
+  |> String.concat ","
+  |> Printf.sprintf "{%s}" *)
+
+let json_string_of_values (kvs : (string * Value.t) list) =
+  kvs
+  |> List.map (fun (key, value) -> Printf.sprintf "\"%s\":%s" key  (Value.to_string value))
   |> String.concat ","
   |> Printf.sprintf "{%s}"
 
+let json_string_of_tuples values =
+  values
+  |> List.map (fun {key; value} -> Printf.sprintf "\"%s\":%s" key  (Lwt_bytes.to_string value))
+  |> String.concat ","
+  |> Printf.sprintf "{%s}"

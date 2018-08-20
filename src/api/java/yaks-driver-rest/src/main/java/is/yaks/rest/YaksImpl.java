@@ -64,8 +64,8 @@ public class YaksImpl implements Yaks {
                 MultivaluedMap<String, String> headers = response.getHeaders();
                 String accessId = Utils.getValueFromHeaderKey(headers, "Set-Cookie", Utils.IS_YAKS_ACCESS);
                 String accessLocation = Utils.getHeader(headers, "Location");
-                if(String.valueOf(accessId).isEmpty() || String.valueOf(accessLocation).isEmpty()) {
-                	throw new IllegalArgumentException("Access id or access location is invalid");
+                if (String.valueOf(accessId).isEmpty() || String.valueOf(accessLocation).isEmpty()) {
+                    throw new IllegalArgumentException("Access id or access location is invalid");
                 }
                 AccessImpl access = new AccessImpl(accessId, scopePath, cacheSize);
                 access.setLocation(accessLocation);
@@ -96,8 +96,8 @@ public class YaksImpl implements Yaks {
             case HttpURLConnection.HTTP_OK:
                 headers = response.getHeaders();
                 String accessId = Utils.getValueFromHeaderKey(headers, "Set-Cookie", Utils.IS_YAKS_ACCESS);
-                if(String.valueOf(accessId).isEmpty()) {
-                	throw new IllegalArgumentException("Access id is empty");
+                if (String.valueOf(accessId).isEmpty()) {
+                    throw new IllegalArgumentException("Access id is empty");
                 }
                 AccessImpl access = new AccessImpl(accessId, scopePath, cacheSize);
                 accessById.put(accessId, access);
@@ -106,8 +106,8 @@ public class YaksImpl implements Yaks {
                 headers = response.getHeaders();
                 accessId = Utils.getValueFromHeaderKey(headers, "Set-Cookie", Utils.IS_YAKS_ACCESS);
                 String accessLocation = Utils.getHeader(headers, "Location");
-                if(String.valueOf(accessId).isEmpty() || String.valueOf(accessLocation).equals(".")) {
-                	throw new IllegalArgumentException("Access id or access location is invalid");
+                if (String.valueOf(accessId).isEmpty() || String.valueOf(accessLocation).equals(".")) {
+                    throw new IllegalArgumentException("Access id or access location is invalid");
                 }
                 access = new AccessImpl(accessId, scopePath, cacheSize);
                 access.setLocation(accessLocation);
@@ -177,8 +177,8 @@ public class YaksImpl implements Yaks {
         case HttpURLConnection.HTTP_CREATED:
             String storageId = Utils.getValueFromHeaderKey(headers, "Set-Cookie", Utils.IS_YAKS_STORAGE);
             String storageLocation = Utils.getHeader(headers, "Location");
-            if( String.valueOf(storageId).isEmpty() || String.valueOf(storageLocation).isEmpty()) {
-            	throw new IllegalArgumentException("Storage id or storage location is invalid");
+            if (String.valueOf(storageId).isEmpty() || String.valueOf(storageLocation).isEmpty()) {
+                throw new IllegalArgumentException("Storage id or storage location is invalid");
             }
             StorageImpl storage = new StorageImpl(storageId, storageLocation);
             storageById.put(storageId, storage);
@@ -208,16 +208,16 @@ public class YaksImpl implements Yaks {
         case HttpURLConnection.HTTP_CREATED:
             String storageId = Utils.getValueFromHeaderKey(headers, "Set-Cookie", Utils.IS_YAKS_STORAGE);
             String storageLocation = Utils.getHeader(headers, "Location");
-            if(String.valueOf(storageId).isEmpty() || String.valueOf(storageLocation).equals(".")) {
-            	throw new IllegalArgumentException("Storage id or storage location is invalid");
+            if (String.valueOf(storageId).isEmpty() || String.valueOf(storageLocation).equals(".")) {
+                throw new IllegalArgumentException("Storage id or storage location is invalid");
             }
             StorageImpl storage = new StorageImpl(storageId, storageLocation);
             storageById.put(storageId, storage);
             return storage;
         case HttpURLConnection.HTTP_OK:
             storageId = Utils.getValueFromHeaderKey(headers, "Set-Cookie", Utils.IS_YAKS_STORAGE);
-            if(String.valueOf(storageId).isEmpty()) {
-            	throw new IllegalArgumentException("Storage id is invalid");
+            if (String.valueOf(storageId).isEmpty()) {
+                throw new IllegalArgumentException("Storage id is invalid");
             }
             storage = new StorageImpl(storageId);
             storageById.put(id, storage);
@@ -263,8 +263,8 @@ public class YaksImpl implements Yaks {
         case HttpURLConnection.HTTP_OK:
             StorageImpl storage = config.getGson().fromJson(data,
                     gsonTypes.getTypeToken(is.yaks.rest.StorageImpl.class));
-            if(storage == null) {
-            	throw new NullPointerException("Invalid null storage returned");
+            if (storage == null) {
+                throw new NullPointerException("Invalid null storage returned");
             }
             storageById.put(id, storage);
             return storage;

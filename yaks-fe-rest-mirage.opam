@@ -15,7 +15,7 @@ build: [
 ]
 
 install: [
-  ["dune" "build" "-p" name "@install"]
+  ["dune" "build" "@install"]
   ["dune" "install" name]
 ]
 
@@ -23,12 +23,12 @@ install: [
 depends: [
   "dune"
   "yaks-core"
-  "cohttp-lwt-unix"
+  "cohttp-mirage"
 ]
 
 conflicts: [
   "lwt" {< "4.0.0"}
-  "cohttp-lwt-unix" {< "1.0.2"}
+  "cohttp-mirage" {< "1.0.2"}
 ]
 
 

@@ -1,10 +1,10 @@
-open Yaks_core
+(* open Yaks_core *)
 open Yaks_event
 open Apero
 open Actor.Infix
 
-let read_message buf = Ok {cid=0L; entity_id = Auto  }
-let write_message buf msg = ()
+let read_message _ = Ok {cid=0L; entity_id = Auto  }
+let write_message _ _ = ()
 type config = { iface : string; port : int; backlog : int; bufsize : int; stream_len : int }
 
 type t = { socket : Lwt_unix.file_descr; engine_mailbox : event Actor.actor_mailbox; cfg : config }
@@ -36,7 +36,7 @@ let serve_connection sock fe =
     let%lwt n = Lwt_bytes.recv sock lbuf 0 4 [] in 
     if n != 0 then 
       begin  
-        let%lwt len = Lwt_io.read_int (Lwt_io.of_bytes Lwt_io.Input lbuf)in  
+        let%lwt len = Lwt_io.read_int (Lwt_io.of_bytes ~mode:Lwt_io.Input lbuf)in  
         let%lwt _ = Logs_lwt.debug (fun m -> m "Received message of %d bytes" len) in
         let%lwt n = Lwt_bytes.recv sock rbuf 0 max_len [] in    
         if n != 0 then 
@@ -62,7 +62,7 @@ let serve_connection sock fe =
       let payload = Bi_outbuf.contents sbuf in 
       let len = String.length payload in
       let lbuf = Lwt_bytes.create 4 in       
-      let oc = (Lwt_io.of_bytes Lwt_io.Output lbuf) in
+      let oc = (Lwt_io.of_bytes ~mode:Lwt_io.Output lbuf) in
       let%lwt _ = Lwt_io.write_int oc len in 
       let%lwt _ = Lwt_bytes.send sock lbuf 0 (Lwt_bytes.length lbuf) [] in                         
       let%lwt _ = Lwt_bytes.send sock (Lwt_bytes.of_string payload) 0 len [] in                         
@@ -75,7 +75,7 @@ let serve_connection sock fe =
 
 let rec accept_connection fe = 
   let%lwt _ = Logs_lwt.debug (fun m -> m "Socket-FE ready to accept connection" ) in
-  let%lwt (sock, addr) = Lwt_unix.accept fe.socket in
+  let%lwt (sock, _) = Lwt_unix.accept fe.socket in
   let _ = serve_connection sock fe in
   accept_connection fe
 
@@ -86,7 +86,7 @@ let create cfg engine_mailbox =
 
 let start = accept_connection 
 
-let stop fe = Lwt.return_unit
+let stop _ = Lwt.return_unit
 (** TODO: Implement this.  *)
 
 

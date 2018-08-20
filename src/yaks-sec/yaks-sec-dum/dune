@@ -1,0 +1,7 @@
+(library
+  (name            yaks_sec_dum)
+  (public_name     yaks-sec-dum)
+  (wrapped     false)
+  (libraries       yaks-core lwt str lwt.unix logs logs.lwt ppx_deriving.show ppx_deriving.ord)
+  (preprocess
+    (pps ppx_deriving.show ppx_deriving.ord lwt_ppx)))

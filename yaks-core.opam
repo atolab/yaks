@@ -10,12 +10,35 @@ version:"0.1"
 license: "EPL 2"
 
 build: [
- ["jbuilder" "build" "-p" yaks-core "-j" jobs]
+ ["dune" "subst"] {pinned}
+ ["dune" "-p" name "-j" jobs]
+]
+
+install: [
+  ["dune" "build" "-p" name "@install"]
+  ["dune" "install" name]
 ]
 
 depends: [
-  "jbuilder"
+  "dune"
   "atdgen"
+  "apero-core"
+  "apero-net"
+  "cmdliner"
+  "fmt" 
+  "logs" 
+  "lwt" 
+  "ppx_deriving" 
+  "uuidm" 
+  "yojson"
+  "lwt_ppx"
+  "lwt_log"
+  "ppx_cstruct"
 ]
+
+conflicts: [
+  "lwt" {< "4.0.0"}
+]
+
 
 available: [ocaml-version >= "4.03.0"]

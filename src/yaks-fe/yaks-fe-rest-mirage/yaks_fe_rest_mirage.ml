@@ -2,16 +2,16 @@ open Apero
 open Yaks_core
 open Yaks_access
 open Cohttp
-open Cohttp_lwt
 open LwtM.InfixM
 open Yaks_user
 
 
-module Make (YEngine : Yaks_engine.SEngine.S) = struct 
+module REST_Mirage (YEngine : Yaks_engine.SEngine.S) (CON:Conduit_mirage.S) = struct
 
   module Str = Re.Str
 
-  module Server = Cohttp_lwt.Make_server(Cohttp_lwt_unix.IO)
+  module Server = Cohttp_mirage.Server(Conduit_mirage.Flow)
+  (* module Channel = Mirage_channel_lwt.Make(Conduit_mirage.Flow) *)
 
   type config = { port : int }
 
@@ -42,6 +42,9 @@ module Make (YEngine : Yaks_engine.SEngine.S) = struct
   (**********************************)
   (*      helpers functions         *)
   (**********************************)
+  let next_request_counter fe =
+    fe.request_counter <- Int64.succ fe.request_counter;
+    fe.request_counter
 
   let query_get_opt query name =
     let open Option.Infix in 
@@ -62,10 +65,16 @@ module Make (YEngine : Yaks_engine.SEngine.S) = struct
     let cookie = Cohttp.Cookie.Set_cookie_hdr.make (key, value) in
     Cohttp.Cookie.Set_cookie_hdr.serialize ~version:`HTTP_1_0 cookie
 
+  let string_of_cookies header =
+    Cookie.Cookie_hdr.extract header |>
+    List.fold_left (fun acc (k, v) -> acc^" , "^k^"="^v) ""
 
   (**********************************)
   (*        Error replies           *)
   (**********************************)
+
+  let not_implemented msg =
+    Server.respond_string ~status:`Not_implemented ~body:msg ()
 
   let empty_path =
     Server.respond_string ~status:`Bad_request ~body:(
@@ -105,8 +114,8 @@ module Make (YEngine : Yaks_engine.SEngine.S) = struct
   let invalid_path p =
     Server.respond_error ~status:`Not_found ~body:("Invalid Storage Path  \""^p) ()
 
-  (* let storage_not_found id =
-     Server.respond_error ~status:`Not_found ~body:("Storage \""^id^"\" not found") () *)
+  let storage_not_found id =
+    Server.respond_error ~status:`Not_found ~body:("Storage \""^id^"\" not found") ()
 
   let missing_cookie cookie_name =
     Server.respond_error ~status:`Precondition_failed ~body:("Missing cookie: "^cookie_name) ()
@@ -114,8 +123,8 @@ module Make (YEngine : Yaks_engine.SEngine.S) = struct
   let no_matching_key selector =
     Server.respond_error ~status:`Not_found ~body:("No key found matching selector: "^selector) ()
 
-  (* let invalid_selector s =
-     Server.respond_error ~status:`Not_found ~body:("Invalid Selector  \""^s) () *)
+  let invalid_selector s =
+    Server.respond_error ~status:`Not_found ~body:("Invalid Selector  \""^s) ()
 
   let bad_request s =
     Server.respond_error ~status:`Bad_request ~body:("Invalid Request  \""^s) ()
@@ -349,14 +358,16 @@ let unsubscribe fe access_id sub_id =
   (*      Key/Value operations      *)
   (**********************************)
 
+  let status_ok = `Ok
+
   let json_string_of_key_values (kvs : (string * Value.t) list) =
     kvs
     |> List.map (fun (key, value) -> Printf.sprintf "\"%s\":%s" key  (Value.to_string value))
     |> String.concat ","
     |> Printf.sprintf "{%s}"
 
-  let get fe (access_id:Access.Id.t) (selector: Selector.t) =
-    let%lwt _ = Logs_lwt.debug (fun m -> m "[FER]   get %s %s" (Access.Id.to_string access_id) (Selector.to_string selector)) in
+  let get_key_value fe (access_id:Access.Id.t) (selector: Selector.t) =
+    let%lwt _ = Logs_lwt.debug (fun m -> m "[FER]   get_key_value %s %s" (Access.Id.to_string access_id) (Selector.to_string selector)) in
     YEngine.get fe.engine access_id selector
     >>= fun (kvs) -> 
     Server.respond_string ~status:`OK ~body:(json_string_of_key_values kvs) ()    
@@ -376,16 +387,31 @@ let unsubscribe fe access_id sub_id =
     let%lwt _ = Logs_lwt.debug (fun m -> m "[FER]   put_delta %s %s\n%s" (Access.Id.to_string access_id) (Selector.to_string selector) (Value.to_string delta)) in  
     Lwt.try_bind 
       (fun () -> 
-         let%lwt _ = Logs_lwt.debug (fun m -> m "[FER]   put_delta calling YEngine.put_delta") in
+         let%lwt _ = Logs_lwt.debug (fun m -> m "[FER]   put calling YEngine.put_delta") in
          YEngine.put_delta fe.engine access_id selector delta) 
       (fun () -> Server.respond_string ~status:`No_content ~body:"" ())
       (fun _ -> no_matching_key (Selector.to_string selector))
 
-  let remove fe (access_id:Access.Id.t) (selector: Selector.t) =
-    let%lwt _ = Logs_lwt.debug (fun m -> m "[FER]   remove %s %s" (Access.Id.to_string access_id) (Selector.to_string selector)) in
-    YEngine.remove fe.engine access_id selector
-    >>= fun () -> 
-    Server.respond_string ~status:`No_content ~body:"" ()    
+(*
+let remove_key_value fe access_id selector =
+  let%lwt _ = Logs_lwt.debug (fun m -> m "[FER]   put_delta_key_value %s %s" access_id selector) in
+  let msg = Remove { 
+      cid = next_request_counter fe;
+      access_id = Access.Id(access_id);
+      key = selector;
+    }
+  in
+  push_to_engine fe msg
+  >>= function
+  | Ok {cid=_; _} ->
+    Server.respond_string ~status:`No_content ~body:"" ()
+  | Error {cid=_; reason=404} ->
+    no_matching_key selector
+  | x ->
+    unexpected_reply x *)
+
+
+
 
 
   (**********************************)
@@ -529,12 +555,6 @@ let unsubscribe fe access_id sub_id =
         in  
         let access_path =  query_get_opt query "path" >== List.hd in
         let cache_size = query_get_opt query "cacheSize" >== List.hd >>= Int64.of_string_opt in
-        let%lwt secure = YEngine.is_secure fe.engine in
-        let user_id = 
-          (match secure with
-           | true -> user_id
-           | false -> Some (User.Id.next_id ()))
-        in
         match user_id with
         | None -> forbidden @@ "yaks/access/"
         | Some uid -> 
@@ -558,12 +578,6 @@ let unsubscribe fe access_id sub_id =
         in  
         let access_path =  query_get_opt query "path" >== List.hd in
         let cache_size = query_get_opt query "cacheSize" >== List.hd >>= Int64.of_string_opt in
-        let%lwt secure = YEngine.is_secure fe.engine in
-        let user_id = 
-          (match secure with
-           | true -> user_id
-           | false -> Some (User.Id.next_id ()))
-        in
         match user_id with
         | None -> forbidden @@ "yaks/access/"^id
         | Some uid -> 
@@ -592,11 +606,10 @@ let unsubscribe fe access_id sub_id =
         | None -> invalid_access id
 
       )
-    (* DELETE /yaks/access/id *)
+    (* Dispose /yaks/access/id *)
     | (`DELETE, ["yaks"; "access"; id]) -> (
-        match Access.Id.of_string id with
-        | Some access_id -> dispose_access fe access_id
-        | None -> invalid_access_id id
+        unsupported_uri id
+        (* dispose_access fe id *)
       )
     (* POST /yaks/storages ? path & options... *)
     | (`POST, ["yaks"; "storages"]) -> (
@@ -648,11 +661,10 @@ let unsubscribe fe access_id sub_id =
         unsupported_uri id
         (* get_storage fe ~id *)
       )
-    (* DELETE /yaks/storages/id *)
+    (* Dispose /yaks/storages/id *)
     | (`DELETE, ["yaks"; "storages"; id]) -> (
-        match StorageId.of_string id with
-        | Some storage_id -> dispose_storage fe storage_id
-        | None -> invalid_storage_id id
+        unsupported_uri id
+        (* dispose_storage fe id *)
       )
     (* POST /yaks/access/id/subs *)
     | (`POST, ["yaks"; "access"; aid; "subs"]) -> (
@@ -691,12 +703,7 @@ let unsubscribe fe access_id sub_id =
        |> List.find_opt (fun (key, _) -> key = cookie_name_access_id)
           >== fun (_, value) -> value) >>= (fun aid -> Access.Id.of_string aid) 
     in  
-    let%lwt secure = YEngine.is_secure fe.engine in
-    let user_id = 
-      (match secure with
-       | true -> user_id
-       | false -> Some (User.Id.next_id ()))
-    in
+
     match user_id with
     | None -> forbidden @@ Selector.to_string selector
     | Some _ -> (* Should be passed to all functions? *)
@@ -704,15 +711,18 @@ let unsubscribe fe access_id sub_id =
       | (_, None) ->
         missing_cookie cookie_name_access_id
       | (`GET, Some(aid)) ->
-        get fe aid selector
+        let%lwt _ = Logs_lwt.debug (fun m -> m "(-- get_key_value --" ) in 
+        get_key_value fe aid selector
       | (`PUT, Some(aid)) ->
         let%lwt value = Cohttp_lwt.Body.to_string body in
         put fe aid selector (Value.JSonValue value)     
+
       | (`PATCH, Some(aid)) ->
         let%lwt value = Cohttp_lwt.Body.to_string body in
-        put_delta fe aid selector (Value.JSonValue value)
-      | (`DELETE, Some(aid)) ->
-        remove fe aid selector
+        put fe aid selector (Value.JSonValue value)
+      (* put_delta_key_value fe aid selector value *)
+      | (`DELETE, Some(_)) -> unsupported_operation meth (Selector.to_string selector)
+      (* remove_key_value fe aid selector *)
       | _ -> unsupported_operation meth (Selector.to_string selector)
 
 
@@ -745,13 +755,14 @@ let unsubscribe fe access_id sub_id =
     let stop, stopper = Lwt.wait () in
     { cfg; engine; stop; stopper; request_counter=0L; tokens= TokenMap.empty }
 
-  let start fe =
+  let start fe conduit =
     let _ = Logs_lwt.debug (fun m -> m "[FER] REST-FE starting HTTP server on port %d" fe.cfg.port) in
     let callback _conn req body = execute_http_request fe req body in
     (* let u = Cohttp_lwt_unix.Server.create ~stop:fe.stop  ~mode:(`TCP (`Port fe.cfg.port)) (Cohttp_lwt_unix.Server.make ~callback ()) in u *)
-    let s = Server.make ~callback () in 
-    let tcp = `TCP (`Port fe.cfg.port) in 
-    Conduit_lwt_unix.serve ~ctx:Conduit_lwt_unix.default_ctx ~mode:tcp (Server.callback s)
+    let spec = Server.make ~callback () in 
+    let tcp_server = `TCP fe.cfg.port in
+    CON.listen conduit tcp_server (Server.listen spec)
+
 
   let stop fe =
     let _ = Logs_lwt.debug (fun m -> m "[FER] REST-FE stopping HTTP server") in
