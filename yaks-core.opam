@@ -15,7 +15,7 @@ build: [
 ]
 
 install: [
-  ["dune" "build" "@install"]
+  ["dune" "build" "-p" name "@install"]
   ["dune" "install" name]
 ]
 
@@ -34,7 +34,6 @@ depends: [
   "lwt_ppx"
   "lwt_log"
   "ppx_cstruct"
-  "cohttp-mirage"
 ]
 
 conflicts: [
