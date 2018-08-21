@@ -15,20 +15,17 @@ public class StorageImpl implements Storage {
 
     private YaksConfiguration config = YaksConfiguration.getInstance();
 
-    @SuppressWarnings("unused")
-    private String location;
     private String storageId;
 
-    public StorageImpl() {
+    private String alias;
+
+    StorageImpl(String storageId) {
+        this(storageId, null);
     }
 
-    StorageImpl(String storageId, String location) {
-        this.location = location;
+    StorageImpl(String storageId, String alias) {
         this.storageId = storageId;
-    }
-
-    public StorageImpl(String storageId) {
-        this.storageId = storageId;
+        this.alias = alias;
     }
 
     @Override
@@ -51,5 +48,9 @@ public class StorageImpl implements Storage {
 
     public String getStorageId() {
         return storageId;
+    }
+
+    public String getAlias() {
+        return alias;
     }
 }

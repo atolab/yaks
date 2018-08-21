@@ -3,12 +3,10 @@ open Yaks_types
 module Access : sig 
   module Id : sig 
     type t
-    val make : unit -> t
+    val of_alias : string -> t
+    val of_string : ?pos:int -> string -> t option
     val compare : t -> t -> int
     val equal : t -> t -> bool
-    val of_bytes : ?pos:int -> string -> t option
-    val to_bytes : t -> string
-    val of_string : ?pos:int -> string -> t option
     val to_string : ?upper:bool -> t -> string
   end [@@deriving show]
 
@@ -23,9 +21,9 @@ module Access : sig
 
   type access_right =  R_Mode | W_Mode | RW_Mode
 
-  val make : Path.t -> int64 -> access_right -> t 
-  val make_with_id : Id.t -> Path.t -> int64 -> access_right -> t 
-  val id : t -> Id.t 
+  val make : ?alias:string -> Path.t -> int64 -> access_right -> t 
+  val id : t -> Id.t
+  val alias : t -> string option
   val path : t -> Path.t
   val cache_size : t -> int64
   val right : t -> access_right

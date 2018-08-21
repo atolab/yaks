@@ -6,23 +6,6 @@ module EventStream  = struct
   include  Apero.EventStream
 end 
 
-(* module AccessId = struct 
-   include Apero.Uuid
-   end [@@deriving show] *)
-
-module StorageId = struct 
-  include String
-  let make () = Apero.Uuid.next_id () |> Apero.Uuid.to_string
-  let of_string ?pos s = 
-    match pos with
-    | Some(p) -> Some(String.sub s p (String.length s - p))
-    | None -> Some(s)
-  let to_string ?upper s = match upper with | Some(true) -> String.uppercase_ascii s | _ -> s
-  let to_bytes = to_string ~upper:false
-  let of_bytes = of_string
-
-end [@@deriving show]
-
 
 module SubscriberId = Apero.Id.Make (Int64)
 module PluginId = Apero.Id.Make (Int64)
