@@ -76,4 +76,6 @@ Should be possible to replace:
       - Configuration files <-> [Mirage-kv](https://github.com/mirage/mirage-kv)
       - File system  <-> [Mirage-block](https://github.com/mirage/mirage-block) or [Mirage-fs](https://github.com/mirage/mirage-fs)/[Mirage-fat](https://github.com/mirage/ocaml-fat) or [Mirage-kv](https://github.com/mirage/mirage-kv) can be also used in this case
 
-An example of Mirage-channel and Mirage-Flow can be found (here)[https://github.com/atolab/ocaml-examples/tree/master/mirage-os/cflow]
+An example of Mirage-channel and Mirage-Flow can be found [here](https://github.com/atolab/ocaml-examples/tree/master/mirage-os/cflow)
+
+An example of Mirage-block can be found [here](https://github.com/atolab/ocaml-examples/tree/master/mirage-os/block)
