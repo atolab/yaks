@@ -4,7 +4,6 @@ module Group : sig
   module Id : sig 
     type t
     val make : unit -> t
-    val next_id : unit -> t
     val compare : t -> t -> int
     val equal : t -> t -> bool
     val of_bytes : ?pos:int -> string -> t option
@@ -41,10 +40,10 @@ module Group : sig
 
   val make : string -> Selector.t list -> Selector.t list -> Selector.t list -> group_level ->  t 
   (* val id : t -> Id.t 
-  val name : t -> string
-  val rw_paths : t -> Selector.t list
-  val r_paths : t -> Selector.t list 
-  val w_paths : t -> Selector.t list *)
+     val name : t -> string
+     val rw_paths : t -> Selector.t list
+     val r_paths : t -> Selector.t list 
+     val w_paths : t -> Selector.t list *)
 
 
 end  [@@deriving show]

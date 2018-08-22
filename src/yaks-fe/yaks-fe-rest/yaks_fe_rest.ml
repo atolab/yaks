@@ -1,6 +1,7 @@
 open Apero
 open Yaks_core
 open Yaks_access
+open Yaks_storage
 open Cohttp
 open Cohttp_lwt
 open LwtM.InfixM
@@ -62,6 +63,13 @@ module Make (YEngine : Yaks_engine.SEngine.S) = struct
     let cookie = Cohttp.Cookie.Set_cookie_hdr.make (key, value) in
     Cohttp.Cookie.Set_cookie_hdr.serialize ~version:`HTTP_1_0 cookie
 
+  let json_string_of_access access =
+    Printf.sprintf "{ \"accessId\":\"%s\",%s \"path\":\"%s\", \"cacheSize\":%Ld }"
+      (Access.Id.to_string @@ Access.id access)
+      (match Access.alias access with | None -> "" | Some(alias) -> Printf.sprintf " \"alias\":\"%s\"," alias)
+      (Path.to_string @@ Access.path access)
+      (Access.cache_size access)
+
 
   (**********************************)
   (*        Error replies           *)
@@ -94,14 +102,6 @@ module Make (YEngine : Yaks_engine.SEngine.S) = struct
   let access_not_found id =
     Server.respond_error ~status:`Not_found ~body:("Access \""^id^"\" not found") ()
 
-  let invalid_access id =
-    Server.respond_error ~status:`Not_found ~body:("Invalid Access Id  \""^id) ()
-
-  let invalid_access_id = invalid_access
-
-  let invalid_storage_id id =
-    Server.respond_error ~status:`Not_found ~body:("Invalid Storage Id  \""^id) ()
-
   let invalid_path p =
     Server.respond_error ~status:`Not_found ~body:("Invalid Storage Path  \""^p) ()
 
@@ -127,29 +127,15 @@ module Make (YEngine : Yaks_engine.SEngine.S) = struct
   (*      Control operations        *)
   (**********************************)
 
-  let create_access_with_id fe (path:Path.t) cache_size access_id user_id = 
-    let aid = Access.Id.to_string access_id in 
-    let%lwt _ = Logs_lwt.debug (fun m -> m "[FER]   create_access_with_id %s %s %Ld" aid (Path.to_string path) cache_size) in
+  let create_access fe ?alias (path:Path.t) cache_size user_id = 
+    let%lwt _ = Logs_lwt.debug (fun m -> m "[FER]   create_access %s %s %Ld" (Apero.Option.get_or_default alias "?") (Path.to_string path) cache_size) in
     Lwt.try_bind 
-      (fun () -> YEngine.create_access_with_id fe.engine path cache_size user_id access_id)
-      (fun () ->      
-
+      (fun () -> YEngine.create_access fe.engine ?alias path cache_size user_id)
+      (fun access ->
+         let aid = Access.Id.to_string @@ Access.id access in
          Logs_lwt.debug (fun m -> m "Created Access with id : %s responding client" aid) >>      
          let headers = Header.add_list (Header.init()) 
-             [("Location", ".");
-              (set_cookie cookie_name_access_id aid)] in
-         Server.respond_string ~status:`Created ~headers ~body:"" ())
-      (fun _ -> insufficient_storage cache_size)
-
-  let create_access fe (path:Path.t) cache_size user_id = 
-    let%lwt _ = Logs_lwt.debug (fun m -> m "[FER]   create_access %s %Ld"  (Path.to_string path) cache_size) in
-    Lwt.try_bind 
-      (fun () -> YEngine.create_access fe.engine path cache_size user_id )
-      (fun access_id ->
-         let aid = Access.Id.to_string access_id in  
-         Logs_lwt.debug (fun m -> m "Created Access with id : %s responding client" aid) >>      
-         let headers = Header.add_list (Header.init()) 
-             [("Location", aid);
+             [("Location", match alias with | Some(_) -> "." | None -> aid);
               (set_cookie cookie_name_access_id aid)] in
          Server.respond_string ~status:`Created ~headers ~body:"" ())
       (fun _ -> insufficient_storage cache_size)
@@ -205,7 +191,7 @@ module Make (YEngine : Yaks_engine.SEngine.S) = struct
     Lwt.try_bind 
       (fun () -> YEngine.authenticate_user fe.engine name password )
       (fun user_id ->
-         let token = Apero.Uuid.to_string @@ Apero.Uuid.next_id () in
+         let token = Apero.Uuid.to_string @@ Apero.Uuid.make () in
          fe.tokens <- TokenMap.add token user_id fe.tokens;
          let headers = Header.add_list (Header.init()) 
              [("Location", token);
@@ -234,13 +220,11 @@ module Make (YEngine : Yaks_engine.SEngine.S) = struct
   let get_access fe access_id =
     let aid = Access.Id.to_string access_id in 
     let%lwt _ = Logs_lwt.debug (fun m -> m "[FER]   get_access %s" aid) in
-
     match%lwt YEngine.get_access fe.engine access_id with 
-    | Some _ -> 
+    | Some access -> 
       let headers = Header.add_list (Header.init()) 
-          [("Location", aid);
-           (set_cookie cookie_name_access_id aid)] in
-      Server.respond_string ~status:`Created ~headers ~body:"" ()
+          [(set_cookie cookie_name_access_id aid)] in
+      Server.respond_string ~status:`OK ~headers ~body:(json_string_of_access access) ()
     | None -> 
       access_not_found aid 
 
@@ -250,21 +234,12 @@ module Make (YEngine : Yaks_engine.SEngine.S) = struct
     YEngine.dispose_access fe.engine access_id 
     >>= fun () -> Server.respond_string ~status:`No_content ~body:"" ()
 
-  let create_storage_with_id fe path properties storage_id = 
-    YEngine.create_storage_with_id fe.engine path properties storage_id
-    >>= fun () -> 
-    let sid = StorageId.to_string storage_id in
+  let create_storage fe ?alias path properties = 
+    YEngine.create_storage fe.engine ?alias path properties
+    >>= fun (storage) -> 
+    let sid = Storage.Id.to_string @@ Storage.id storage in
     let headers = Header.add_list (Header.init())
-        [("Location",  ".");
-         (set_cookie cookie_name_storage_id sid)] in
-    Server.respond_string ~status:`Created ~headers ~body:"" ()
-
-  let create_storage fe path properties = 
-    YEngine.create_storage fe.engine path properties 
-    >>= fun id -> 
-    let sid = StorageId.to_string id in
-    let headers = Header.add_list (Header.init())
-        [("Location",  sid);
+        [("Location",  match alias with | Some(_) -> "." | None -> sid);
          (set_cookie cookie_name_storage_id sid)] in
     Server.respond_string ~status:`Created ~headers ~body:"" ()
 
@@ -533,7 +508,7 @@ let unsubscribe fe access_id sub_id =
         let user_id = 
           (match secure with
            | true -> user_id
-           | false -> Some (User.Id.next_id ()))
+           | false -> Some (User.Id.make ()))
         in
         match user_id with
         | None -> forbidden @@ "yaks/access/"
@@ -562,7 +537,7 @@ let unsubscribe fe access_id sub_id =
         let user_id = 
           (match secure with
            | true -> user_id
-           | false -> Some (User.Id.next_id ()))
+           | false -> Some (User.Id.make ()))
         in
         match user_id with
         | None -> forbidden @@ "yaks/access/"^id
@@ -572,12 +547,9 @@ let unsubscribe fe access_id sub_id =
           | (None, _)    -> missing_query (["path:string"])
           | (_, None)    -> missing_query (["cacheSize:int"])
           | (Some(path), Some(cache_size)) -> 
-            match Access.Id.of_string id with 
-            | Some access_id -> (
-                match Path.of_string path with 
-                |Some p -> create_access_with_id fe p cache_size access_id uid
-                | None -> invalid_path path)
-            | None -> invalid_access id
+            match Path.of_string path with 
+            |Some p -> create_access fe ~alias:id p cache_size uid
+            | None -> invalid_path path
       )
     (* GET /yaks/access *)
     | (`GET, ["yaks"; "access"]) -> (      
@@ -589,14 +561,14 @@ let unsubscribe fe access_id sub_id =
     | (`GET, ["yaks"; "access"; id]) -> (
         match Access.Id.of_string id with 
         | Some access_id -> get_access fe access_id
-        | None -> invalid_access id
+        | None -> get_access fe @@ Access.Id.of_alias id
 
       )
     (* DELETE /yaks/access/id *)
     | (`DELETE, ["yaks"; "access"; id]) -> (
         match Access.Id.of_string id with
         | Some access_id -> dispose_access fe access_id
-        | None -> invalid_access_id id
+        | None -> dispose_access fe @@ Access.Id.of_alias id
       )
     (* POST /yaks/storages ? path & options... *)
     | (`POST, ["yaks"; "storages"]) -> (
@@ -629,14 +601,9 @@ let unsubscribe fe access_id sub_id =
         | None -> missing_query (["path:string"])
         | Some(path) -> 
           let properties = query |> List.filter (fun (n, _) -> n != "path") |> properties_of_query in
-          (match StorageId.of_string id with 
-           | Some storage_id -> 
-             (match Path.of_string path with 
-              | Some p -> create_storage_with_id fe p properties storage_id 
-              | None -> invalid_path path)
-
-           | None -> invalid_storage_id id)
-          (* unsupported_uri "ZZZ" *)
+          (match Path.of_string path with 
+           | Some p -> create_storage fe ~alias:id p properties 
+           | None -> invalid_path path)
       )
     (* GET /yaks/storages *)
     | (`GET, ["yaks"; "storages"]) -> (
@@ -650,9 +617,9 @@ let unsubscribe fe access_id sub_id =
       )
     (* DELETE /yaks/storages/id *)
     | (`DELETE, ["yaks"; "storages"; id]) -> (
-        match StorageId.of_string id with
+        match Storage.Id.of_string id with
         | Some storage_id -> dispose_storage fe storage_id
-        | None -> invalid_storage_id id
+        | None -> dispose_storage fe @@ Storage.Id.of_alias id
       )
     (* POST /yaks/access/id/subs *)
     | (`POST, ["yaks"; "access"; aid; "subs"]) -> (
@@ -695,7 +662,7 @@ let unsubscribe fe access_id sub_id =
     let user_id = 
       (match secure with
        | true -> user_id
-       | false -> Some (User.Id.next_id ()))
+       | false -> Some (User.Id.make ()))
     in
     match user_id with
     | None -> forbidden @@ Selector.to_string selector
