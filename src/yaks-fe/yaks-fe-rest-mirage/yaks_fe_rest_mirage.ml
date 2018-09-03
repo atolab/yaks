@@ -137,12 +137,11 @@ module REST_Mirage (YEngine : Yaks_engine.SEngine.S) (CON:Conduit_mirage.S) = st
   (**********************************)
 
   let create_access_with_id fe (path:Path.t) cache_size access_id user_id = 
-    let aid = Access.Id.to_string access_id in 
-    let%lwt _ = Logs_lwt.debug (fun m -> m "[FER]   create_access_with_id %s %s %Ld" aid (Path.to_string path) cache_size) in
+    let%lwt _ = Logs_lwt.debug (fun m -> m "[FER]   create_access_with_id %s %s %Ld" access_id (Path.to_string path) cache_size) in
     Lwt.try_bind 
-      (fun () -> YEngine.create_access_with_id fe.engine path cache_size user_id access_id)
-      (fun () ->      
-
+      (fun () -> YEngine.create_access ~alias:access_id fe.engine path cache_size user_id)
+      (fun access ->
+         let aid = Access.Id.to_string (Access.id access) in
          Logs_lwt.debug (fun m -> m "Created Access with id : %s responding client" aid) >>      
          let headers = Header.add_list (Header.init()) 
              [("Location", ".");
@@ -154,8 +153,8 @@ module REST_Mirage (YEngine : Yaks_engine.SEngine.S) (CON:Conduit_mirage.S) = st
     let%lwt _ = Logs_lwt.debug (fun m -> m "[FER]   create_access %s %Ld"  (Path.to_string path) cache_size) in
     Lwt.try_bind 
       (fun () -> YEngine.create_access fe.engine path cache_size user_id )
-      (fun access_id ->
-         let aid = Access.Id.to_string access_id in  
+      (fun access ->
+         let aid = Access.Id.to_string (Access.id access) in  
          Logs_lwt.debug (fun m -> m "Created Access with id : %s responding client" aid) >>      
          let headers = Header.add_list (Header.init()) 
              [("Location", aid);
@@ -214,7 +213,7 @@ module REST_Mirage (YEngine : Yaks_engine.SEngine.S) (CON:Conduit_mirage.S) = st
     Lwt.try_bind 
       (fun () -> YEngine.authenticate_user fe.engine name password )
       (fun user_id ->
-         let token = Apero.Uuid.to_string @@ Apero.Uuid.next_id () in
+         let token = Apero.Uuid.to_string @@ Apero.Uuid.make () in
          fe.tokens <- TokenMap.add token user_id fe.tokens;
          let headers = Header.add_list (Header.init()) 
              [("Location", token);
@@ -260,9 +259,9 @@ module REST_Mirage (YEngine : Yaks_engine.SEngine.S) (CON:Conduit_mirage.S) = st
     >>= fun () -> Server.respond_string ~status:`No_content ~body:"" ()
 
   let create_storage_with_id fe path properties storage_id = 
-    YEngine.create_storage_with_id fe.engine path properties storage_id
-    >>= fun () -> 
-    let sid = StorageId.to_string storage_id in
+    YEngine.create_storage ~alias:storage_id fe.engine path properties
+    >>= fun storage -> 
+    let sid = Storage.Id.to_string (Storage.id storage) in
     let headers = Header.add_list (Header.init())
         [("Location",  ".");
          (set_cookie cookie_name_storage_id sid)] in
@@ -270,10 +269,10 @@ module REST_Mirage (YEngine : Yaks_engine.SEngine.S) (CON:Conduit_mirage.S) = st
 
   let create_storage fe path properties = 
     YEngine.create_storage fe.engine path properties 
-    >>= fun id -> 
-    let sid = StorageId.to_string id in
+    >>= fun storage -> 
+    let sid = Storage.Id.to_string (Storage.id storage) in
     let headers = Header.add_list (Header.init())
-        [("Location",  sid);
+        [("Location",   sid);
          (set_cookie cookie_name_storage_id sid)] in
     Server.respond_string ~status:`Created ~headers ~body:"" ()
 
@@ -585,13 +584,12 @@ let remove_key_value fe access_id selector =
           | (None, None) -> missing_query (["path:string"; "cacheSize:int"])
           | (None, _)    -> missing_query (["path:string"])
           | (_, None)    -> missing_query (["cacheSize:int"])
-          | (Some(path), Some(cache_size)) -> 
-            match Access.Id.of_string id with 
-            | Some access_id -> (
-                match Path.of_string path with 
-                |Some p -> create_access_with_id fe p cache_size access_id uid
-                | None -> invalid_path path)
-            | None -> invalid_access id
+          | (Some(path), Some(cache_size)) ->
+            let access_id = id in
+            match Path.of_string path with 
+            |Some p -> create_access_with_id fe p cache_size access_id uid
+            | None -> invalid_path path
+
       )
     (* GET /yaks/access *)
     | (`GET, ["yaks"; "access"]) -> (      
@@ -642,13 +640,10 @@ let remove_key_value fe access_id selector =
         | None -> missing_query (["path:string"])
         | Some(path) -> 
           let properties = query |> List.filter (fun (n, _) -> n != "path") |> properties_of_query in
-          (match StorageId.of_string id with 
-           | Some storage_id -> 
-             (match Path.of_string path with 
-              | Some p -> create_storage_with_id fe p properties storage_id 
-              | None -> invalid_path path)
-
-           | None -> invalid_storage_id id)
+          let storage_id = id in 
+          (match Path.of_string path with 
+           | Some p -> create_storage_with_id fe p properties storage_id 
+           | None -> invalid_path path)
           (* unsupported_uri "ZZZ" *)
       )
     (* GET /yaks/storages *)
