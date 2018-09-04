@@ -220,6 +220,12 @@ class Message(object):
     def remove_data(self):
         self.data = b''
 
+    def get_property(self, key):
+        f = [x for x in self.properties if x.get('key') == key]
+        if len(f) > 0:
+            f[0].get(key)
+        return None
+
     def add_property(self, key, value):
         self.set_p()
         self.properties.append({'key': key, 'value': value})
@@ -301,7 +307,7 @@ class MessageDelete(Message):
 
 
 class MessagePut(Message):
-    def __init__(self, id):
+    def __init__(self, id, key, value):
         super(MessagePut, self).__init__()
         self.message_code = PUT
         self.generate_corr_id()
@@ -310,7 +316,7 @@ class MessagePut(Message):
 
 
 class MessagePatch(Message):
-    def __init__(self, id):
+    def __init__(self, id, key, value):
         super(MessagePatch, self).__init__()
         self.message_code = PATCH
         self.generate_corr_id()
@@ -319,7 +325,7 @@ class MessagePatch(Message):
 
 
 class MessageGet(Message):
-    def __init__(self, id):
+    def __init__(self, id, key):
         super(MessageGet, self).__init__()
         self.message_code = GET
         self.generate_corr_id()
@@ -328,7 +334,7 @@ class MessageGet(Message):
 
 
 class MessageSub(Message):
-    def __init__(self, id):
+    def __init__(self, id, key):
         super(MessageSub, self).__init__()
         self.message_code = SUB
         self.generate_corr_id()
@@ -337,7 +343,7 @@ class MessageSub(Message):
 
 
 class MessageUnsub(Message):
-    def __init__(self, id):
+    def __init__(self, id, subscription_id):
         super(MessageUnsub, self).__init__()
         self.message_code = UNSUB
         self.generate_corr_id()
@@ -346,7 +352,7 @@ class MessageUnsub(Message):
 
 
 class MessageEval(Message):
-    def __init__(self, id):
+    def __init__(self, id, key):
         super(MessageEval, self).__init__()
         self.message_code = EVAL
         self.generate_corr_id()
