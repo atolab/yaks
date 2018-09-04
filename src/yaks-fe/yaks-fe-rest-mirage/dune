@@ -2,6 +2,6 @@
   (name            yaks_fe_rest_mirage)
   (public_name     yaks-fe-rest-mirage)
   (wrapped     false)
-  (libraries       apero-core apero-net yaks-core  lwt lwt.unix logs logs.lwt ppx_deriving.show ppx_deriving.ord cohttp-lwt cohttp-mirage mirage-types-lwt mirage-channel-lwt)
+  (libraries       apero-core apero-net yaks-core  lwt lwt.unix logs logs.lwt ppx_deriving.show ppx_deriving.ord cohttp-mirage mirage-types-lwt mirage-channel-lwt)
   (preprocess
     (pps ppx_deriving.show ppx_deriving.ord lwt_ppx)))
