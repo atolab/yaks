@@ -32,6 +32,7 @@ module Make (YEngine : Yaks_engine.SEngine.S) = struct
   let yaks_control_keyword = "yaks"
   let yaks_control_uri_prefix = "/"^yaks_control_keyword
 
+  (* Eventually we may replace the code to use directly the properties *)
   let cookie_name_access_id = Property.Access.Key.key
   let cookie_name_storage_id = Property.Storage.Key.key
   let cookie_name_user_token = Property.User.Key.token
@@ -693,7 +694,7 @@ let unsubscribe fe access_id sub_id =
     let%lwt _ = Logs_lwt.debug (fun m -> m "[FER] HTTP req: %s %s?%s with cookie: %s" 
                                    (Code.string_of_method meth) path (query_to_string query)
                                    (Cookie.Cookie_hdr.extract headers
-                                    |> List.find_opt (fun (key, _) -> String.starts_with key "is.yaks")
+                                    |> List.find_opt (fun (key, _) -> String.starts_with "is.yaks" key)
                                     |> function | Some(k,v) -> k^"="^v | _ -> ""))
     in
     if path = "/" then

@@ -1,7 +1,5 @@
 open Apero
 
-module Property = KeyValueF.Make (String) (String)
-
 
 [%%cenum
 type message_id = 
@@ -67,6 +65,6 @@ type payload =
 
 type message = {
   header: header;
-  properties : Property.t list;
+  properties : Yaks_core.Property.t list;
   body : IOBuf.t (* This could be a variant*)
 }

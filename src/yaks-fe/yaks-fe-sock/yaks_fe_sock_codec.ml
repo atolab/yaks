@@ -24,12 +24,14 @@ let decode_header =
     make_header
 
 let encode_property p buf =
+  let open Yaks_core in 
   let (k,v) = (Property.key p, Property.value p) in 
   encode_string k buf
   >>= fun buf ->
     encode_string v buf
 
 let decode_property  buf = 
+  let open Yaks_core in 
   decode_string buf 
   >>= fun (k, buf) -> 
     decode_string buf 
