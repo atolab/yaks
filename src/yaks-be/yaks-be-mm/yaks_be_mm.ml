@@ -95,6 +95,6 @@ let make_memory_be _ =
 module MainMemoryBEF = struct 
   let kind = Yaks_core.Memory
   let make (ps:Property.t list)  = make_memory_be ps
-  let name = yaks_backend_memory
+  let name = Property.Backend.Value.memory
 end
 

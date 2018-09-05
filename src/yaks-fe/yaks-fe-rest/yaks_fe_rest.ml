@@ -32,14 +32,14 @@ module Make (YEngine : Yaks_engine.SEngine.S) = struct
   let yaks_control_keyword = "yaks"
   let yaks_control_uri_prefix = "/"^yaks_control_keyword
 
-  let cookie_name_access_id = "is.yaks.access"
-  let cookie_name_storage_id = "is.yaks.storage"
-  let cookie_name_user_token = "is.yaks.user.token"
-  let cookie_name_user_id = "is.yaks.user.id"
-  let cookie_name_group_id = "is.yaks.group.id"
-  let cookie_mame_group_rws = "is.yaks.group.rws"
-  let cookie_mame_group_rs = "is.yaks.group.rs"
-  let cookie_mame_group_ws = "is.yaks.group.ws"
+  let cookie_name_access_id = Property.Access.Key.key
+  let cookie_name_storage_id = Property.Storage.Key.key
+  let cookie_name_user_token = Property.User.Key.token
+  let cookie_name_user_id = Property.User.Key.id
+  let cookie_name_group_id = Property.Group.Key.id
+  let cookie_mame_group_rws = Property.Group.Key.rws
+  let cookie_mame_group_rs = Property.Group.Key.rs
+  let cookie_mame_group_ws = Property.Group.Key.ws
   (**********************************)
   (*      helpers functions         *)
   (**********************************)
