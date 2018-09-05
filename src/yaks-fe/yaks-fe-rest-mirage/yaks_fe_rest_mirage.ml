@@ -731,7 +731,7 @@ let remove_key_value fe access_id selector =
     let%lwt _ = Logs_lwt.debug (fun m -> m "[FER] HTTP req: %s %s?%s with cookie: %s" 
                                    (Code.string_of_method meth) path (query_to_string query)
                                    (Cookie.Cookie_hdr.extract headers
-                                    |> List.find_opt (fun (key, _) -> String.starts_with "is.yaks" key)
+                                    |> List.find_opt (fun (key, _) -> String.starts_with key "is.yaks")
                                     |> function | Some(k,v) -> k^"="^v | _ -> ""))
     in
     if path = "/" then

@@ -67,7 +67,7 @@ module Path = struct
 
   let to_string s = s
 
-  let is_prefix prefix path = Apero.String.starts_with (to_string prefix) (to_string path)
+  let is_prefix prefix path = Apero.String.starts_with (to_string path) (to_string prefix)
 
   let matches _ _ = true
 end [@@deriving show]
@@ -139,7 +139,7 @@ module Selector = struct
       | (_::[], "") -> false  (* key too short *)
       | ([], _) -> false      (* key too long *)
       | (Text(t)::sel, key) ->
-        if (Apero.String.starts_with t key) then
+        if (Apero.String.starts_with key t) then
           check_matching sel (string_remove_prefix key t)
         else
           false
