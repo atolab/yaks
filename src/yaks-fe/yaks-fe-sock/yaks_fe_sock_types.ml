@@ -59,12 +59,17 @@ let has_access_flag h = (int_of_char h.flags) lor 0x04 <> 0
 type payload = 
   | Empty
   | Path of string
+  | Selector of string
   | KeyValue of string * IOBuf.t
+  | KeyDeltaValue of string * IOBuf.t
   | KeyValueList of (string * IOBuf.t) list
+  | Subscription of string
+  | OkInfo of Vle.t
+  | ErrorInfo of Vle.t * char
   
 
 type message = {
   header: header;
   properties : Yaks_core.Property.t list;
-  body : IOBuf.t (* This could be a variant*)
+  body : payload (* This could be a variant*)
 }

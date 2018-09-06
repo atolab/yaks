@@ -1,93 +1,50 @@
-(* open Yaks_core *)
-open Yaks_event
 open Apero
-open Actor.Infix
+open Apero_net
+open Lwt.Infix
 
-let read_message _ = Ok {cid=0L; entity_id = Auto  }
-let write_message _ _ = ()
-type config = { iface : string; port : int; backlog : int; bufsize : int; stream_len : int }
+module Make (YEngine : Yaks_engine.SEngine.S) = struct 
+  module SocketFE = TcpService.Make (MVar_lwt)
 
-type t = { socket : Lwt_unix.file_descr; engine_mailbox : event Actor.actor_mailbox; cfg : config }
+  type config = Apero_net.TcpService.Config.t
 
-(** TODO: This should also be a functor configured by the serialier  *)
+  type t = SocketFE.t * SocketFE.io_service
 
-let create_socket cfg =   
-  let open Lwt_unix in  
+  let reader sock  = 
+    let lbuf = IOBuf.create 16 in 
+    let open Yaks_fe_sock_codec in 
+    let%lwt len = Net.read_vle sock lbuf in         
+    let buf = IOBuf.create (Vle.to_int len) in 
+    let%lwt _ = Net.read sock buf in 
+    match decode_message (IOBuf.flip buf) with 
+    | Ok (msg, _) -> Lwt.return msg
+    | Error e -> Lwt.fail @@ Exception e
 
-  let sock = socket PF_INET SOCK_STREAM 0 in
-  let _ = setsockopt sock SO_REUSEADDR true in
-  let _ = setsockopt sock TCP_NODELAY true in
-  let addr = Unix.inet_addr_of_string cfg.iface in
-  let saddr = ADDR_INET (addr, cfg.port) in    
-  let _ = bind sock saddr in
-  let _ = listen sock cfg.backlog in sock
+  let writer buf sock msg = 
+    let open Yaks_fe_sock_codec in 
+    match encode_message msg buf with 
+    | Ok buf -> Net.write sock (IOBuf.flip buf)
+    | Error e -> Lwt.fail @@ Exception e 
 
-let serve_connection sock fe = 
-  let%lwt _ = Logs_lwt.debug (fun m -> m "Serving connection" ) in
-  let (esrc, esink) = EventStream.create fe.cfg.stream_len in 
-  let max_len = fe.cfg.bufsize in
-  let rbuf = Lwt_bytes.create fe.cfg.bufsize in 
-  let sbuf = Bi_outbuf.create fe.cfg.bufsize in   
-  let handler = fun e -> EventStream.Sink.push e esink in 
+  let dispatch_message engine msg = 
+    let _ = engine in 
+    Lwt.return msg
 
-  let rec receive_loop () = 
-    let%lwt _ = Logs_lwt.debug (fun m -> m "Watiting for connection data" ) in
-    let lbuf = Lwt_bytes.create 4 in 
-    let%lwt n = Lwt_bytes.recv sock lbuf 0 4 [] in 
-    if n != 0 then 
-      begin  
-        let%lwt len = Lwt_io.read_int (Lwt_io.of_bytes ~mode:Lwt_io.Input lbuf)in  
-        let%lwt _ = Logs_lwt.debug (fun m -> m "Received message of %d bytes" len) in
-        let%lwt n = Lwt_bytes.recv sock rbuf 0 max_len [] in    
-        if n != 0 then 
-          begin
-            let%lwt _ = Logs_lwt.debug (fun m -> m "Read %d bytes out of the socket" n) in
-            try 
-              let msg = read_message @@ Bi_inbuf.from_bytes (Lwt_bytes.to_bytes rbuf) in    
-              let%lwt _ = fe.engine_mailbox <!> (None, (EventWithHandler (msg, handler))) in  receive_loop ()          
-            with 
-            | _ -> let%lwt _ = Logs_lwt.debug (fun m -> m "Failed to decode the message!") in receive_loop ()
-          end
-        else 
-          let%lwt _ = Logs_lwt.debug (fun m -> m "Peer closed session") in Lwt.return_unit
-      end
-    else 
-      let%lwt _ = Logs_lwt.debug (fun m -> m "Peer closed session") in Lwt.return_unit
-  in 
+  let fe_service config  dispatcher sock = 
+    let buf = IOBuf.create (TcpService.Config.buf_size config) in 
+    let mwriter = writer buf sock in 
+    fun () -> 
+      reader sock >>= dispatcher >>= mwriter >>= fun _ -> Lwt.return_unit
 
-  let rec send_loop () =     
-    match%lwt EventStream.Source.get esrc with 
-    | Some msg ->    
-      write_message sbuf msg ;
-      let payload = Bi_outbuf.contents sbuf in 
-      let len = String.length payload in
-      let lbuf = Lwt_bytes.create 4 in       
-      let oc = (Lwt_io.of_bytes ~mode:Lwt_io.Output lbuf) in
-      let%lwt _ = Lwt_io.write_int oc len in 
-      let%lwt _ = Lwt_bytes.send sock lbuf 0 (Lwt_bytes.length lbuf) [] in                         
-      let%lwt _ = Lwt_bytes.send sock (Lwt_bytes.of_string payload) 0 len [] in                         
-      Lwt.return_unit
-    | None -> send_loop ()
+  let create (conf : config) (engine: YEngine.t) = 
+    let svc = SocketFE.create conf in 
+    let dispatcher = dispatch_message engine in 
+    let io_svc = fe_service conf dispatcher in 
+    (svc, io_svc)
 
-  in
+  let start (svc, iosvc) = SocketFE.start svc iosvc
 
-  Lwt.pick [receive_loop (); send_loop ()]
+  let stop (svc, _) = SocketFE.stop svc
 
-let rec accept_connection fe = 
-  let%lwt _ = Logs_lwt.debug (fun m -> m "Socket-FE ready to accept connection" ) in
-  let%lwt (sock, _) = Lwt_unix.accept fe.socket in
-  let _ = serve_connection sock fe in
-  accept_connection fe
-
-let create cfg engine_mailbox = 
-  let _ = Logs_lwt.debug (fun m -> m "Socket-FE creating accepting socket") in
-  let socket = create_socket cfg  in  
-  { socket; engine_mailbox; cfg }
-
-let start = accept_connection 
-
-let stop _ = Lwt.return_unit
-(** TODO: Implement this.  *)
-
+end
 
 
