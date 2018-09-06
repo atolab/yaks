@@ -17,70 +17,39 @@ for pack and unpack of the network messages
 MESSAGE FORMAT:
 LITTLE ENDIAN
 
-           1
- 5 4 3 2 1 0 9 8 7 6 5 4 3 2 1 0
-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-|            Header             |
-+-------------------------------+
-|.            Body              |
-+-------------------------------+
 
 
-HEADER:
+7 6 5 4 3 2 1 0
++-+-+-+-+-+-+-+-+ ---------------+
+|  MESSAGE CODE |    8bit        |
++-+-+-+-+-+-+-+-+                |
+|X|X|X|X|X|A|S|P|    8bit        +--> Header
++-+-+-+-+-+-+-+-+                |
+~   Coor. ID    ~  VLE max 64bit |
++---------------+ ---------------+
+~   Properties  ~ --> Present if P = 1
++---------------+
+~     Body      ~ --> its structure depends on the message code
++---------------+
 
 
-           1
- 5 4 3 2 1 0 9 8 7 6 5 4 3 2 1 0
-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-|           MESSAGE CODE        |     16bit
-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-|              Flags      |A|S|P|     16bit
-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-|                               |
-+            Corr. ID           +     64bit
-|                               |
-+-------------------------------+
-|                               |
-+            Length             +     64bit
-|                               |
-+-------------------------------+    TOT SUB-HEADER: 160bit -> 20byte
-~          Properties           ~
-+-------------------------------+
+WIRE MESSAGE:
 
+ 7 6 5 4 3 2 1 0
++-+-+-+-+-+-+-+-+
+~    Lenght     ~ VLE max 64bit
++-+-+-+-+-+-+-+-+
+|  MESSAGE CODE | 8bit
++-+-+-+-+-+-+-+-+
+|X|X|X|X|X|A|S|P| 8bit
++-+-+-+-+-+-+-+-+
+~    Corr. id   ~ VLE max 64bit
++---------------~
+~   Properties  ~ VL
++---------------+
+~     Body      ~ VL
++---------------+
 
-
-PROPERTIES
-
-           1
- 5 4 3 2 1 0 9 8 7 6 5 4 3 2 1 0
-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-|       Properties Number       |   16bit
-+-------------------------------+
-~          Property             ~
-+-------------------------------+
-~           Property            ~
-+-------------------------------+
-~                               ~
-+-------------------------------+
-~           Property            ~
-+-------------------------------+
-
-
-
-
-PROPERTY
-
-           1
- 5 4 3 2 1 0 9 8 7 6 5 4 3 2 1 0
-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-|          Key-Length           | 16bit
-+-------------------------------+
-~            Key                ~
-+-------------------------------+
-|           Value-Length        | 16 bit
-+-------------------------------+
-~             Value             ~
-+-------------------------------+
 
 '''
 import random
@@ -88,6 +57,7 @@ import struct
 import json
 import hexdump
 from enum import Enum
+from .encoder import VLEEncoder
 
 OPEN = 0x01
 CREATE = 0x02
@@ -110,11 +80,12 @@ class CreationType(Enum):
 class Message(object):
 
     def __init__(self, raw_message=None):
+        self.encoder = VLEEncoder()
         self.raw_msg = raw_message
         self.message_code = 0x0
-        # 16bit
+        # 8bit
         self.flags = 0x0
-        # 16bit comprises A,S,P
+        # 8bit comprises A,S,P
         self.flag_a = 0x0
         # 1bit
         self.flag_s = 0x0
@@ -122,7 +93,7 @@ class Message(object):
         self.flag_p = 0x0
         # 1bit
         self.corr_id = 0x0
-        # 64bit
+        # VLE max 64bit
         self.length = 0x0
         # 64bit
         self.properties = []
@@ -131,56 +102,79 @@ class Message(object):
         if self.raw_msg is not None:
             self.unpack()
 
+    def read_vle_field(self, buf, base_p):
+        vle_field = []
+        data = buf[base_p]
+        vle_field.append(data.to_bytes(1, byteorder='big'))
+        while data & 0x80:
+            base_p = base_p + 1
+            data = buf[base_p]
+            vle_field.append(data.to_bytes(1, byteorder='big'))
+        return self.encoder.decode(vle_field), base_p + 1
+
     def pack(self):
-        sub_header = struct.pack('<HHII', self.message_code, self.flags,
-                                 self.corr_id, self.length)
-        header = sub_header
+        header = struct.pack('<BB', self.message_code, self.flags)
+        for b in self.encoder.encode(self.corr_id):
+            header = header + b
+
+        msg = header
         if self.flag_p:
             num_p = len(self.properties)
-            header = header + struct.pack('<H', num_p)
+            for b in self.encoder.encode(num_p):
+                msg = msg + b
             for p in self.properties:
                 k = p.get('key').encode() + b'\x00'
                 v = p.get('value').encode() + b'\x00'
                 len_k = len(k)
                 len_v = len(v)
-                fmt = '<H{}sH{}s'.format(len_k, len_v)
-                header = header + struct.pack(fmt, len_k, k, len_v, v)
-        msg = header + self.data
+
+                for b in self.encoder.encode(len_k):
+                    msg = msg + b
+
+                fmt = '<{}s'.format(len_k)
+                msg = msg + struct.pack(fmt, k)
+
+                for b in self.encoder.encode(len_v):
+                    msg = msg + b
+
+                fmt = '<{}s'.format(len_v)
+                msg = msg + struct.pack(fmt, v)
+
+        msg = msg + self.data
         self.raw_msg = msg
         return msg
 
-    def unpack(self):
-        sub_header = self.raw_msg[0:12]
+    def pack_for_transport(self):
+        vle_length = b''
+        for b in self.encoder.encode(len(self.raw_msg)):
+            vle_length = vle_length + b
+        return vle_length + self.raw_msg
 
-        msg = struct.unpack("<HHII", sub_header)
+    def unpack(self):
+        sub_header = self.raw_msg[0:2]
+
+        msg = struct.unpack("<BB", sub_header)
         self.message_code = msg[0]
         self.flags = msg[1]
-        self.corr_id = msg[2]
-        self.length = msg[3]
 
-        self.flag_a = self.flags and 0x04 >> 2
-        self.flag_s = self.flags and 0x02 >> 1
-        self.flag_p = self.flags and 0x01
-        base_p = 12
+        self.flag_a = (self.flags & 0x04) >> 2
+        self.flag_s = (self.flags & 0x02) >> 1
+        self.flag_p = self.flags & 0x01
+        base_p = 2
+
+        self.corr_id, base_p = self.read_vle_field(self.raw_msg, base_p)
+
         if self.flag_p:
-            prop = self.raw_msg[base_p:base_p + 2]
-            r = struct.unpack("<H", prop)
-            num_p = r[0]
-            base_p = base_p + 2
+            num_p, base_p = self.read_vle_field(self.raw_msg, base_p)
             for i in range(0, num_p):
-                key_length_raw = self.raw_msg[base_p:base_p + 2]
-                key_length = struct.unpack("<H", key_length_raw)[0]
-                base_p = base_p + 2
-
+                key_length, base_p = self.read_vle_field(self.raw_msg, base_p)
                 key_raw = self.raw_msg[base_p:base_p + key_length]
                 k = struct.unpack("<{}s".format(key_length),
                                   key_raw)[0].decode()[:-1]
                 base_p = base_p + key_length
 
-                value_length_raw = self.raw_msg[base_p:base_p + 2]
-                value_length = struct.unpack("<H", value_length_raw)[0]
-                base_p = base_p + 2
-
+                value_length, base_p = \
+                    self.read_vle_field(self.raw_msg, base_p)
                 value_raw = self.raw_msg[base_p:base_p + value_length]
                 v = struct.unpack("<{}s".format(value_length),
                                   value_raw)[0].decode()[:-1]
@@ -192,27 +186,27 @@ class Message(object):
 
     def set_p(self):
         self.flag_p = 1
-        self.flags = self.flags | self.flag_p
+        self.flags = self.flags | 0x01
 
     def unset_p(self):
         self.flag_p = 0
-        self.flags = self.flags ^ 1
-
-    def set_a(self):
-        self.flag_a = 1
-        self.flags = self.flags | self.flag_a
-
-    def unset_a(self):
-        self.flag_p = 0
-        self.flags = self.flags ^ 4
+        self.flags = self.flags ^ 0x01
 
     def set_s(self):
         self.flag_s = 1
-        self.flags = self.flags | self.flag_s
+        self.flags = self.flags | 0x02
 
     def unset_s(self):
-        self.flag_p = 0
-        self.flags = self.flags ^ 2
+        self.flag_s = 0
+        self.flags = self.flags ^ 0x02
+
+    def set_a(self):
+        self.flag_a = 1
+        self.flags = self.flags | 0x04
+
+    def unset_a(self):
+        self.flag_a = 0
+        self.flags = self.flags ^ 0x04
 
     def set_data(self, data):
         self.data = data
@@ -251,11 +245,10 @@ class Message(object):
         print('# CODE: {}'.format(self.message_code))
         print('# CORR.ID: {}'.format(self.corr_id))
         print('# LENGTH: {}'.format(self.length))
-        print('# FLAGS: A:{} S:{} P:{}'.format(self.flag_a, self.flag_s,
-                                               self.flag_p))
+        print('# FLAGS: RAW: {} | A:{} S:{} P:{}'.format(
+            self.flags, self.flag_a, self.flag_s, self.flag_p))
         if self.flag_p:
-            print('# HAS PROPERTIES'.format(self.flag_a, self.flag_s,
-                                            self.flag_p))
+            print('# HAS PROPERTIES')
             print('# NUMBER OF PROPERTIES: {}'.format(len(self.properties)))
             for p in self.properties:
                 print('#========\n# KEY:{} VALUE: {}'.format(p.get('key'),
@@ -269,12 +262,12 @@ class Message(object):
 
 
 class MessageOpen(Message):
-    def __init__(self, username, password):
+    def __init__(self, username=None, password=None):
         super(MessageOpen, self).__init__()
         self.generate_corr_id()
         self.message_code = OPEN
-        self.add_property('yaks.login', '{}:{}'.format(username, password))
-        self.set_p()
+        if username and password:
+            self.add_property('yaks.login', '{}:{}'.format(username, password))
 
 
 class MessageCreate(Message):
@@ -283,14 +276,15 @@ class MessageCreate(Message):
         super(MessageCreate, self).__init__()
         self.message_code = CREATE
         self.generate_corr_id()
-        self.set_p()
         self.add_property('yaks.path', path)
         if id is not None:
             self.add_property('yaks.id', id)
         if type is CreationType.ACCESS:
+            self.set_a()
             if cache_size is not None:
                 self.add_property('yaks.cache.size', str(cache_size))
         elif type is CreationType.STORAGE:
+            self.set_s()
             if config is not None:
                 self.add_property('yaks.storage.config', json.dumps(config))
             if complete is not None and complete is True:
@@ -302,7 +296,6 @@ class MessageDelete(Message):
         super(MessageDelete, self).__init__()
         self.message_code = DELETE
         self.generate_corr_id()
-        self.set_p()
         self.add_property('yaks.id', id)
 
 
@@ -311,7 +304,6 @@ class MessagePut(Message):
         super(MessagePut, self).__init__()
         self.message_code = PUT
         self.generate_corr_id()
-        self.set_p()
         self.add_property('yaks.id', id)
 
 
@@ -320,7 +312,6 @@ class MessagePatch(Message):
         super(MessagePatch, self).__init__()
         self.message_code = PATCH
         self.generate_corr_id()
-        self.set_p()
         self.add_property('yaks.id', id)
 
 
@@ -329,7 +320,6 @@ class MessageGet(Message):
         super(MessageGet, self).__init__()
         self.message_code = GET
         self.generate_corr_id()
-        self.set_p()
         self.add_property('yaks.id', id)
 
 
@@ -338,7 +328,6 @@ class MessageSub(Message):
         super(MessageSub, self).__init__()
         self.message_code = SUB
         self.generate_corr_id()
-        self.set_p()
         self.add_property('yaks.id', id)
 
 
@@ -347,7 +336,6 @@ class MessageUnsub(Message):
         super(MessageUnsub, self).__init__()
         self.message_code = UNSUB
         self.generate_corr_id()
-        self.set_p()
         self.add_property('yaks.id', id)
 
 
@@ -356,7 +344,6 @@ class MessageEval(Message):
         super(MessageEval, self).__init__()
         self.message_code = EVAL
         self.generate_corr_id()
-        self.set_p()
         self.add_property('yaks.id', id)
 
 
@@ -365,7 +352,6 @@ class MessageOk(Message):
         super(MessageOk, self).__init__()
         self.message_code = OK
         self.corr_id = corr_id
-        self.set_p()
         self.add_property('yaks.id', id)
 
 
@@ -374,5 +360,4 @@ class MessageError(Message):
         super(MessageError, self).__init__()
         self.message_code = ERROR
         self.corr_id = corr_id
-        self.set_p()
         self.add_property('yaks.id', id)

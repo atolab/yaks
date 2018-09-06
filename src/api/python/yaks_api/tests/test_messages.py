@@ -9,7 +9,6 @@ class MessagesTests(unittest.TestCase):
         msg1.generate_corr_id()
 
         cid = msg1.corr_id
-        msg1.set_p()
         msg1.add_property('key1', 'value1')
         msg1.add_property('key2', 'value2')
 
@@ -19,5 +18,5 @@ class MessagesTests(unittest.TestCase):
 
         self.assertEqual(cid, msg2.corr_id)
         self.assertEqual(msg1.message_code, msg2.message_code)
-        self.assertEqual(msg1.flag_p, msg2.flag_p)
+        self.assertEqual(msg1.flags, msg2.flags)
         self.assertEqual(msg1.properties, msg2.properties)
