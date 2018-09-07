@@ -67,12 +67,15 @@ PATCH = 0xA1
 GET = 0xA2
 SUB = 0xB0
 UNSUB = 0xB1
-EVAL = 0xB2
+NOTIFY = 0xB2
+EVAL = 0xB3
 OK = 0xD0
+VALUE = 0xD1
+VALUES = 0xD2
 ERROR = 0xE0
 
 
-class CreationType(Enum):
+class EntityType(Enum):
     ACCESS = 0
     STORAGE = 1
 
@@ -101,8 +104,9 @@ class Message(object):
         self.data = b''
         if self.raw_msg is not None:
             self.unpack()
+            self.length = len(self.raw_msg)
 
-    def read_vle_field(self, buf, base_p):
+    def __read_vle_field(self, buf, base_p):
         vle_field = []
         data = buf[base_p]
         vle_field.append(data.to_bytes(1, byteorder='big'))
@@ -123,8 +127,8 @@ class Message(object):
             for b in self.encoder.encode(num_p):
                 msg = msg + b
             for p in self.properties:
-                k = p.get('key').encode() + b'\x00'
-                v = p.get('value').encode() + b'\x00'
+                k = p.get('key').encode()
+                v = p.get('value').encode()
                 len_k = len(k)
                 len_v = len(v)
 
@@ -142,11 +146,13 @@ class Message(object):
 
         msg = msg + self.data
         self.raw_msg = msg
-        return msg
+        self.length = len(self.raw_msg)
+        return self.raw_msg
 
     def pack_for_transport(self):
+        self.pack()
         vle_length = b''
-        for b in self.encoder.encode(len(self.raw_msg)):
+        for b in self.encoder.encode(self.length):
             vle_length = vle_length + b
         return vle_length + self.raw_msg
 
@@ -162,27 +168,182 @@ class Message(object):
         self.flag_p = self.flags & 0x01
         base_p = 2
 
-        self.corr_id, base_p = self.read_vle_field(self.raw_msg, base_p)
+        self.corr_id, base_p = self.__read_vle_field(self.raw_msg, base_p)
 
         if self.flag_p:
-            num_p, base_p = self.read_vle_field(self.raw_msg, base_p)
+            num_p, base_p = self.__read_vle_field(self.raw_msg, base_p)
             for i in range(0, num_p):
-                key_length, base_p = self.read_vle_field(self.raw_msg, base_p)
+                key_length, base_p = \
+                    self.__read_vle_field(self.raw_msg, base_p)
                 key_raw = self.raw_msg[base_p:base_p + key_length]
                 k = struct.unpack("<{}s".format(key_length),
-                                  key_raw)[0].decode()[:-1]
+                                  key_raw)[0].decode()
                 base_p = base_p + key_length
 
                 value_length, base_p = \
-                    self.read_vle_field(self.raw_msg, base_p)
+                    self.__read_vle_field(self.raw_msg, base_p)
                 value_raw = self.raw_msg[base_p:base_p + value_length]
                 v = struct.unpack("<{}s".format(value_length),
-                                  value_raw)[0].decode()[:-1]
+                                  value_raw)[0].decode()
                 base_p = base_p + value_length
                 self.properties.append({'key': k, 'value': v})
 
-        self.data = self.raw_msg[base_p:base_p + self.length]
+        self.data = self.raw_msg[base_p:]
         return self
+
+    def __add_vle(self, number):
+        body = b''
+        for b in self.encoder.encode(number):
+            body = body + b
+        return body
+
+    def __get_vle(self, data, base_p):
+        return self.__read_vle_field(data, base_p)
+
+    def __add_string(self, value):
+        body = b''
+        len_p = len(value)
+        for b in self.encoder.encode(len_p):
+            body = body + b
+        fmt = '<{}s'.format(len_p)
+        body = body + struct.pack(fmt, value.encode())
+        return body
+
+    def __get_string(self, data, base_p):
+        path_length, base_p = self.__read_vle_field(data, base_p)
+        path_raw = data[base_p:base_p + path_length]
+        string = struct.unpack("<{}s".format(path_length),
+                               path_raw)[0].decode()
+        return string, base_p + path_length
+
+    def __add_key_value(self, k, v):
+        body = b''
+
+        k = k.encode()
+        v = v.encode()
+        len_k = len(k)
+        len_v = len(v)
+
+        for b in self.encoder.encode(len_k):
+            body = body + b
+
+        fmt = '<{}s'.format(len_k)
+        body = body + struct.pack(fmt, k)
+
+        for b in self.encoder.encode(len_v):
+            body = body + b
+
+        fmt = '<{}s'.format(len_v)
+        body = body + struct.pack(fmt, v)
+        return body
+
+    def __get_key_value(self, data, base_p):
+
+        key_length, base_p = self.__read_vle_field(data, base_p)
+        key_raw = data[base_p:base_p + key_length]
+        k = struct.unpack("<{}s".format(key_length),
+                          key_raw)[0].decode()
+        base_p = base_p + key_length
+
+        value_length, base_p = \
+            self.__read_vle_field(data, base_p)
+        value_raw = data[base_p:base_p + value_length]
+        v = struct.unpack("<{}s".format(value_length),
+                          value_raw)[0].decode()
+        return {'key': k, 'value': v}, base_p + value_length
+
+    def __add_key_value_list(self, kvs):
+        body = b''
+        num_p = len(kvs)
+        for b in self.encoder.encode(num_p):
+            body = body + b
+        for p in kvs:
+            k = p.get('key').encode()
+            v = p.get('value').encode()
+            len_k = len(k)
+            len_v = len(v)
+
+            for b in self.encoder.encode(len_k):
+                body = body + b
+
+            fmt = '<{}s'.format(len_k)
+            body = body + struct.pack(fmt, k)
+
+            for b in self.encoder.encode(len_v):
+                body = body + b
+
+            fmt = '<{}s'.format(len_v)
+            body = body + struct.pack(fmt, v)
+        return body
+
+    def __get_key_value_list(self, data, base_p):
+        kvs = []
+        num_kvs, base_p = self.__read_vle_field(data, base_p)
+        for i in range(0, num_kvs):
+            key_length, base_p = self.__read_vle_field(data, base_p)
+            key_raw = data[base_p:base_p + key_length]
+            k = struct.unpack("<{}s".format(key_length),
+                              key_raw)[0].decode()
+            base_p = base_p + key_length
+
+            value_length, base_p = \
+                self.__read_vle_field(data, base_p)
+            value_raw = data[base_p:base_p + value_length]
+            v = struct.unpack("<{}s".format(value_length),
+                              value_raw)[0].decode()
+            base_p = base_p + value_length
+            kvs.append({'key': k, 'value': v})
+        return kvs, base_p
+
+    def add_path(self, path):
+        self.data = self.__add_string(path)
+
+    def get_path(self):
+        p, _ = self.__get_string(self.data, 0)
+        return p
+
+    def add_selector(self, selector):
+        self.data = self.__add_string(selector)
+
+    def get_selector(self):
+        s, _ = self.__get_string(self.data, 0)
+        return s
+
+    def add_notification(self, subid, kvs):
+        self.data = self.__add_string(subid) + self.__add_key_value_list(kvs)
+
+    def get_notification(self):
+        subid, pos = self.__get_string(self.data, 0)
+        kvs, _ = self.__get_key_value_list(self.data, pos)
+        return subid, kvs
+
+    def add_key_value(self, k, v):
+        self.data = self.__add_key_value(k, v)
+
+    def get_key_value(self):
+        kv, _ = self.__get_key_value(self.data, 0)
+        return kv
+
+    def add_subscription(self, subid):
+        self.data = self.__add_string(subid)
+
+    def get_subscription(self):
+        subid, _ = self.__get_string(self.data, 0)
+        return subid
+
+    def add_values(self, kvs):
+        self.data = self.__add_key_value_list(kvs)
+
+    def get_values(self):
+        kvs, _ = self.__get_key_value_list(self.data, 0)
+        return kvs
+
+    def add_error(self, error_code):
+        self.__add_vle(error_code)
+
+    def get_error(self):
+        e, _ = self.__get_vle(self.data, 0)
+        return e
 
     def set_p(self):
         self.flag_p = 1
@@ -217,7 +378,7 @@ class Message(object):
     def get_property(self, key):
         f = [x for x in self.properties if x.get('key') == key]
         if len(f) > 0:
-            f[0].get(key)
+            return f[0].get('value')
         return None
 
     def add_property(self, key, value):
@@ -232,30 +393,25 @@ class Message(object):
             self.unset_p()
 
     def dump(self):
-        print()
-        hexdump.hexdump(self.raw_msg)
-        # for i in range(0, len(self.raw_msg)):
-        #     if i != 0 and i % 4 == 0:
-        #         print()
-        #     print('0x%0.2X ' % self.raw_msg[i], end='')
-        # print()
+        return hexdump.hexdump(self.raw_msg, result='return')
 
     def pprint(self):
-        print('\n############ YAKS FE SOCKET MESSAGE ###################')
-        print('# CODE: {}'.format(self.message_code))
-        print('# CORR.ID: {}'.format(self.corr_id))
-        print('# LENGTH: {}'.format(self.length))
-        print('# FLAGS: RAW: {} | A:{} S:{} P:{}'.format(
-            self.flags, self.flag_a, self.flag_s, self.flag_p))
+        pretty = '\n############ YAKS FE SOCKET MESSAGE ###################' \
+                 + '\n# CODE: {}'.format(self.message_code) \
+                 + '\n# CORR.ID: {}'.format(self.corr_id) \
+                 + '\n# LENGTH: {}'.format(self.length) \
+                 + '\n# FLAGS: RAW: {} | A:{} S:{} P:{}'.\
+                format(self.flags, self.flag_a, self.flag_s, self.flag_p)
+
         if self.flag_p:
-            print('# HAS PROPERTIES')
-            print('# NUMBER OF PROPERTIES: {}'.format(len(self.properties)))
+            pretty = pretty + '\n# HAS PROPERTIES\n# NUMBER OF PROPERTIES:' \
+                              ' {}'.format(len(self.properties))
             for p in self.properties:
-                print('#========\n# KEY:{} VALUE: {}'.format(p.get('key'),
-                                                             p.get('value')))
-            print('#========')
-        print('DATA: {}'.format(self.data))
-        print('#######################################################')
+                pretty = pretty + '\n#========\n# KEY:{} VALUE: {}'.\
+                    format(p.get('key'), p.get('value'))
+        pretty = pretty + '\n#========\nDATA: {}'.format(self.data)\
+                 + '\n#######################################################'
+        return pretty
 
     def generate_corr_id(self):
         self.corr_id = random.getrandbits(32)
@@ -276,14 +432,14 @@ class MessageCreate(Message):
         super(MessageCreate, self).__init__()
         self.message_code = CREATE
         self.generate_corr_id()
-        self.add_property('yaks.path', path)
+        self.add_path(path)
         if id is not None:
             self.add_property('yaks.id', id)
-        if type is CreationType.ACCESS:
+        if type is EntityType.ACCESS:
             self.set_a()
             if cache_size is not None:
                 self.add_property('yaks.cache.size', str(cache_size))
-        elif type is CreationType.STORAGE:
+        elif type is EntityType.STORAGE:
             self.set_s()
             if config is not None:
                 self.add_property('yaks.storage.config', json.dumps(config))
@@ -292,11 +448,17 @@ class MessageCreate(Message):
 
 
 class MessageDelete(Message):
-    def __init__(self, id):
+    def __init__(self, id, type=None, path=None):
         super(MessageDelete, self).__init__()
         self.message_code = DELETE
         self.generate_corr_id()
         self.add_property('yaks.id', id)
+        if type is EntityType.ACCESS:
+            self.set_a()
+        elif type is EntityType.STORAGE:
+            self.set_s()
+        elif path is not None:
+            self.add_path(path)
 
 
 class MessagePut(Message):
@@ -305,6 +467,7 @@ class MessagePut(Message):
         self.message_code = PUT
         self.generate_corr_id()
         self.add_property('yaks.id', id)
+        self.add_key_value(key, value)
 
 
 class MessagePatch(Message):
@@ -313,6 +476,7 @@ class MessagePatch(Message):
         self.message_code = PATCH
         self.generate_corr_id()
         self.add_property('yaks.id', id)
+        self.add_key_value(key, value)
 
 
 class MessageGet(Message):
@@ -321,6 +485,7 @@ class MessageGet(Message):
         self.message_code = GET
         self.generate_corr_id()
         self.add_property('yaks.id', id)
+        self.add_selector(key)
 
 
 class MessageSub(Message):
