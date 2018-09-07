@@ -1,10 +1,12 @@
 module Make (YEngine : Yaks_engine.SEngine.S) : sig
 
-  type config = Apero_net.TcpService.Config.t
+  module Config : sig 
+    include module type of Apero_net.TcpService.Config
+  end  
 
   type t 
 
-  val create : config -> YEngine.t -> t
+  val create : Config.t -> YEngine.t -> t
 
   val start : t -> unit Lwt.t
 

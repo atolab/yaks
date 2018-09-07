@@ -22,20 +22,25 @@ let yaksd () =
   let open Apero.LwtM.InfixM in 
   (* let module M = Yaks_sec_dum.DummySecurity.Make(Apero.MVar_lwt) in  *)
   let module YEngine = Yaks_core.SEngine.Make (Apero.MVar_lwt) in
-  let module YRest = Yaks_fe_rest.Make (YEngine) in 
+  let module YRestFE = Yaks_fe_rest.Make (YEngine) in 
+  let module YSockFE = Yaks_fe_sock.Make (YEngine) in 
   let engine = YEngine.make () in
 
   try%lwt 
     YEngine.add_backend_factory engine (Property.Backend.Value.memory) (module Yaks_be_mm.MainMemoryBEF : BackendFactory) >>= 
     fun _ -> YEngine.create_storage engine (Apero.Option.get @@ Path.of_string "/") [Property.make Property.Backend.Key.key Property.Backend.Value.memory] >>=
     fun _ ->
-    let restfecfg = YRest.{ port = 8000 } in
-    let restfe = YRest.create restfecfg  engine in YRest.start restfe
+    let restfe_cfg = YRestFE.{ port = 8000 } in
+    let restfe = YRestFE.create restfe_cfg  engine in 
+    let rfep = YRestFE.start restfe in 
+    let socket_cfg = YSockFE.Config.create (Apero.Option.get @@ Apero_net.TcpLocator.of_string "tcp/0.0.0.0:7887") in 
+    let sockfe = YSockFE.create socket_cfg engine in 
+    let sfep = YSockFE.start sockfe
+    in Lwt.join [rfep; sfep]
+
   with 
   | YException e  -> Logs_lwt.err (fun m -> m "%s" (show_yerror e)) >> Lwt.return_unit
   | exn -> Logs_lwt.err (fun m -> m "Exception %s raised" (Printexc.to_string exn)) >> Lwt.return_unit
-
-
 
 let () =  
   Printexc.record_backtrace true;  

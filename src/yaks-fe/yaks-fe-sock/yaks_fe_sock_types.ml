@@ -64,7 +64,6 @@ type payload =
   | KeyDeltaValue of string * IOBuf.t
   | KeyValueList of (string * IOBuf.t) list
   | Subscription of string
-  | OkInfo of Vle.t
   | ErrorInfo of Vle.t * char
   
 
@@ -73,3 +72,5 @@ type message = {
   properties : Yaks_core.Property.t list;
   body : payload (* This could be a variant*)
 }
+
+let make_message header properties body = {header; properties; body} 

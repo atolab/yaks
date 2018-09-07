@@ -57,7 +57,7 @@ let decode_body (mid:message_id)  (buf: IOBuf.t) =
   | GET -> decode_string buf >>= fun (s, buf) -> Ok (Selector s, buf)
   | SUB -> decode_string buf >>= fun (s, buf) -> Ok (Selector s, buf)
   | UNSUB -> decode_string buf >>= fun (s, buf) -> Ok (Subscription s, buf)
-  | OK -> decode_vle buf >>= fun (corr, buf) -> Ok (OkInfo corr, buf)
+  | OK -> Ok (Empty, buf)
   | ERROR -> 
     decode_vle buf 
     >>= fun (corr, buf) -> IOBuf.get_char buf
@@ -76,7 +76,6 @@ let encode_body body buf =
     encode_string k buf >>= encode_bytes v 
   | KeyValueList  kvs -> 
     Result.fold_m (fun (k, v) buf -> encode_string k buf >>= encode_bytes v) kvs buf 
-  | OkInfo corr -> encode_vle corr buf 
   | ErrorInfo (corr, code) -> encode_vle corr buf >>= IOBuf.put_char code 
   
 

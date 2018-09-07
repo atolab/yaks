@@ -5,8 +5,8 @@ open Lwt.Infix
 module Make (YEngine : Yaks_engine.SEngine.S) = struct 
   module SocketFE = TcpService.Make (MVar_lwt)
 
-  type config = Apero_net.TcpService.Config.t
-
+  module Config = Apero_net.TcpService.Config
+  
   type t = SocketFE.t * SocketFE.io_service
 
   let reader sock  = 
@@ -26,22 +26,28 @@ module Make (YEngine : Yaks_engine.SEngine.S) = struct
     | Error e -> Lwt.fail @@ Exception e 
 
   let dispatch_message engine msg = 
+    let open Yaks_fe_sock_types in 
     let _ = engine in 
-    Lwt.return msg
+    let header = make_header OK [] msg.header.corr_id in 
+    let answer = make_message header [] Empty in 
+    Lwt.return answer
 
   let fe_service config  dispatcher sock = 
-    let buf = IOBuf.create (TcpService.Config.buf_size config) in 
+    let buf = IOBuf.create (Config.buf_size config) in 
     let mwriter = writer buf sock in 
     fun () -> 
       reader sock >>= dispatcher >>= mwriter >>= fun _ -> Lwt.return_unit
 
-  let create (conf : config) (engine: YEngine.t) = 
+  let create (conf : Config.t) (engine: YEngine.t) = 
     let svc = SocketFE.create conf in 
     let dispatcher = dispatch_message engine in 
     let io_svc = fe_service conf dispatcher in 
     (svc, io_svc)
 
-  let start (svc, iosvc) = SocketFE.start svc iosvc
+  let start (svc, iosvc) = 
+
+    let _ = Logs_lwt.debug (fun m -> m "[FES] Sock-FE starting TCP/IP server") in
+    SocketFE.start svc iosvc
 
   let stop (svc, _) = SocketFE.stop svc
 
