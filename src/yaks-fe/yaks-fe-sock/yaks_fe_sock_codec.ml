@@ -2,8 +2,7 @@ open Apero
 open Apero.Result.Infix
 open Yaks_fe_sock_types
 
-let encode_header h buf =
-  let _ = Logs_lwt.debug (fun m -> m "Yaks_fe_sock - encoding header") in 
+let encode_header h buf =  
   let id = char_of_int @@ message_id_to_int h.mid in   
   IOBuf.put_char id buf 
   >>= fun buf -> 
@@ -17,7 +16,7 @@ let decode_header =
     {mid = Option.get @@ int_to_message_id (int_of_char id); flags; corr_id }
   in
   read3_spec 
-    (let _ = Logs_lwt.debug (fun m -> m "Yaks_fe_sock - decoding header") in ()) 
+    () 
     IOBuf.get_char
     IOBuf.get_char    
     decode_vle
@@ -39,7 +38,6 @@ let decode_property  buf =
 
 let encode_properties = encode_seq encode_property
 let decode_properties buf = 
-  print_endline "going to read header...";
   decode_seq decode_property buf   
 
 
@@ -91,7 +89,6 @@ let decode_message buf =
     (if has_property_flag header then decode_properties buf 
     else Ok ([], buf))
     >>= fun (properties, buf) -> 
-      print_endline "going to read payload...";
       decode_body header.mid buf 
       >>= fun (body, buf) -> Ok({header; properties; body}, buf)
     

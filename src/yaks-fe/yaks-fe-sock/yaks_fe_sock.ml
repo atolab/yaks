@@ -14,10 +14,7 @@ module Make (YEngine : Yaks_engine.SEngine.S) = struct
     let open Yaks_fe_sock_codec in 
     let%lwt len = Net.read_vle sock lbuf in          
     let buf = IOBuf.create (Vle.to_int len) in 
-    let%lwt _ = Logs_lwt.debug (fun m -> m "Going to Read Buffer: %s" (IOBuf.to_string buf)) in
-    let%lwt n = Net.read sock buf in 
-    let%lwt _ = Logs_lwt.debug (fun m -> m "Read %d bytes from socket" n) in
-    let%lwt _ = Logs_lwt.debug (fun m -> m "Read Buffer: %s" (IOBuf.to_string buf)) in
+    let%lwt _ = Net.read sock buf in     
     match decode_message buf with 
     | Ok (msg, _) -> Lwt.return msg
     | Error e -> Lwt.fail @@ Exception e
@@ -27,8 +24,7 @@ module Make (YEngine : Yaks_engine.SEngine.S) = struct
     match encode_message msg buf with 
     | Ok buf ->  
       let lbuf = IOBuf.create 16 in 
-      let fbuf = (IOBuf.flip buf) in 
-      let%lwt _ = Logs_lwt.debug (fun m -> m "Sending buffer: %s" @@ IOBuf.to_string fbuf) in
+      let fbuf = (IOBuf.flip buf) in       
       (match encode_vle (Vle.of_int @@ IOBuf.limit fbuf) lbuf with 
       | Ok lbuf -> 
         Net.send_vec sock [IOBuf.flip lbuf; fbuf]
