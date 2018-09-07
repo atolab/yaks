@@ -64,6 +64,7 @@ type payload =
   | KeyDeltaValue of string * IOBuf.t
   | KeyValueList of (string * IOBuf.t) list
   | Subscription of string
+  | Notification of string * ((string * IOBuf.t) list)
   | ErrorInfo of Vle.t * char
   
 

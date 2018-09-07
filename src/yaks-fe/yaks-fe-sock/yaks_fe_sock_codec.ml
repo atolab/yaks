@@ -76,6 +76,9 @@ let encode_body body buf =
     encode_string k buf >>= encode_bytes v 
   | KeyValueList  kvs -> 
     Result.fold_m (fun (k, v) buf -> encode_string k buf >>= encode_bytes v) kvs buf 
+  | Notification (sid, kvs) -> 
+    encode_string sid buf 
+    >>= Result.fold_m (fun (k, v) buf -> encode_string k buf >>= encode_bytes v) kvs 
   | ErrorInfo (corr, code) -> encode_vle corr buf >>= IOBuf.put_char code 
   
 
