@@ -339,7 +339,7 @@ class Message(object):
         return kvs
 
     def add_error(self, error_code):
-        self.__add_vle(error_code)
+        self.data = self.__add_vle(error_code)
 
     def get_error(self):
         e, _ = self.__get_vle(self.data, 0)
@@ -494,6 +494,7 @@ class MessageSub(Message):
         self.message_code = SUB
         self.generate_corr_id()
         self.add_property('yaks.id', id)
+        self.add_subscription(key)
 
 
 class MessageUnsub(Message):
@@ -502,6 +503,7 @@ class MessageUnsub(Message):
         self.message_code = UNSUB
         self.generate_corr_id()
         self.add_property('yaks.id', id)
+        self.add_subscription(subscription_id)
 
 
 class MessageEval(Message):
@@ -521,8 +523,9 @@ class MessageOk(Message):
 
 
 class MessageError(Message):
-    def __init__(self, id, corr_id):
+    def __init__(self, id, corr_id, errno):
         super(MessageError, self).__init__()
         self.message_code = ERROR
         self.corr_id = corr_id
         self.add_property('yaks.id', id)
+        self.add_error(errno)
