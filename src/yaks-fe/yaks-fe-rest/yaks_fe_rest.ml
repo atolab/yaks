@@ -36,11 +36,6 @@ module Make (YEngine : Yaks_engine.SEngine.S) = struct
   let cookie_name_access_id = Property.Access.Key.key
   let cookie_name_storage_id = Property.Storage.Key.key
   let cookie_name_user_token = Property.User.Key.token
-  let cookie_name_user_id = Property.User.Key.id
-  let cookie_name_group_id = Property.Group.Key.id
-  let cookie_mame_group_rws = Property.Group.Key.rws
-  let cookie_mame_group_rs = Property.Group.Key.rs
-  let cookie_mame_group_ws = Property.Group.Key.ws
   (**********************************)
   (*      helpers functions         *)
   (**********************************)
@@ -85,9 +80,6 @@ module Make (YEngine : Yaks_engine.SEngine.S) = struct
     )
       ()
 
-  let forbidden s =
-    Server.respond_error ~status:`Forbidden ~body:("Unauthorized access to  \""^s) ()
-
   let unsupported_uri path =
     Server.respond_error ~status:`Bad_request ~body:("No operation available on path: "^path) ()
 
@@ -118,20 +110,18 @@ module Make (YEngine : Yaks_engine.SEngine.S) = struct
   (* let invalid_selector s =
      Server.respond_error ~status:`Not_found ~body:("Invalid Selector  \""^s) () *)
 
-  let bad_request s =
-    Server.respond_error ~status:`Bad_request ~body:("Invalid Request  \""^s) ()
+  (* let bad_request s =
+    Server.respond_error ~status:`Bad_request ~body:("Invalid Request  \""^s) () *)
 
-  let invalid_id id =
-    Server.respond_error ~status:`Not_found ~body:("Invalid Id  \""^id) ()
 
   (**********************************)
   (*      Control operations        *)
   (**********************************)
 
-  let create_access fe ?alias (path:Path.t) cache_size user_id = 
+  let create_access fe ?alias (path:Path.t) cache_size = 
     let%lwt _ = Logs_lwt.debug (fun m -> m "[FER]   create_access %s %s %Ld" (Apero.Option.get_or_default alias "?") (Path.to_string path) cache_size) in
     Lwt.try_bind 
-      (fun () -> YEngine.create_access fe.engine ?alias path cache_size user_id)
+      (fun () -> YEngine.create_access fe.engine ?alias path cache_size)
       (fun access ->
          let aid = Access.Id.to_string @@ Access.id access in
          Logs_lwt.debug (fun m -> m "Created Access with id : %s responding client" aid) >>      
@@ -141,82 +131,6 @@ module Make (YEngine : Yaks_engine.SEngine.S) = struct
          Server.respond_string ~status:`Created ~headers ~body:"" ())
       (fun _ -> insufficient_storage cache_size)
 
-  (* 
-  Creating a user group 
-  return the groupid as a cookie, this allow the creation of a user in the already created group
-*)
-  let create_group fe name rw_paths r_paths w_paths level = 
-    let%lwt _ = Logs_lwt.debug (fun m -> m "[ENG]   create_group %s "  name) in
-    let level = 
-      match level with
-      | 1L -> Group.Admins
-      | _ -> Group.Users
-    in
-    Lwt.try_bind 
-      (fun () -> YEngine.create_group fe.engine name rw_paths r_paths w_paths level )
-      (fun group_id ->
-         let aid = Group.Id.to_string group_id in  
-         Logs_lwt.debug (fun m -> m "Created Group with id : %s responding client" aid) >>      
-         let headers = Header.add_list (Header.init()) 
-             [("Location", aid);
-              (set_cookie cookie_name_group_id aid)] in
-         Server.respond_string ~status:`Created ~headers ~body:"" ())
-      (fun _ -> bad_request "Cannot create this group")
-
-  (* 
-  creating a new user 
-  this return as a cookie the userid
-  GB: can we authenticate users also using the tuple (userid, password)?
-*)
-  let create_user fe name password group = 
-    let%lwt _ = Logs_lwt.debug (fun m -> m "[FER]   create_user %s "  name) in
-    Lwt.try_bind 
-      (fun () -> YEngine.create_user fe.engine name password group )
-      (fun user_id ->
-         let aid = User.Id.to_string user_id in  
-         Logs_lwt.debug (fun m -> m "Created user with id : %s responding client" aid) >>      
-         let headers = Header.add_list (Header.init()) 
-             [("Location", aid);
-              (set_cookie cookie_name_user_id aid)] in
-         Server.respond_string ~status:`Created ~headers ~body:"" ())
-      (fun _ -> bad_request "Cannot create this user")
-
-  (* 
-  authenticating the user using the tuple (username, password) and creating the session token
-  token is used for authenticate the user in all the functions.
-  The session token is managed by the frontend, the engine only tells if an user can or cannot authenticate
-  This token will be destroyed when the user logout from YAKS
- *)
-  let authenticate_user fe name password = 
-    let%lwt _ = Logs_lwt.debug (fun m -> m "[FER] authenticate_user %s "  name) in
-    Lwt.try_bind 
-      (fun () -> YEngine.authenticate_user fe.engine name password )
-      (fun user_id ->
-         let token = Apero.Uuid.to_string @@ Apero.Uuid.make () in
-         fe.tokens <- TokenMap.add token user_id fe.tokens;
-         let headers = Header.add_list (Header.init()) 
-             [("Location", token);
-              (set_cookie cookie_name_user_token token)] in
-         Server.respond_string ~status:`Created ~headers ~body:"" ())
-      (fun _ -> bad_request "Cannot authenticate this user")
-
-  (* logout the user 
-     GB: this should call a function of the engine to also destroy all the access created by this user?
-  *)
-  let deauthenticate_user fe token = 
-    let%lwt _ = Logs_lwt.debug (fun m -> m "[FER] deauthenticate_user %s "  token) in
-    Lwt.try_bind 
-      (fun () -> 
-         match TokenMap.mem token fe.tokens with
-         | true -> fe.tokens <- TokenMap.remove token fe.tokens; Lwt.return token (* Here should tell the engine to eventually destroy all access *)
-         | false ->  Lwt.fail @@ YException (`InvalidParameters)
-      )
-      (fun token -> 
-         let headers = Header.add_list (Header.init()) 
-             [("Location", token);
-              (set_cookie cookie_name_user_token token)] in
-         Server.respond_string ~status:`Created ~headers ~body:"" ())
-      (fun _ -> bad_request "Cannot logout this user")
 
   let get_access fe access_id =
     let aid = Access.Id.to_string access_id in 
@@ -250,13 +164,6 @@ module Make (YEngine : Yaks_engine.SEngine.S) = struct
     YEngine.dispose_storage fe.engine storage_id 
     >>= fun () -> Server.respond_string ~status:`No_content ~body:"" ()
 
-  let dispose_group fe group_id = 
-    YEngine.dispose_group fe.engine group_id >>= 
-    fun () -> Server.respond_string ~status:`No_content ~body:"" ()
-
-  let dispose_user fe user_id = 
-    YEngine.dispose_user fe.engine user_id >>= 
-    fun () -> Server.respond_string ~status:`No_content ~body:"" ()
 
   (* @AC: We should add subscriptions only once we'll have a front-end that can 
           deal with them. Notice that subscriptions introduce potentially concurrent
@@ -371,186 +278,37 @@ let unsubscribe fe access_id sub_id =
   let execute_control_operation fe meth path query headers _ =
     let%lwt _ = Logs_lwt.debug (fun m -> m "-- execute_control_operation --" ) in  
     match (meth, path) with
-    (* PUT /yaks/group/ *)
-    | (`PUT, ["yaks"; "group"]) -> (
-        let open Option.Infix in
-        (* User should be authenticated before creating a group
-           only admin users can create a group *)
-        (* retrieve the user id from the access token *)
-        let user_id : User.Id.t option = 
-          (Cookie.Cookie_hdr.extract headers
-           |> List.find_opt (fun (key, _) -> key = cookie_name_user_token) 
-              >== fun (_, value) -> value) >>= (fun aid -> TokenMap.find_opt aid fe.tokens) 
-        in
-        let rws : string option = 
-          (Cookie.Cookie_hdr.extract headers
-           |> List.find_opt (fun (key, _) -> key = cookie_mame_group_rws) 
-              >== fun (_, value) -> value) >>= (fun aid -> Some aid) 
-        in  
-        let rs : string option = 
-          (Cookie.Cookie_hdr.extract headers
-           |> List.find_opt (fun (key, _) -> key = cookie_mame_group_rs) 
-              >== fun (_, value) -> value) >>= (fun aid -> Some aid) 
-        in  
-        let ws : string option = 
-          (Cookie.Cookie_hdr.extract headers
-           |> List.find_opt (fun (key, _) -> key = cookie_mame_group_ws) 
-              >== fun (_, value) -> value) >>= (fun aid -> Some aid) 
-        in   
-        let name =  query_get_opt query "name" >== List.hd in
-        let isadmin = 
-          match query_get_opt query "is_admin" >== List.hd >>= Int64.of_string_opt with
-          | Some i -> i
-          | None -> 0L
-        in
-        match user_id with
-        (* | None -> forbidden @@ "yaks/group/"
-           | Some _ ->  *)
-        | _ -> 
-          match (name,rws,rs,ws) with
-          | (None,None,None,None) -> missing_query (["name:string"])
-          | (None, _,_,_)    -> missing_query (["name:string"])
-          | (_,None,_, _)    -> missing_cookie "yaks.rws"
-          | (_,_,None, _)    -> missing_cookie "yaks.rs"
-          | (_,_,_, None)    -> missing_cookie "yaks.ws"
-          | (Some(name), Some(rw_paths), Some(r_paths),Some(w_paths)) ->
-            let to_list var = 
-              let s = String.sub var 1 ((String.length var)-2) in
-              let l_s = Str.split (Str.regexp ",") s in
-              List.map (fun e -> Str.global_replace (Str.regexp "\"") "" e) l_s
-            in
-            create_group fe name (Selector.of_string_list @@ to_list rw_paths) (Selector.of_string_list @@ to_list r_paths) (Selector.of_string_list @@ to_list w_paths) isadmin
-      )
-    (* DELETE /yaks/group/id *)
-    | (`DELETE, ["yaks"; "group"; id]) -> (
-        match (Group.Id.of_string id) with
-        | Some id -> dispose_group fe id
-        | None -> invalid_id id
-      )
-    (* PUT /yaks/user/?name&group*)
-    | (`PUT, ["yaks"; "user"]) -> (
-        let open Option.Infix in
-        (* Very dummy authentication method *)
-        (* User should be authenticated before creating a group
-           only admin users can create other users *)
-        (* retrieve the user id from the access token *)
-        let user_id : User.Id.t option = 
-          (Cookie.Cookie_hdr.extract headers
-           |> List.find_opt (fun (key, _) -> key = cookie_name_user_token) 
-              >== fun (_, value) -> value) >>= (fun aid -> TokenMap.find_opt aid fe.tokens) 
-        in
-        let pwd : string option = 
-          (Cookie.Cookie_hdr.extract headers
-           |> List.find_opt (fun (key, _) -> key = "yaks.user.pwd") 
-              >== fun (_, value) -> value) >>= (fun aid -> Some aid) 
-        in  
-        let name =  query_get_opt query "name" >== List.hd in
-        let group =  query_get_opt query "group" >== List.hd in
-        match user_id with
-        (* | None -> forbidden @@ "yaks/user/"
-           | Some _ ->  *)
-        | _ -> 
-          match (name,group,pwd) with
-          | (None,None,None) -> missing_query (["name:string"; "group:string"])
-          | (None, _,_)    -> missing_query (["name:string"])
-          | (_,None,_)    -> missing_query (["name:string"])
-          | (_,_,None)    -> missing_cookie "yaks.user.pwd"
-          | (Some(name), Some(group), Some(password)) ->
-            match Group.Id.of_string group with
-            | Some g -> create_user fe name password g
-            | None -> bad_request "Malformed Group id"
-      )
-    (* POST /yaks/authenticate ? name *)
-    | (`POST, ["yaks"; "authenticate";]) -> (
-        let open Option.Infix in
-        let pwd : string option = 
-          (Cookie.Cookie_hdr.extract headers
-           |> List.find_opt (fun (key, _) -> key = "yaks.user.pwd") 
-              >== fun (_, value) -> value) >>= (fun aid -> Some aid) 
-        in  
-        let name =  query_get_opt query "name" >== List.hd in
-        match (name,pwd) with
-        | (None, None)    -> missing_query (["name:string"])
-        | (None, _)    -> missing_query (["name:string"])
-        | (_,None)    -> missing_cookie "yaks.user.pwd"
-        | (Some(name), Some(password)) ->
-          authenticate_user fe name password
-      )
-    (* POST /yaks/deauthenticate *)
-    | (`POST, ["yaks"; "deauthenticate";]) -> (
-        let open Option.Infix in
-        let token : string option = 
-          (Cookie.Cookie_hdr.extract headers
-           |> List.find_opt (fun (key, _) -> key = cookie_name_user_token) 
-              >== fun (_, value) -> value) >>= (fun aid -> Some aid) 
-        in  
-        match token with
-        | None -> missing_cookie cookie_name_user_token
-        | Some tok ->
-          deauthenticate_user fe tok 
-      )
-    (* DELETE /yaks/user/id *)
-    | (`DELETE, ["yaks"; "user"; id]) -> (
-        match (User.Id.of_string id) with
-        | Some id -> dispose_user fe id
-        | None -> invalid_id id
-      )
+
     (* POST /yaks/access ? path & cacheSize *)
     | (`POST, ["yaks"; "access"]) -> (
         let open Option.Infix in
-        let user_id : User.Id.t option = 
-          (Cookie.Cookie_hdr.extract headers
-           |> List.find_opt (fun (key, _) -> key = cookie_name_user_token) 
-              >== fun (_, value) -> value) >>= (fun aid -> TokenMap.find_opt aid fe.tokens)
-        in  
         let access_path =  query_get_opt query "path" >== List.hd in
         let cache_size = query_get_opt query "cacheSize" >== List.hd >>= Int64.of_string_opt in
-        let%lwt secure = YEngine.is_secure fe.engine in
-        let user_id = 
-          (match secure with
-           | true -> user_id
-           | false -> Some (User.Id.make ()))
-        in
-        match user_id with
-        | None -> forbidden @@ "yaks/access/"
-        | Some uid -> 
-          match (access_path, cache_size) with
-          | (None, None) -> missing_query (["path:string"; "cacheSize:int"])
-          | (None, _)    -> missing_query (["path:string"])
-          | (_, None)    -> missing_query (["cacheSize:int"])
-          | (Some(path), Some(cache_size)) -> (
-              match Path.of_string path with 
-              | Some p -> create_access fe p cache_size uid
-              | None -> invalid_path path)
+
+        match (access_path, cache_size) with
+        | (None, None) -> missing_query (["path:string"; "cacheSize:int"])
+        | (None, _)    -> missing_query (["path:string"])
+        | (_, None)    -> missing_query (["cacheSize:int"])
+        | (Some(path), Some(cache_size)) -> (
+            match Path.of_string path with 
+            | Some p -> create_access fe p cache_size 
+            | None -> invalid_path path)
       )
     (* PUT /yaks/access/id ? path & cacheSize *)
     | (`PUT, ["yaks"; "access"; id]) -> (
         let open Option.Infix in
         (* Very dummy authentication method *)
-        let user_id : User.Id.t option = 
-          (Cookie.Cookie_hdr.extract headers
-           |> List.find_opt (fun (key, _) -> key = cookie_name_user_token) 
-              >== fun (_, value) -> value) >>= (fun aid -> TokenMap.find_opt aid fe.tokens) 
-        in  
         let access_path =  query_get_opt query "path" >== List.hd in
         let cache_size = query_get_opt query "cacheSize" >== List.hd >>= Int64.of_string_opt in
-        let%lwt secure = YEngine.is_secure fe.engine in
-        let user_id = 
-          (match secure with
-           | true -> user_id
-           | false -> Some (User.Id.make ()))
-        in
-        match user_id with
-        | None -> forbidden @@ "yaks/access/"^id
-        | Some uid -> 
-          match (access_path, cache_size) with
-          | (None, None) -> missing_query (["path:string"; "cacheSize:int"])
-          | (None, _)    -> missing_query (["path:string"])
-          | (_, None)    -> missing_query (["cacheSize:int"])
-          | (Some(path), Some(cache_size)) -> 
-            match Path.of_string path with 
-            |Some p -> create_access fe ~alias:id p cache_size uid
-            | None -> invalid_path path
+
+        match (access_path, cache_size) with
+        | (None, None) -> missing_query (["path:string"; "cacheSize:int"])
+        | (None, _)    -> missing_query (["path:string"])
+        | (_, None)    -> missing_query (["cacheSize:int"])
+        | (Some(path), Some(cache_size)) -> 
+          match Path.of_string path with 
+          |Some p -> create_access fe ~alias:id p cache_size 
+          | None -> invalid_path path
       )
     (* GET /yaks/access *)
     | (`GET, ["yaks"; "access"]) -> (      
@@ -573,12 +331,7 @@ let unsubscribe fe access_id sub_id =
       )
     (* POST /yaks/storages ? path & options... *)
     | (`POST, ["yaks"; "storages"]) -> (
-        let open Option.Infix in
-        let _ : User.Id.t option = (* user_id *)
-          (Cookie.Cookie_hdr.extract headers
-           |> List.find_opt (fun (key, _) -> key = cookie_name_user_token) 
-              >== fun (_, value) -> value) >>= (fun aid -> TokenMap.find_opt aid fe.tokens) 
-        in 
+        let open Option.Infix in        
         let storage_path =  query_get_opt query "path" >== List.hd in
         match storage_path with
         | None -> missing_query (["path:string"])
@@ -624,12 +377,7 @@ let unsubscribe fe access_id sub_id =
       )
     (* POST /yaks/access/id/subs *)
     | (`POST, ["yaks"; "access"; aid; "subs"]) -> (
-        let open Option.Infix in
-        let _ : User.Id.t option = (* user_id *)
-          (Cookie.Cookie_hdr.extract headers
-           |> List.find_opt (fun (key, _) -> key = cookie_name_user_token) 
-              >== fun (_, value) -> value) >>= (fun aid -> TokenMap.find_opt aid fe.tokens) 
-        in 
+        let open Option.Infix in       
         let selector =  query_get_opt query "selector" >== List.hd in
         match selector with
         | None -> missing_query (["selector:string"])
@@ -649,39 +397,26 @@ let unsubscribe fe access_id sub_id =
     let%lwt _ = Logs_lwt.debug (fun m -> m "(-- execute_data_operation --" ) in 
     let open Apero.Option.Infix in
 
-    let user_id : User.Id.t option = 
-      (Cookie.Cookie_hdr.extract headers
-       |> List.find_opt (fun (key, _) -> key = cookie_name_user_token) 
-          >== fun (_, value) -> value) >>= (fun aid -> TokenMap.find_opt aid fe.tokens) 
-    in
     let access_id : Access.Id.t option = 
       (Cookie.Cookie_hdr.extract headers
        |> List.find_opt (fun (key, _) -> key = cookie_name_access_id)
           >== fun (_, value) -> value) >>= (fun aid -> Access.Id.of_string aid) 
     in  
-    let%lwt secure = YEngine.is_secure fe.engine in
-    let user_id = 
-      (match secure with
-       | true -> user_id
-       | false -> Some (User.Id.make ()))
-    in
-    match user_id with
-    | None -> forbidden @@ Selector.to_string selector
-    | Some _ -> (* Should be passed to all functions? *)
-      match (meth, access_id) with
-      | (_, None) ->
-        missing_cookie cookie_name_access_id
-      | (`GET, Some(aid)) ->
-        get fe aid selector
-      | (`PUT, Some(aid)) ->
-        let%lwt value = Cohttp_lwt.Body.to_string body in
-        put fe aid selector (Value.JSonValue value)     
-      | (`PATCH, Some(aid)) ->
-        let%lwt value = Cohttp_lwt.Body.to_string body in
-        put_delta fe aid selector (Value.JSonValue value)
-      | (`DELETE, Some(aid)) ->
-        remove fe aid selector
-      | _ -> unsupported_operation meth (Selector.to_string selector)
+
+    match (meth, access_id) with
+    | (_, None) ->
+      missing_cookie cookie_name_access_id
+    | (`GET, Some(aid)) ->
+      get fe aid selector
+    | (`PUT, Some(aid)) ->
+      let%lwt value = Cohttp_lwt.Body.to_string body in
+      put fe aid selector (Value.JSonValue value)     
+    | (`PATCH, Some(aid)) ->
+      let%lwt value = Cohttp_lwt.Body.to_string body in
+      put_delta fe aid selector (Value.JSonValue value)
+    | (`DELETE, Some(aid)) ->
+      remove fe aid selector
+    | _ -> unsupported_operation meth (Selector.to_string selector)
 
 
   let execute_http_request fe req body =
