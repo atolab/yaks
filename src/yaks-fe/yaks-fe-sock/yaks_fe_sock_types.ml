@@ -1,29 +1,5 @@
 open Apero
-
-
-[%%cenum
-type message_id = 
-| OPEN [@id 0x01]
-| CREATE [@id 0x02]
-| DELETE [@id 0x03]
-| PUT [@id 0xA0]
-| PATCH [@id 0xA1]
-| GET [@id 0xA2]
-| SUB [@id 0xB0]
-| UNSUB [@id 0xB1]
-| EVAL [@id 0xB2]
-| OK [@id 0xD0]
-| ERROR [@id 0xE0]
-[@@uint8_t]]
-
-
-[%%cenum
-type message_flags = 
-| PROPERTY [@id 0x01]
-| STORAGE [@id 0x02]
-| ACCESS [@id 0x04]
-[@@uint8_t]]
-
+open Yaks_fe_sock_codes
 (* The structure of a socket front end message is the following.
 
         7 6 5 4 3 2 1 0
@@ -65,7 +41,7 @@ type payload =
   | KeyValueList of (string * IOBuf.t) list
   | Subscription of string
   | Notification of string * ((string * IOBuf.t) list)
-  | ErrorInfo of Vle.t * char
+  | ErrorInfo of Vle.t
   
 
 type message = {
@@ -75,3 +51,39 @@ type message = {
 }
 
 let make_message header properties body = {header; properties; body} 
+
+let get_empty_payload msg = 
+  match msg.body with 
+  | Empty -> Some ()
+  | _ -> None
+
+let get_path_payload msg = 
+  match msg.body with 
+  | Path p -> Some p
+  | _ -> None 
+
+let get_selector_payload msg = 
+  match msg.body with 
+  | Selector s -> Some s
+  | _ -> None 
+
+let get_key_value_payload msg = 
+  match msg.body with  
+  | KeyValue (k,v) -> Some (k,v)
+  | _ -> None 
+
+let get_key_delta_value_payload msg = 
+  match msg.body with  
+  | KeyDeltaValue (k,dv) -> Some (k,dv)
+  | _ -> None 
+
+let get_key_value_list_payload msg = 
+  match msg.body with  
+  | KeyValueList kvs -> Some kvs
+  | _ -> None 
+
+let get_subscription_payload msg = 
+  match msg.body with  
+  | Subscription s -> Some s
+  | _ -> None 
+

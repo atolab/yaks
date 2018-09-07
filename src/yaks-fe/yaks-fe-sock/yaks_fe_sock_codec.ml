@@ -1,5 +1,6 @@
 open Apero
 open Apero.Result.Infix
+open Yaks_fe_sock_codes
 open Yaks_fe_sock_types
 
 let encode_header h buf =  
@@ -56,13 +57,12 @@ let decode_body (mid:message_id)  (buf: IOBuf.t) =
     >>= fun (value, buf) -> Ok (KeyDeltaValue (key, value), buf)
   | GET -> decode_string buf >>= fun (s, buf) -> Ok (Selector s, buf)
   | SUB -> decode_string buf >>= fun (s, buf) -> Ok (Selector s, buf)
-  | UNSUB -> decode_string buf >>= fun (s, buf) -> Ok (Subscription s, buf)
-  | OK -> Ok (Empty, buf)
-  | ERROR -> 
-    decode_vle buf 
-    >>= fun (corr, buf) -> IOBuf.get_char buf
-    >>= fun (e, buf) -> Ok (ErrorInfo (corr, e), buf)
+  | UNSUB -> decode_string buf >>= fun (s, buf) -> Ok (Subscription s, buf)    
   | EVAL -> Result.fail `NotImplemented
+  (* These are the messages that the service send but do not expect to receive. 
+     If any of this message is received the client is considered malfunctioning or 
+     malicious and the connection is immediately closed *)
+  | OK | ERROR | NOTIFY | VALUE | VALUES-> Result.fail `UnexpextedMessage
 
 let encode_body body buf = 
   match body with 
@@ -79,7 +79,7 @@ let encode_body body buf =
   | Notification (sid, kvs) -> 
     encode_string sid buf 
     >>= Result.fold_m (fun (k, v) buf -> encode_string k buf >>= encode_bytes v) kvs 
-  | ErrorInfo (corr, code) -> encode_vle corr buf >>= IOBuf.put_char code 
+  | ErrorInfo (code) -> encode_vle code buf
   
 
 let decode_message buf = 

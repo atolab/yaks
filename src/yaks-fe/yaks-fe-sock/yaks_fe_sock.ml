@@ -8,7 +8,7 @@ module Make (YEngine : Yaks_engine.SEngine.S) = struct
   module Config = Apero_net.TcpService.Config
   
   type t = SocketFE.t * SocketFE.io_service
-
+  
   let reader sock  = 
     let lbuf = IOBuf.create 16 in 
     let open Yaks_fe_sock_codec in 
@@ -31,12 +31,54 @@ module Make (YEngine : Yaks_engine.SEngine.S) = struct
       | Error e -> Lwt.fail @@ Exception e )     
     | Error e -> Lwt.fail @@ Exception e 
 
+  let reply_with_ok msg = 
+    let open Yaks_fe_sock_types in 
+    let header = make_header OK [] msg.header.corr_id in 
+     make_message header [] Empty 
+  
+  let reply_with_error msg code = 
+    let open Yaks_fe_sock_codes in 
+    let open Yaks_fe_sock_types in 
+    let header = make_header ERROR [] msg.header.corr_id in 
+     make_message header [] @@ ErrorInfo (Vle.of_int @@ error_code_to_int code)
+
+  let process_open engine msg = 
+        
+    let _ = engine in Lwt.return @@ reply_with_ok msg
+  
+  let process_create_access _ (* engine *) msg  _ (* path *) = reply_with_error msg BAD_REQUEST 
+  let process_create_storage _ (* engine *) msg  _ (* path *) = reply_with_error msg BAD_REQUEST 
+  let process_create engine msg = 
+    let open Yaks_fe_sock_types in 
+    Lwt.return @@ match get_path_payload msg with 
+    | Some path -> 
+      if has_access_flag msg.header then process_create_access engine msg path
+      else if has_storage_flag msg.header then process_create_storage engine msg path
+      else reply_with_error msg BAD_REQUEST 
+    | None -> reply_with_error msg BAD_REQUEST
+
+    (* let _ = engine in reply_with_ok msg *)
+  let process_delete engine msg = let _ = engine in Lwt.return @@ reply_with_ok msg
+  let process_put engine msg = let _ = engine in Lwt.return @@ reply_with_ok msg
+  let process_get engine msg = let _ = engine in Lwt.return @@  reply_with_ok msg
+  let process_sub engine msg = let _ = engine in Lwt.return @@ reply_with_ok msg
+  let process_unsub engine msg = let _ = engine in Lwt.return @@ reply_with_ok msg
+  let process_eval engine msg = let _ = engine in Lwt.return @@ reply_with_ok msg
+
   let dispatch_message engine msg = 
     let open Yaks_fe_sock_types in 
-    let _ = engine in 
-    let header = make_header OK [] msg.header.corr_id in 
-    let answer = make_message header [] Empty in 
-    Lwt.return answer
+    match msg.header.mid with 
+    | OPEN -> process_open engine msg 
+    | CREATE -> process_create engine msg
+    | DELETE -> process_delete engine msg
+    | PUT -> process_put engine msg
+    | GET -> process_get engine msg 
+    | SUB -> process_sub engine msg 
+    | UNSUB -> process_unsub engine msg
+    | EVAL -> process_eval engine msg    
+    | _ -> Lwt.return @@ reply_with_error msg BAD_REQUEST
+
+    
 
   let fe_service config  dispatcher sock = 
     let buf = IOBuf.create (Config.buf_size config) in 
