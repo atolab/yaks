@@ -243,12 +243,12 @@ module SEngine = struct
          MVar.return_lwt (Lwt.fail @@ YException (`UnavailableStorageFactory (`Msg kind))) self)
 
     let create_storage engine ?alias path properties =
-      match get_property yaks_backend properties with
+      match get_property Property.Backend.Key.key properties with
       | Some (_,v) ->
         create_storage_with_kind engine ?alias path v
       | None -> 
         let _ = Logs_lwt.debug (fun m -> m "SEngine:  Creating with default Memory Backend\n") in
-        create_storage_with_kind engine ?alias path yaks_backend_memory
+        create_storage_with_kind engine ?alias path Property.Backend.Value.memory
     (* Lwt.fail @@ YException `UnknownStorageKind *)
 
     let get_storage engine storage_id =

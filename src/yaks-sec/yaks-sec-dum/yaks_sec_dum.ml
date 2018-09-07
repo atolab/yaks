@@ -159,5 +159,5 @@ let make_dummy_security _ =
 
 module SecurityFactory  = struct 
   let make (ps:Property.t list)  = make_dummy_security ps
-  let name = yaks_auth
+  let name = Property.Auth.Key.key
 end
