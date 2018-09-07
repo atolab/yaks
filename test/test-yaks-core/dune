@@ -7,6 +7,5 @@
 
 (alias
  (name runtest)
-  (package yaks-core)
   (deps test_yaks_core.exe)
   (action (run ${exe:test_yaks_core.exe} -q --color=always)))
