@@ -52,9 +52,9 @@ let make_header mid (mflags: message_flags list) corr_id =
   let flags = char_of_int @@ List.fold_left (fun a f -> a lor (message_flags_to_int f)) 0 mflags in 
   {mid; flags; corr_id}
 
-let has_property_flag h = (int_of_char h.flags) lor 0x01 <> 0
-let has_storage_flag h = (int_of_char h.flags) lor 0x02 <> 0
-let has_access_flag h = (int_of_char h.flags) lor 0x04 <> 0
+let has_property_flag h = (int_of_char h.flags) land 0x01 <> 0
+let has_storage_flag h = (int_of_char h.flags) land 0x02 <> 0
+let has_access_flag h = (int_of_char h.flags) land 0x04 <> 0
   
 type payload = 
   | Empty
