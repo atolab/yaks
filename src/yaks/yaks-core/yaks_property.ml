@@ -27,6 +27,7 @@ module Property = struct
     module Key = struct 
       let key = "is.yaks.access" 
       let id = "is.yaks.access.id" 
+      let alias = "is.yaks.access.alias" 
       let cache_size = "is.yaks.access.cachesize" 
     end
   end

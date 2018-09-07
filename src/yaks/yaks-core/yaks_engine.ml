@@ -86,47 +86,6 @@ module SEngine = struct
       MVar.guarded engine 
       @@ (fun self ->  MVar.return access {self with accs = AccessMap.add (Access.id access) access self.accs })
 
-    (* let create access = MVar.return (access) {self with accs = (AccessMap.add (Access.id access) access self.accs)}
-                   in
-                   (match Sec.get_access_creation_rights g path with
-                    | Ok r -> create @@ Access.make ?alias path cache_size r
-                    | Error e -> 
-                      MVar.return_lwt (Lwt.fail @@ YException e) self)
-
-       (match self.sec with
-       | Some sec -> 
-       let module Sec = (val sec : Yaks_sec.Security) in
-       Sec.get_user user_id >>= 
-       (fun pu -> 
-          (match pu with
-           | Some u -> 
-             Sec.get_group u.group >>=
-             (fun pg -> 
-                (match pg with
-                 | Some g -> 
-                   let create access =
-                     MVar.return (access) {self with accs = (AccessMap.add (Access.id access) access self.accs)}
-                   in
-                   (match Sec.get_access_creation_rights g path with
-                    | Ok r -> create @@ Access.make ?alias path cache_size r
-                    | Error e -> 
-                      MVar.return_lwt (Lwt.fail @@ YException e) self)
-                 | None -> 
-                   let v = Printf.sprintf "User %s not allowed" @@ User.Id.to_string user_id in
-                   MVar.return_lwt (Lwt.fail @@ YException (`Forbidden (`Msg v))) self)
-             )
-
-           | None -> 
-             let v = Printf.sprintf "User %s Unknown" @@ User.Id.to_string user_id in
-             MVar.return_lwt (Lwt.fail @@ YException (`Forbidden (`Msg v))) self))
-       | None -> 
-       let create access =
-         MVar.return (access) {self with accs = (AccessMap.add (Access.id access) access self.accs)}
-       in
-       create @@ Access.make ?alias path cache_size Access.RW_Mode
-       ) *)
-
-
     let get_access engine access_id =
       MVar.read engine
       >|= fun self -> AccessMap.find_opt access_id self.accs
