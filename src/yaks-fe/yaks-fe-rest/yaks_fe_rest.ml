@@ -111,7 +111,7 @@ module Make (YEngine : Yaks_engine.SEngine.S) = struct
      Server.respond_error ~status:`Not_found ~body:("Invalid Selector  \""^s) () *)
 
   (* let bad_request s =
-    Server.respond_error ~status:`Bad_request ~body:("Invalid Request  \""^s) () *)
+     Server.respond_error ~status:`Bad_request ~body:("Invalid Request  \""^s) () *)
 
 
   (**********************************)
@@ -320,14 +320,14 @@ let unsubscribe fe access_id sub_id =
     | (`GET, ["yaks"; "access"; id]) -> (
         match Access.Id.of_string id with 
         | Some access_id -> get_access fe access_id
-        | None -> get_access fe @@ Access.Id.of_alias id
+        | None -> get_access fe @@ Access.Id.make_from_alias id
 
       )
     (* DELETE /yaks/access/id *)
     | (`DELETE, ["yaks"; "access"; id]) -> (
         match Access.Id.of_string id with
         | Some access_id -> dispose_access fe access_id
-        | None -> dispose_access fe @@ Access.Id.of_alias id
+        | None -> dispose_access fe @@ Access.Id.make_from_alias id
       )
     (* POST /yaks/storages ? path & options... *)
     | (`POST, ["yaks"; "storages"]) -> (
@@ -373,7 +373,7 @@ let unsubscribe fe access_id sub_id =
     | (`DELETE, ["yaks"; "storages"; id]) -> (
         match Storage.Id.of_string id with
         | Some storage_id -> dispose_storage fe storage_id
-        | None -> dispose_storage fe @@ Storage.Id.of_alias id
+        | None -> dispose_storage fe @@ Storage.Id.make_from_alias id
       )
     (* POST /yaks/access/id/subs *)
     | (`POST, ["yaks"; "access"; aid; "subs"]) -> (
