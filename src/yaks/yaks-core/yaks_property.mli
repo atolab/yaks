@@ -27,6 +27,7 @@ module Property : sig
     module Key : sig
       val key : string    
       val id : string 
+      val alias : string
       val cache_size : string 
     end
   end

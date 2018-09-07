@@ -11,6 +11,7 @@
 *~
 *.iml
 tmp
+*.pyc
 
 # ocamlbuild working directory
 _build/
@@ -36,5 +37,10 @@ target
 # macOS DS_Store files
 .DS_Store
 
+<<<<<<< HEAD
 # pyhton cache file
 __pycache__/
+=======
+# Python ignores
+__pycache__
+>>>>>>> f078f3b204c781880be7f61417c8ceb40912e510
