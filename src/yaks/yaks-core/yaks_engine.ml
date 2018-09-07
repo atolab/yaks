@@ -20,7 +20,7 @@ module SEngine = struct
     val create_storage : t -> ?alias:string -> Path.t -> Property.t list -> Storage.t Lwt.t 
     val get_storage : t -> Storage.Id.t -> Storage.t option Lwt.t
     val dispose_storage : t -> Storage.Id.t -> unit Lwt.t
-   
+
     val create_subscriber : t -> Path.t -> Selector.t -> bool -> SubscriberId.t Lwt.t  
 
     val get : t -> Access.Id.t -> Selector.t -> (string * Value.t) list  Lwt.t
@@ -68,20 +68,23 @@ module SEngine = struct
 
 
     let get_matching_stores (self:state) (access_id : Access.Id.t) (selector: Selector.t) =
-      
       match AccessMap.find_opt access_id self.accs with 
       | Some access -> 
         let apath = Access.path access in 
-        if Path.is_prefix (Selector.path selector) apath then 
+        if Path.is_prefix apath (Selector.path selector) then
           StorageMap.filter
-               (fun _ (s : Storage.t) -> Path.is_prefix (Storage.path s) (Selector.path selector))
-               self.stores               
-        else StorageMap.empty
-      | None -> StorageMap.empty
-      
+            (fun _ (s : Storage.t) -> Path.is_prefix (Storage.path s) (Selector.path selector))
+            self.stores
+        else
+          let _ = Logs_lwt.debug (fun m -> m "[YE];   Access %s with path %s cannot access %s" (Access.Id.to_string access_id) (Path.to_string @@ Access.path access) (Selector.to_string selector)) in      
+          StorageMap.empty
+      | None ->
+        let _ = Logs_lwt.debug (fun m -> m "[YE];   Access %s not found" (Access.Id.to_string access_id)) in
+        StorageMap.empty
+
     let create_access engine ?alias path cache_size = 
 
-      let%lwt _ = Logs_lwt.debug (fun m -> m "Engine.create_access path: %s  alias: %s" (Path.to_string path) (Apero.Option.get_or_default alias "-")) in      
+      let%lwt _ = Logs_lwt.debug (fun m -> m "Engine.create_access path: %s  alias: %s" (Path.to_string path) (Apero.Option.get_or_default alias "-")) in
       let access = Access.make ?alias path cache_size in       
       MVar.guarded engine 
       @@ (fun self ->  MVar.return access {self with accs = AccessMap.add (Access.id access) access self.accs })
@@ -176,19 +179,24 @@ module SEngine = struct
       BE.get selector
 
     let get engine access_id selector =
-      let%lwt _ = Logs_lwt.debug (fun m -> m "[YE]: get") in      
+      let%lwt _ = Logs_lwt.debug (fun m -> m "[YE]: get %s" (Selector.to_string selector)) in
       MVar.read engine 
       >>= fun self ->  
-        let (m_be, o_be) = 
-          get_matching_stores self access_id selector 
-          |> StorageMap.partition (fun _ s -> Storage.be_kind s = Yaks_be.Memory) in
-          (* Try to always resolve Get out of memory back-end if available *)
-          match StorageMap.find_first_opt (fun _ -> true) m_be with 
-          | Some (_, s) -> be_get (Storage.be s) selector 
-          | None ->
-            (match StorageMap.find_first_opt (fun _ -> true) o_be with 
-            | Some (_, s) -> be_get (Storage.be s) selector
-            | None -> Lwt.return [])
+      let (m_be, o_be) = 
+        get_matching_stores self access_id selector 
+        |> (fun sm -> print_endline @@ "   -> found stores: "^(StorageMap.cardinal sm |> string_of_int); sm )
+        |> StorageMap.partition (fun _ s -> Storage.be_kind s = Yaks_be.Memory) in
+      let%lwt _ = Logs_lwt.debug (fun m -> m "[YE]:    matching stores found: memory:%d , other:%d" (StorageMap.cardinal m_be) (StorageMap.cardinal o_be)) in
+      (* Try to always resolve Get out of memory back-end if available *)
+      match StorageMap.find_first_opt (fun _ -> true) m_be with 
+      | Some (_, s) -> be_get (Storage.be s) selector 
+      | None ->
+        let%lwt _ = Logs_lwt.debug (fun m -> m "[YE]:    %s not found in memory" (Selector.to_string selector)) in
+        (match StorageMap.find_first_opt (fun _ -> true) o_be with 
+         | Some (_, s) -> be_get (Storage.be s) selector
+         | None -> 
+           let%lwt _ = Logs_lwt.debug (fun m -> m "[YE]:    %s not found in other storages" (Selector.to_string selector)) in
+           Lwt.return [])
 
 
     let be_put be selector = 
@@ -199,9 +207,9 @@ module SEngine = struct
       let%lwt _ = Logs_lwt.debug (fun m -> m "[YE]: put") in
       MVar.read engine 
       >>= fun self ->      
-        get_matching_stores self access_id selector        
-        |> StorageMap.iter (fun _ (s:Storage.t) -> let _ = be_put (Storage.be s) selector value in ()) 
-        ; Lwt.return_unit
+      get_matching_stores self access_id selector
+      |> StorageMap.iter (fun _ (s:Storage.t) -> let _ = be_put (Storage.be s) selector value in ())
+    ; Lwt.return_unit
 
 
     let be_put_delta be selector =
@@ -212,25 +220,25 @@ module SEngine = struct
       let%lwt _ = Logs_lwt.debug (fun m -> m "[YE]: put_delta") in
       MVar.read engine 
       >>= fun self ->
-        get_matching_stores self access_id selector
-        |> StorageMap.iter (fun _ s -> let _ = be_put_delta (Storage.be s) selector value in ()) 
-          ; Lwt.return_unit
+      get_matching_stores self access_id selector
+      |> StorageMap.iter (fun _ s -> let _ = be_put_delta (Storage.be s) selector value in ()) 
+    ; Lwt.return_unit
 
     let be_remove be = 
       let module BE = (val be: Backend) in BE.remove
 
     let remove engine access_id selector = 
       let%lwt self = MVar.read engine in      
-        get_matching_stores self access_id selector
-        |> StorageMap.iter (fun _ s -> Lwt.ignore_result @@ be_remove (Storage.be s) selector) 
-        ; Lwt.return_unit
+      get_matching_stores self access_id selector
+      |> StorageMap.iter (fun _ s -> Lwt.ignore_result @@ be_remove (Storage.be s) selector) 
+    ; Lwt.return_unit
 
     let add_backend_factory engine name factory =
       Logs_lwt.debug (fun m -> m "add_backend_factory : %s" name) >>
       MVar.guarded engine 
       @@ fun self ->
       MVar.return () { self with befs = BackendFactoryMap.add name factory self.befs }
-    
+
   end
 end
 
