@@ -22,15 +22,20 @@ type header = {
   mid : message_id;
   flags : char;
   corr_id : Vle.t;  
+  properties : Yaks_core.Property.t list;
 }
 
-let make_header mid (mflags: message_flags list) corr_id = 
-  let flags = char_of_int @@ List.fold_left (fun a f -> a lor (message_flags_to_int f)) 0 mflags in 
-  {mid; flags; corr_id}
+let make_header mid (mflags: message_flags list) corr_id properties = 
+  let base_flags = List.fold_left (fun a f -> a lor (message_flags_to_int f)) 0 mflags in 
+  let flags = char_of_int @@ match properties with 
+    | [] ->  base_flags
+    | _ -> (message_flags_to_int PROPERTY) lor base_flags
+  in 
+  {mid; flags; corr_id; properties}
 
-let has_property_flag h = (int_of_char h.flags) land 0x01 <> 0
-let has_storage_flag h = (int_of_char h.flags) land 0x02 <> 0
-let has_access_flag h = (int_of_char h.flags) land 0x04 <> 0
+let has_property_flag flags = (int_of_char flags) land 0x01 <> 0
+let has_storage_flag flags = (int_of_char flags) land 0x02 <> 0
+let has_access_flag flags = (int_of_char flags) land 0x04 <> 0
   
 type payload = 
   | Empty
@@ -45,12 +50,11 @@ type payload =
   
 
 type message = {
-  header: header;
-  properties : Yaks_core.Property.t list;
+  header: header;  
   body : payload (* This could be a variant*)
 }
 
-let make_message header properties body = {header; properties; body} 
+let make_message header body = {header; body} 
 
 let get_empty_payload msg = 
   match msg.body with 

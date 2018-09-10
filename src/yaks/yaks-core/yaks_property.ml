@@ -66,6 +66,21 @@ end [@@deriving show]
 let get_property prop ps = 
   List.find_opt (fun p -> Property.key p = prop) ps 
 
+let decode_property_value decoder prop ps = 
+  let open Apero.Option.Infix in 
+  get_property prop ps 
+  >>= fun (_, v) -> 
+    try 
+      Some (decoder v)
+    with 
+    | _ -> None
+
+let encode_property_value encoder v = 
+  try 
+    Some (encoder v)
+  with 
+  | _ -> None
+  
 let has_property prop ps = match get_property prop ps with | Some _ -> true | None -> false 
  
  
