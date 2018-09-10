@@ -21,6 +21,7 @@ module SEngine : sig
 
     val create_subscriber : t -> Path.t -> Selector.t -> bool -> SubscriberId.t Lwt.t  
 
+    (* TODO: This should return Path.t*Value.t list Lwt.t  *)
     val get : t -> Access.Id.t -> Selector.t -> (string * Value.t) list  Lwt.t
 
     val put : t -> Access.Id.t -> Selector.t -> Value.t -> unit Lwt.t

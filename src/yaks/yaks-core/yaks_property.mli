@@ -35,6 +35,7 @@ module Property : sig
     module Key : sig
       val key : string
       val id : string
+      val alias : string
       val config : string 
       val set : string
     end
@@ -60,6 +61,7 @@ module Property : sig
 end [@@deriving show]
 
 val get_property : string -> Property.t list -> Property.t option
+val get_property_value : string -> Property.t list -> string option
 val has_property : string -> Property.t list -> bool
 
 val decode_property_value : (string -> 'a) -> string -> Property.t list -> 'a option

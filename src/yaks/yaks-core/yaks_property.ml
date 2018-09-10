@@ -35,6 +35,7 @@ module Property = struct
     module Key = struct 
       let key = "is.yaks.storage"
       let id = "is.yaks.storage.id"    
+      let alias = "is.yaks.storage.alias"    
       let config = "is.yaks.storage.config" 
       let set = "is.yaks.storage.set"
     end
@@ -63,8 +64,12 @@ end [@@deriving show]
   
   Property.Backend.Value.memory
  *)
-let get_property prop ps = 
-  List.find_opt (fun p -> Property.key p = prop) ps 
+let get_property key ps = 
+  List.find_opt (fun p -> Property.key p = key) ps 
+
+let get_property_value key ps = 
+  let open Apero.Option.Infix in 
+  get_property key ps >|= fun (_,v) -> v
 
 let decode_property_value decoder prop ps = 
   let open Apero.Option.Infix in 

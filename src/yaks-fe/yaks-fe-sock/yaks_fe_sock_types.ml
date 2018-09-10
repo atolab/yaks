@@ -36,17 +36,20 @@ let make_header mid (mflags: message_flags list) corr_id properties =
 let has_property_flag flags = (int_of_char flags) land 0x01 <> 0
 let has_storage_flag flags = (int_of_char flags) land 0x02 <> 0
 let has_access_flag flags = (int_of_char flags) land 0x04 <> 0
+let get_encoding flags = 
+  match int_to_value_encoding @@ (int_of_char flags) land 0x18 with 
+  | Some e -> e 
+  | None -> ENCODING_INVALID
   
 type payload = 
-  | Empty
-  | Path of string
-  | Selector of string
-  | KeyValue of string * IOBuf.t
-  | KeyDeltaValue of string * IOBuf.t
-  | KeyValueList of (string * IOBuf.t) list
-  | Subscription of string
-  | Notification of string * ((string * IOBuf.t) list)
-  | ErrorInfo of Vle.t
+  | YEmpty
+  | YPath of Yaks_core.Path.t
+  | YSelector of Yaks_core.Selector.t
+  | YKeyDeltaValue of Yaks_core.Selector.t * Yaks_core.Value.t
+  | YKeyValueList of (Yaks_core.Selector.t * Yaks_core.Value.t) list
+  | YSubscription of string
+  | YNotification of string * ((Yaks_core.Path.t * Yaks_core.Value.t) list)
+  | YErrorInfo of Vle.t
   
 
 type message = {
@@ -58,36 +61,31 @@ let make_message header body = {header; body}
 
 let get_empty_payload msg = 
   match msg.body with 
-  | Empty -> Some ()
+  | YEmpty -> Some ()
   | _ -> None
 
 let get_path_payload msg = 
   match msg.body with 
-  | Path p -> Some p
+  | YPath p -> Some p 
   | _ -> None 
 
 let get_selector_payload msg = 
   match msg.body with 
-  | Selector s -> Some s
-  | _ -> None 
-
-let get_key_value_payload msg = 
-  match msg.body with  
-  | KeyValue (k,v) -> Some (k,v)
+  | YSelector s -> Some s
   | _ -> None 
 
 let get_key_delta_value_payload msg = 
   match msg.body with  
-  | KeyDeltaValue (k,dv) -> Some (k,dv)
+  | YKeyDeltaValue (k,dv) -> Some (k,dv)
   | _ -> None 
 
 let get_key_value_list_payload msg = 
   match msg.body with  
-  | KeyValueList kvs -> Some kvs
+  | YKeyValueList kvs -> Some kvs
   | _ -> None 
 
 let get_subscription_payload msg = 
   match msg.body with  
-  | Subscription s -> Some s
+  | YSubscription s -> Some s
   | _ -> None 
 
