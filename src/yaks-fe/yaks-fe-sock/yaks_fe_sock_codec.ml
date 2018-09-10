@@ -2,24 +2,39 @@ open Apero
 open Apero.Result.Infix
 open Yaks_fe_sock_codes
 open Yaks_fe_sock_types
+open Yaks_core
 
-let encode_property p buf =
-  let open Yaks_core in 
-  let (k,v) = (Property.key p, Property.value p) in 
+let encode_property k v buf =
   encode_string k buf
   >>= fun buf ->
   encode_string v buf
 
 let decode_property  buf = 
-  let open Yaks_core in 
   decode_string buf 
   >>= fun (k, buf) -> 
   decode_string buf 
   >>= fun (v, buf) -> Result.ok (Property.make k v, buf)
 
-let encode_properties = encode_seq encode_property
-let decode_properties buf = 
-  decode_seq decode_property buf   
+let decode_properties buf =
+  let rec get_remaining props length buf =
+    let open Result in
+    match length with
+    | 0 -> return (props, buf)
+    | _ ->
+      decode_property buf 
+      >>= (fun ((k,v), buf) -> get_remaining (Property.Map.add k v props) (length - 1) buf)
+  in
+  decode_vle buf
+  >>= (fun (length, buf) ->    
+      (get_remaining Property.Map.empty (Vle.to_int length) buf))
+
+let encode_properties props buf =
+  (encode_vle (Vle.of_int (Property.Map.cardinal props)) buf)
+  |> Property.Map.fold (fun k v res -> match res with
+      | Ok buf -> encode_property k v buf
+      | Error e -> Error e) props
+
+
 
 let encode_header h buf =  
   let id = char_of_int @@ message_id_to_int h.mid in   
@@ -28,6 +43,10 @@ let encode_header h buf =
   IOBuf.put_char h.flags buf 
   >>= fun buf ->
   encode_vle h.corr_id buf 
+  >>= fun buf -> 
+    if h.properties <> Property.Map.empty then 
+      encode_properties h.properties buf
+    else Result.ok buf
 
 
 let decode_header buf =   
@@ -38,7 +57,7 @@ let decode_header buf =
   >>= fun (corr_id, buf) -> 
   (if has_property_flag flags then decode_properties buf
    else 
-     let ps : Property.t list = [] in Result.ok (ps, buf) )
+     let ps = Property.Map.empty in Result.ok (ps, buf) )
   >>= fun (properties, buf) -> 
   match int_to_message_id (int_of_char id) with 
   | Some mid -> Result.ok ({mid; flags; corr_id; properties}, buf)

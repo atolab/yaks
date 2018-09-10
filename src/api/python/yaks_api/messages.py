@@ -427,7 +427,7 @@ class MessageOpen(Message):
 
 
 class MessageCreate(Message):
-    def __init__(self, type, path, id=None, cache_size=None, config=None,
+    def __init__(self, type, path, id=None, cache_size=1024, config=None,
                  complete=None):
         super(MessageCreate, self).__init__()
         self.message_code = CREATE

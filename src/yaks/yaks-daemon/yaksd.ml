@@ -28,7 +28,9 @@ let yaksd () =
 
   try%lwt 
     YEngine.add_backend_factory engine (Property.Backend.Value.memory) (module Yaks_be_mm.MainMemoryBEF : BackendFactory) >>= 
-    fun _ -> YEngine.create_storage engine (Apero.Option.get @@ Path.of_string "/") [Property.make Property.Backend.Key.key Property.Backend.Value.memory] >>=
+    fun _ -> 
+    let props = Property.Map.add Property.Backend.Key.key Property.Backend.Value.memory Property.Map.empty
+    in YEngine.create_storage engine (Apero.Option.get @@ Path.of_string "/") props  >>=
     fun _ ->
     let restfe_cfg = YRestFE.{ port = 8000 } in
     let restfe = YRestFE.create restfe_cfg  engine in 

@@ -17,7 +17,7 @@ module SEngine = struct
     val get_access : t -> Access.Id.t -> Access.t option Lwt.t
     val dispose_access : t -> Access.Id.t -> unit Lwt.t
 
-    val create_storage : t -> ?alias:string -> Path.t -> Property.t list -> Storage.t Lwt.t 
+    val create_storage : t -> ?alias:string -> Path.t -> properties -> Storage.t Lwt.t 
     val get_storage : t -> Storage.Id.t -> Storage.t option Lwt.t
     val dispose_storage : t -> Storage.Id.t -> unit Lwt.t
 
@@ -114,7 +114,7 @@ module SEngine = struct
 
     let create_storage engine ?alias path properties =
       match get_property Property.Backend.Key.key properties with
-      | Some (_,v) ->
+      | Some v ->
         create_storage_with_kind engine ?alias path v
       | None -> 
         let _ = Logs_lwt.debug (fun m -> m "SEngine:  Creating with default Memory Backend\n") in

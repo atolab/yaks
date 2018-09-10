@@ -15,7 +15,7 @@ module SEngine : sig
     val get_access : t -> Access.Id.t -> Access.t option Lwt.t
     val dispose_access : t -> Access.Id.t -> unit Lwt.t
 
-    val create_storage : t -> ?alias:string -> Path.t -> Property.t list -> Storage.t Lwt.t 
+    val create_storage : t -> ?alias:string -> Path.t -> properties -> Storage.t Lwt.t 
     val get_storage : t -> Storage.Id.t -> Storage.t option Lwt.t
     val dispose_storage : t -> Storage.Id.t -> unit Lwt.t
 

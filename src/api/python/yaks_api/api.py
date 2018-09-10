@@ -260,7 +260,7 @@ class YAKS(object):
         self.st.close()
         self.rt.close()
 
-    def create_access(self, path, cache_size=0, encoding=None):
+    def create_access(self, path, cache_size=1024, encoding=None):
         create_msg = MessageCreate(EntityType.ACCESS, path)
         var = MVar()
         self.send_queue.put((create_msg, var))

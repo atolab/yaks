@@ -5,24 +5,25 @@ import sys
 def main():
     print('creating api')
     y = api.YAKS(sys.argv[1])
-    print('Creating storage')
+    print('>> Create storage')
     input()
     storage = y.create_storage('//fos')
-    print('Creating access')
+    print('>> Create access')
     input()
     access = y.create_access('//fos')
 
-    print('dispose storage')
+    print('>> Put Tuple')
     input()
-    storage.dispose()
-
-    print('get')
+    access.put('//fos/blabla/one', 'hello!')
+    
+    print('>> Get Tuple')
     input()
     access.get('//fos/blabla')
 
-    print('put')
+    print('>> Dispose Access')
     input()
-    access.put('//fos/blabla/one', 'hello!')
+    access.dispose()
+    
 
     y.close()
     print('bye!')
