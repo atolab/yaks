@@ -59,28 +59,40 @@ module Property = struct
   end
 end [@@deriving show]
 
-(* 
-  
-  Property.Backend.Value.memory
- *)
-let get_property prop ps = 
-  List.find_opt (fun p -> Property.key p = prop) ps 
+type properties = Property.Value.t Property.Map.t
+
+
+let rec properties_of_list = function
+  | [] -> Property.Map.empty
+  | (k,v)::l -> Property.Map.add k v @@ properties_of_list l
+
+let list_of_properties p =
+  Property.Map.fold (fun k v l -> (k,v)::l) p []
+
+
+let get_property prop ps = Property.Map.find_opt prop ps
 
 let decode_property_value decoder prop ps = 
   let open Apero.Option.Infix in 
   get_property prop ps 
-  >>= fun (_, v) -> 
-    try 
-      Some (decoder v)
-    with 
-    | _ -> None
+  >>= fun v -> 
+  try 
+    Some (decoder v)
+  with 
+  | _ -> None
 
 let encode_property_value encoder v = 
   try 
     Some (encoder v)
   with 
   | _ -> None
-  
+
 let has_property prop ps = match get_property prop ps with | Some _ -> true | None -> false 
- 
- 
+
+let has_same_property k v ps = 
+  match get_property k ps with
+  | Some v' -> v = v'
+  | None -> false  
+
+
+let is_subset ps ps' = not @@ Property.Map.exists (fun k v -> not @@ has_same_property k v ps') ps

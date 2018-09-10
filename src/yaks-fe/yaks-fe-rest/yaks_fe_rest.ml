@@ -49,10 +49,8 @@ module Make (YEngine : Yaks_engine.SEngine.S) = struct
     |> String.concat "&"
 
 
-  let properties_of_query  =  
-    List.map (fun (k, ps) -> 
-        let k, v = k, String.concat  ","  ps in     
-        Property.make k v) 
+  let properties_of_query query =  
+    List.map (fun (k, ps) -> k, String.concat  ","  ps) query |> Yaks_property.properties_of_list
 
 
   let set_cookie key value =

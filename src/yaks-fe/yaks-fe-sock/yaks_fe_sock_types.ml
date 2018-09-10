@@ -1,5 +1,7 @@
 open Apero
+open Yaks_core
 open Yaks_fe_sock_codes
+
 (* The structure of a socket front end message is the following.
 
         7 6 5 4 3 2 1 0
@@ -15,28 +17,28 @@ open Yaks_fe_sock_codes
         ~     Body      ~ --> its structure depends on the message code
         +---------------+    
 
-For transports that do not preserve message boundaries, the framing is done by prepending
-the lenght encoded using VLE.  *)
+   For transports that do not preserve message boundaries, the framing is done by prepending
+   the lenght encoded using VLE.  *)
 
 type header = { 
   mid : message_id;
   flags : char;
   corr_id : Vle.t;  
-  properties : Yaks_core.Property.t list;
+  properties : Yaks_core.properties;
 }
 
 let make_header mid (mflags: message_flags list) corr_id properties = 
   let base_flags = List.fold_left (fun a f -> a lor (message_flags_to_int f)) 0 mflags in 
-  let flags = char_of_int @@ match properties with 
-    | [] ->  base_flags
-    | _ -> (message_flags_to_int PROPERTY) lor base_flags
+  let flags = char_of_int @@ match Property.Map.is_empty properties with 
+    | true ->  base_flags
+    | false -> (message_flags_to_int PROPERTY) lor base_flags
   in 
   {mid; flags; corr_id; properties}
 
 let has_property_flag flags = (int_of_char flags) land 0x01 <> 0
 let has_storage_flag flags = (int_of_char flags) land 0x02 <> 0
 let has_access_flag flags = (int_of_char flags) land 0x04 <> 0
-  
+
 type payload = 
   | Empty
   | Path of string
@@ -47,7 +49,7 @@ type payload =
   | Subscription of string
   | Notification of string * ((string * IOBuf.t) list)
   | ErrorInfo of Vle.t
-  
+
 
 type message = {
   header: header;  

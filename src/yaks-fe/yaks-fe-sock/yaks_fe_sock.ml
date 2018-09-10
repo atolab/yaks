@@ -1,14 +1,15 @@
 open Apero
 open Apero_net
 open Lwt.Infix
+open Yaks_core
 
 module Make (YEngine : Yaks_engine.SEngine.S) = struct 
   module SocketFE = TcpService.Make (MVar_lwt)
 
   module Config = Apero_net.TcpService.Config
-  
+
   type t = SocketFE.t * SocketFE.io_service
-  
+
   let reader sock  = 
     let lbuf = IOBuf.create 16 in 
     let open Yaks_fe_sock_codec in 
@@ -26,48 +27,47 @@ module Make (YEngine : Yaks_engine.SEngine.S) = struct
       let lbuf = IOBuf.create 16 in 
       let fbuf = (IOBuf.flip buf) in       
       (match encode_vle (Vle.of_int @@ IOBuf.limit fbuf) lbuf with 
-      | Ok lbuf -> 
-        Net.send_vec sock [IOBuf.flip lbuf; fbuf]
-      | Error e -> Lwt.fail @@ Exception e )     
+       | Ok lbuf -> 
+         Net.send_vec sock [IOBuf.flip lbuf; fbuf]
+       | Error e -> Lwt.fail @@ Exception e )     
     | Error e -> Lwt.fail @@ Exception e 
 
   let reply_with_ok msg ps = 
     let open Yaks_fe_sock_types in 
     let header = make_header OK [] msg.header.corr_id ps in 
-     make_message header Empty 
-  
+    make_message header Empty 
+
   let reply_with_error msg code = 
     let open Yaks_fe_sock_codes in 
     let open Yaks_fe_sock_types in 
-    let header = make_header ERROR [] msg.header.corr_id [] in 
-     make_message header  @@ ErrorInfo (Vle.of_int @@ error_code_to_int code)
+    let header = make_header ERROR [] msg.header.corr_id Property.Map.empty in 
+    make_message header  @@ ErrorInfo (Vle.of_int @@ error_code_to_int code)
 
-  let process_open (* engine *) _ msg = Lwt.return @@ reply_with_ok msg []
-  
+  let process_open (* engine *) _ msg = Lwt.return @@ reply_with_ok msg Property.Map.empty
+
   let process_create_access engine msg spath = 
-    let open Yaks_core in     
     let open Yaks_fe_sock_types in 
     let open Yaks_fe_sock_codes in    
     let open Option.Infix in 
     let header = msg.header in 
     let path_opt = Path.of_string spath in 
     let cache_size_opt = decode_property_value Int64.of_string Property.Access.Key.cache_size header.properties in 
-    let alias_opt = get_property Property.Access.Key.alias header.properties >|= fun (_,v) -> v in 
+    let alias_opt = get_property Property.Access.Key.alias header.properties in 
 
     let accest_opt = path_opt >>= fun path -> 
       cache_size_opt >>= fun cache_size ->
-        Some (YEngine.create_access engine ?alias:alias_opt path cache_size) in 
-    
+      Some (YEngine.create_access engine ?alias:alias_opt path cache_size) in 
+
     match accest_opt with 
     | Some access -> 
       Lwt.bind access 
-        @@ fun a -> 
-          let access_id = Access.Id.to_string (Access.id a) in
-          let p = Property.make Property.Access.Key.id access_id in                     
-          Lwt.return @@ reply_with_ok msg [p]
+      @@ fun a -> 
+      let access_id = Access.Id.to_string (Access.id a) in
+      let props = Property.Map.add Property.Access.Key.id access_id Property.Map.empty in
+      Lwt.return @@ reply_with_ok msg props
     | None -> Lwt.return @@ reply_with_error msg BAD_REQUEST 
-    
-(*         
+
+  (*         
 
     match Path.of_string path with 
     | Some path -> 
@@ -84,7 +84,7 @@ module Make (YEngine : Yaks_engine.SEngine.S) = struct
   let process_create_storage _ (* engine *) msg  _ (* path *) = 
     let open Yaks_fe_sock_codes in     
     Lwt.return @@ reply_with_error msg BAD_REQUEST
-  
+
   let process_create engine msg = 
     let open Yaks_fe_sock_types in 
     match get_path_payload msg with 
@@ -97,13 +97,13 @@ module Make (YEngine : Yaks_engine.SEngine.S) = struct
         Lwt.return @@ reply_with_error msg BAD_REQUEST 
     | None -> Lwt.return @@  reply_with_error msg BAD_REQUEST
 
-    (* let _ = engine in reply_with_ok msg *)
-  let process_delete engine msg = let _ = engine in Lwt.return @@ reply_with_ok msg []
-  let process_put engine msg = let _ = engine in Lwt.return @@ reply_with_ok msg []
-  let process_get engine msg = let _ = engine in Lwt.return @@  reply_with_ok msg []
-  let process_sub engine msg = let _ = engine in Lwt.return @@ reply_with_ok msg []
-  let process_unsub engine msg = let _ = engine in Lwt.return @@ reply_with_ok msg []
-  let process_eval engine msg = let _ = engine in Lwt.return @@ reply_with_ok msg []
+  (* let _ = engine in reply_with_ok msg *)
+  let process_delete engine msg = let _ = engine in Lwt.return @@ reply_with_ok msg Property.Map.empty
+  let process_put engine msg = let _ = engine in Lwt.return @@ reply_with_ok msg Property.Map.empty
+  let process_get engine msg = let _ = engine in Lwt.return @@  reply_with_ok msg Property.Map.empty
+  let process_sub engine msg = let _ = engine in Lwt.return @@ reply_with_ok msg Property.Map.empty
+  let process_unsub engine msg = let _ = engine in Lwt.return @@ reply_with_ok msg Property.Map.empty
+  let process_eval engine msg = let _ = engine in Lwt.return @@ reply_with_ok msg Property.Map.empty
 
   let dispatch_message engine msg = 
     let open Yaks_fe_sock_types in 
@@ -118,7 +118,7 @@ module Make (YEngine : Yaks_engine.SEngine.S) = struct
     | EVAL -> process_eval engine msg    
     | _ -> Lwt.return @@ reply_with_error msg BAD_REQUEST
 
-    
+
 
   let fe_service config  dispatcher sock = 
     let buf = IOBuf.create (Config.buf_size config) in 

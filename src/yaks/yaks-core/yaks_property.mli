@@ -1,5 +1,5 @@
 module Property : sig 
-  include (module type of Apero.KeyValueF.Make (String) (String))  
+  include (module type of Apero.KeyValueF.Make (String) (String))
   module Auth : sig 
     module Key : sig
       val key : string
@@ -59,17 +59,19 @@ module Property : sig
   end
 end [@@deriving show]
 
-val get_property : string -> Property.t list -> Property.t option
-val has_property : string -> Property.t list -> bool
+type properties = Property.Value.t Property.Map.t
 
-val decode_property_value : (string -> 'a) -> string -> Property.t list -> 'a option
+val properties_of_list : (string * string) list -> properties
+val list_of_properties : properties -> (string * string) list
+
+val get_property : string -> properties -> string option
+val has_property : string -> properties -> bool
+val has_same_property : string -> string -> properties -> bool
+(** [has_same_property k v ps] tests if [ps] contains a property with [k] as key and [v] as value *)
+val is_subset : properties -> properties -> bool
+(** [is_subset p p'] tests if all properties of [p] are present in [p'] with the same values *)
+
+val decode_property_value : (string -> 'a) -> string -> properties -> 'a option
 
 val encode_property_value : ('a -> string) -> 'a -> string option
-  
-(*
-  let yaks_backend_dbms = "dbms" (* any DBMS *)
-  let yaks_backend_dbms = "postgresql"
-  let yaks_backend_dbms = "mariadb"
-  let yaks_backend_dbms = "sqlite"
-*)
 
