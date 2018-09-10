@@ -62,7 +62,9 @@ end [@@deriving show]
 val get_property : string -> Property.t list -> Property.t option
 val has_property : string -> Property.t list -> bool
 
-    
+val decode_property_value : (string -> 'a) -> string -> Property.t list -> 'a option
+
+val encode_property_value : ('a -> string) -> 'a -> string option
   
 (*
   let yaks_backend_dbms = "dbms" (* any DBMS *)
