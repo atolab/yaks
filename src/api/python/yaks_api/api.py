@@ -13,9 +13,10 @@ logger = APILogger(file_name='api.log', debug_flag=True)
 
 
 class SendingThread(threading.Thread):
-    def __init__(self, sock, lock, send_q, waiting_msgs):
+    def __init__(self, sock, lock, send_q, waiting_msgs, subscriptions):
         super(SendingThread, self).__init__()
         self.lock = lock
+        self.subscriptions = subscriptions
         self.send_q = send_q
         self.sock = sock
         self.waiting_msgs = waiting_msgs
@@ -48,10 +49,11 @@ class SendingThread(threading.Thread):
 
 
 class ReceivingThread(threading.Thread):
-    def __init__(self, sock, lock, waiting_msgs):
+    def __init__(self, sock, lock, waiting_msgs, subscriptions):
         super(ReceivingThread, self).__init__()
         self.lock = lock
         self.sock = sock
+        self.subscriptions = subscriptions
         self.waiting_msgs = waiting_msgs
         self._is_running = False
         self.daemon = True
@@ -97,6 +99,12 @@ class ReceivingThread(threading.Thread):
                                 'Read from socket {} bytes'.format(length))
                     logger.debug('ReceivingThread', 'Message Received {} \n{}'.
                                  format(msg_r.pprint(), msg_r.dump()))
+                    if msg_r.message_code == NOTIFY:
+                        sid, kvs = msg_r.get_notification()
+                        if sid in self.subscriptions:
+                            cbk = self.subscriptions.get(sid)
+                            threading.Thread(target=cbk, args=(kvs,)).start()
+
                     if self.waiting_msgs.get(msg_r.corr_id) is None:
                         print('This message was not expected!')
                     else:
@@ -110,7 +118,8 @@ class ReceivingThread(threading.Thread):
 
 
 class Access(object):
-    def __init__(self, queue, id, path, cache_size=0, encoding=None):
+    def __init__(self, queue, id, path, cache_size=0, encoding=None, subs={}):
+        self.__subscriptions = subs
         self.__send_queue = queue
         self.id = id
         self.path = path
@@ -145,13 +154,33 @@ class Access(object):
         return False
 
     def subscribe(self, key, callback):
-        pass
+        msg_sub = MessageSub(self.id, key)
+        var = MVar()
+        self.__send_queue.put((msg_sub, var))
+        r = var.get()
+        if YAKS.check_msg(r, msg_sub.corr_id, expected=OK):
+            subid = msg_sub.get_property('is.yaks.subscription.id')
+            self.__subscriptions.update({subid: callback})
+            return subid
+        return None
 
     def get_subscriptions(self):
-        pass
+        return self.__subscriptions
 
     def unsubscribe(self, subscription_id):
-        pass
+        msg_unsub = MessageUnsub(self.id, subscription_id)
+        var = MVar()
+        self.__send_queue.put((msg_unsub, var))
+        r = var.get()
+        if YAKS.check_msg(r, msg_unsub.corr_id, expected=OK):
+            subid = msg_unsub.get_property('is.yaks.subscription.id')
+            if subid != subscription_id:
+                raise RuntimeError('Subscription ID does not match'
+                                   ' (local) {} != (net) {}'.
+                                   format(subscription_id, subid))
+            self.__subscriptions.pop(subscription_id)
+            return True
+        return False
 
     def get(self, key):
         msg_get = MessageGet(self.id, key)
@@ -163,7 +192,7 @@ class Access(object):
         return None
 
     def eval(self, key, computation):
-        pass
+        raise NotImplementedError('Not yet...')
 
     def dispose(self):
         var = MVar()
@@ -196,6 +225,7 @@ class Storage(object):
 
 class YAKS(object):
     def __init__(self, server_address, server_port=7887):
+        self.subscriptions = {}
         self.send_queue = queue.Queue()
         self.address = server_address
         self.port = server_port
@@ -209,9 +239,10 @@ class YAKS(object):
         self.sock.connect((self.address, self.port))
 
         self.st = SendingThread(self.sock, self.lock, self.send_queue,
-                                self.working_set)
+                                self.working_set, self.subscriptions)
         self.st.start()
-        self.rt = ReceivingThread(self.sock, self.lock, self.working_set)
+        self.rt = ReceivingThread(self.sock, self.lock, self.working_set,
+                                  self.subscriptions)
         self.rt.start()
 
         open_msg = MessageOpen()
