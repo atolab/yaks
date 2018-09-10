@@ -5,7 +5,7 @@ script: bash -ex .yaks-ci.sh
 env:
     global:
     - DEPOPTS="lwt dune logs fmt cmdliner cmdliner ppx_deriving uuidm yojson lwt_ppx lwt_log ppx_cstruct atdgen cohttp-lwt-unix cohttp cohttp-mirage" 
-    - PINS="yaks:. yaks-be-mm:src/yaks-be/yake-be-mm yaks-fe-rest:src/yaks-fe/yake-fe-rest yaks-core:src/yaks/yaks-core  cohttp-mirage:--dev cohttp-lwt-unix:--dev cohttp:--dev apero-core:https://github.com/atolab/apero.git apero-net:https://github.com/atolab/apero.git apero:https://github.com/atolab/apero.git"
+    - PINS="yaks:. yaks-be-mm:src/yaks-be yaks-fe-rest:src/yaks-fe yaks-core:src/yaks  cohttp-mirage:--dev cohttp-lwt-unix:--dev cohttp:--dev apero-core:https://github.com/atolab/apero.git apero-net:https://github.com/atolab/apero.git apero:https://github.com/atolab/apero.git"
     - PACKAGE=yaks 
     matrix:
     - OCAML_VERSION=4.07 
