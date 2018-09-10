@@ -235,7 +235,7 @@ class YAKS(object):
         self.send_queue.put((create_msg, var))
         msg = var.get()
         if self.check_msg(msg, create_msg.corr_id):
-            id = msg.get_property('yaks.id')
+            id = msg.get_property('is.yaks.access.id')
             acc = Access(self.send_queue, id, path, cache_size, encoding)
             self.accesses.update({id: acc})
             return acc
@@ -258,7 +258,7 @@ class YAKS(object):
         self.send_queue.put((create_msg, var))
         msg = var.get()
         if self.check_msg(msg, create_msg.corr_id):
-            id = msg.get_property('yaks.id')
+            id = msg.get_property('is.yaks.storage.id')
             sto = Storage(self.send_queue, id, path, properties)
             self.storages.update({id: sto})
             return sto

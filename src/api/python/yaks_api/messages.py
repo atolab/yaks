@@ -433,14 +433,16 @@ class MessageCreate(Message):
         self.message_code = CREATE
         self.generate_corr_id()
         self.add_path(path)
-        if id is not None:
-            self.add_property('yaks.id', id)
         if type is EntityType.ACCESS:
             self.set_a()
+            if id is not None:
+                self.add_property('is.yaks.access.id', id)
             if cache_size is not None:
                 self.add_property('yaks.cache.size', str(cache_size))
         elif type is EntityType.STORAGE:
             self.set_s()
+            if id is not None:
+                self.add_property('is.yaks.storage.id', id)
             if config is not None:
                 self.add_property('yaks.storage.config', json.dumps(config))
             if complete is not None and complete is True:
@@ -452,12 +454,14 @@ class MessageDelete(Message):
         super(MessageDelete, self).__init__()
         self.message_code = DELETE
         self.generate_corr_id()
-        self.add_property('yaks.id', id)
         if type is EntityType.ACCESS:
             self.set_a()
+            self.add_property('is.yaks.access.id', id)
         elif type is EntityType.STORAGE:
             self.set_s()
+            self.add_property('is.yaks.storage.id', id)
         elif path is not None:
+            self.add_property('is.yaks.access.id', id)
             self.add_path(path)
 
 
@@ -466,7 +470,7 @@ class MessagePut(Message):
         super(MessagePut, self).__init__()
         self.message_code = PUT
         self.generate_corr_id()
-        self.add_property('yaks.id', id)
+        self.add_property('is.yaks.access.id', id)
         self.add_key_value(key, value)
 
 
@@ -475,7 +479,7 @@ class MessagePatch(Message):
         super(MessagePatch, self).__init__()
         self.message_code = PATCH
         self.generate_corr_id()
-        self.add_property('yaks.id', id)
+        self.add_property('is.yaks.access.id', id)
         self.add_key_value(key, value)
 
 
@@ -484,7 +488,7 @@ class MessageGet(Message):
         super(MessageGet, self).__init__()
         self.message_code = GET
         self.generate_corr_id()
-        self.add_property('yaks.id', id)
+        self.add_property('is.yaks.access.id', id)
         self.add_selector(key)
 
 
@@ -493,7 +497,7 @@ class MessageSub(Message):
         super(MessageSub, self).__init__()
         self.message_code = SUB
         self.generate_corr_id()
-        self.add_property('yaks.id', id)
+        self.add_property('is.yaks.access.id', id)
         self.add_subscription(key)
 
 
@@ -502,16 +506,16 @@ class MessageUnsub(Message):
         super(MessageUnsub, self).__init__()
         self.message_code = UNSUB
         self.generate_corr_id()
-        self.add_property('yaks.id', id)
+        self.add_property('is.yaks.access.id', id)
         self.add_subscription(subscription_id)
 
 
 class MessageEval(Message):
-    def __init__(self, id, key):
+    def __init__(self, id, computation):
         super(MessageEval, self).__init__()
         self.message_code = EVAL
         self.generate_corr_id()
-        self.add_property('yaks.id', id)
+        self.add_property('is.yaks.access.id', id)
 
 
 class MessageOk(Message):

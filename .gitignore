@@ -37,5 +37,5 @@ target
 # macOS DS_Store files
 .DS_Store
 
-# Python ignores
-__pycache__
+# pyhton cache file
+__pycache__/
