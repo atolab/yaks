@@ -161,7 +161,9 @@ let encode_body body buf =
   | YKeyDeltaValue (s, v) -> 
     encode_selector s buf >>= encode_value v   
   | YKeyValueList  kvs -> 
-    Result.fold_m (fun (s, v) buf -> encode_selector s buf >>= encode_value v) kvs buf 
+    encode_vle (Vle.of_int @@ List.length kvs) buf >>=     
+    Result.fold_m (fun (s, v) buf -> encode_selector s buf >>= encode_value v) kvs 
+    
   | YNotification (sid, kvs) -> 
     encode_string sid buf 
     >>= Result.fold_m (fun (k, v) buf -> encode_path k buf >>= encode_value v) kvs 

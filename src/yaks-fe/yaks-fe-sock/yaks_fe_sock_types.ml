@@ -4,18 +4,18 @@ open Yaks_fe_sock_codes
 
 (* The structure of a socket front end message is the following.
 
-        7 6 5 4 3 2 1 0
-        +-+-+-+-+-+-+-+-+  ---+
-        |  MESSAGE CODE |     |
-        +-+-+-+-+-+-+-+-+     |
-        |X|X|X|X|X|A|S|P|     +--> Header
-        +-+-+-+-+-+-+-+-+     | 
-        ~   Coor. ID    ~     |
-        +---------------+-----+
-        ~   Properties  ~ --> Present if P = 1
-        +---------------+
-        ~     Body      ~ --> its structure depends on the message code
-        +---------------+    
+      7 6 5 4 3 2 1 0
+    +-+-+-+-+-+-+-+-+  ---+
+    |  MESSAGE CODE |     |
+    +-+-+-+-+-+-+-+-+     |
+    |X|X|E|N|C|A|S|P|     +--> Header
+    +-+-+-+-+-+-+-+-+     | 
+    ~   Coor. ID    ~     |
+    +---------------+     |
+    ~   Properties  ~     +-> Present if P = 1
+    +---------------+-----+
+    ~     Body      ~ --> its structure depends on the message code
+    +---------------+   
 
    For transports that do not preserve message boundaries, the framing is done by prepending
    the lenght encoded using VLE.  *)

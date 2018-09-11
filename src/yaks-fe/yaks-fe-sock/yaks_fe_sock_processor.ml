@@ -134,8 +134,12 @@ module Processor = struct
         Option.bind id 
         @@ fun aid -> Some (kvs, aid) 
       in match params with 
-      | Some (kvs, aid) -> 
-        Lwt.join @@ List.map (fun (k,v) -> YEngine.put engine aid k v)  kvs       
+      | Some (kvs, aid) ->         
+        Lwt.join 
+          @@ List.map (fun (k,v) -> 
+                let%lwt _ = Logs_lwt.debug (fun m -> m "FES: PUT %s" (Yaks_core.Selector.to_string k)) in 
+                YEngine.put engine aid k v)  
+              kvs       
         >>= fun () -> Lwt.return @@ reply_with_ok msg Property.Map.empty
       | None -> Lwt.return @@ reply_with_error msg BAD_REQUEST
 
