@@ -14,15 +14,35 @@ def main():
 
     print('>> Put Tuple')
     input()
-    access.put('//fos/blabla', 'hello!')
-    
+    access.put('//fos/example/one', 'hello!')
+
+    print('>> Put Tuple')
+    input()
+    access.put('//fos/example/two', 'hello2!')
+
+    print('>> Put Tuple')
+    input()
+    access.put('//fos/example/three', 'hello3!')
+
     print('>> Get Tuple')
     input()
-    access.get('//fos/blabla')
+    print('GET: {}'.format(access.get('//fos/example/one')))
+
+    print('>> Get Tuple')
+    input()
+    print('GET: {}'.format(access.get('//fos/example')))
+
+    print('>> Get Tuple')
+    input()
+    print('GET: {}'.format(access.get('//fos/example/*')))
 
     print('>> Dispose Access')
     input()
     access.dispose()
+
+    print('>> Dispose Storage')
+    input()
+    storage.dispose()
 
     y.close()
     print('bye!')
