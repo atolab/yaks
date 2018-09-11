@@ -54,11 +54,11 @@ VALUE ENCODING:
 +----------+---+---+---+
 |   TYPE   | E | N | C |
 +----------+---+---+---+
-|   RAW    | 0 | 0 | 0 |
+|   RAW    | 0 | 0 | 1 |
 +----------+---+---+---+
-|  JSON    | 0 | 0 | 1 |
+|  JSON    | 0 | 1 | 0 |
 +----------+---+---+---+
-| Protobuf | 0 | 1 | 0 |
+| Protobuf | 0 | 1 | 1 |
 +----------+---+---+---+
 
 
@@ -87,9 +87,9 @@ VALUES = 0xD2
 ERROR = 0xE0
 
 # Encoding
-RAW = 0x0
-JSON = 0x1
-PROTOBUF = 0x2
+RAW = 0x1
+JSON = 0x2
+PROTOBUF = 0x3
 
 
 class EntityType(Enum):
@@ -420,6 +420,9 @@ class Message(object):
 
     def dump(self):
         return hexdump.hexdump(self.raw_msg, result='return')
+
+    def dump_net(self):
+        return hexdump.hexdump(self.pack_for_transport(), result='return')
 
     def pprint(self):
         pretty = '\n############ YAKS FE SOCKET MESSAGE ###################' \

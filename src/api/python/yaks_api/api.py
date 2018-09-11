@@ -45,7 +45,7 @@ class SendingThread(threading.Thread):
                     self.lock.release()
 
                 logger.debug('SendingThread', 'Message Sent on Wire\n{}'.
-                             format(msg_s.dump()))
+                             format(msg_s.dump_net()))
 
 
 class ReceivingThread(threading.Thread):
