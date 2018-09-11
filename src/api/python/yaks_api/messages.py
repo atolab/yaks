@@ -430,7 +430,7 @@ class Message(object):
                  + '\n# CORR.ID: {}'.format(self.corr_id) \
                  + '\n# LENGTH: {}'.format(self.length) \
                  + '\n# FLAGS: RAW: {} | ENC: {} A:{} S:{} P:{}'.\
-                format(self.flags,self.flag_enc,
+                format(self.flags, self.flag_enc,
                        self.flag_a, self.flag_s, self.flag_p)
 
         if self.flag_p:
@@ -502,7 +502,8 @@ class MessagePut(Message):
         self.set_encoding(encoding)
         self.generate_corr_id()
         self.add_property('is.yaks.access.id', id)
-        self.add_key_value(key, value)
+        self.add_values([{'key': key,
+                          'value': value}])
 
 
 class MessagePatch(Message):
@@ -512,7 +513,8 @@ class MessagePatch(Message):
         self.set_encoding(encoding)
         self.generate_corr_id()
         self.add_property('is.yaks.access.id', id)
-        self.add_key_value(key, value)
+        self.add_values([{'key': key,
+                          'value': value}])
 
 
 class MessageGet(Message):

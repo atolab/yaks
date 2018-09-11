@@ -113,21 +113,21 @@ class MessagesTests(unittest.TestCase):
 
     def test_put_value(self):
         msg1 = messages.MessagePut('321', '//a/path', 'avalue')
-        v = {'key': '//a/path', 'value': 'avalue'}
+        v = [{'key': '//a/path', 'value': 'avalue'}]
         self.assertEqual(msg1.message_code, 0xA0)
         self.assertEqual(msg1.flag_p, 1)
         self.assertEqual(msg1.flag_a, 0)
         self.assertEqual(msg1.flag_s, 0)
-        self.assertEqual(msg1.get_key_value(), v)
+        self.assertEqual(msg1.get_values(), v)
 
     def test_patch_value(self):
         msg1 = messages.MessagePatch('321', '//a/path', 'a_new_value')
-        v = {'key': '//a/path', 'value': 'a_new_value'}
+        v = [{'key': '//a/path', 'value': 'a_new_value'}]
         self.assertEqual(msg1.message_code, 0xA1)
         self.assertEqual(msg1.flag_p, 1)
         self.assertEqual(msg1.flag_a, 0)
         self.assertEqual(msg1.flag_s, 0)
-        self.assertEqual(msg1.get_key_value(), v)
+        self.assertEqual(msg1.get_values(), v)
 
     def test_get_value(self):
         msg1 = messages.MessageGet('321', '//a/path')
