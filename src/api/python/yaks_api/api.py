@@ -49,10 +49,11 @@ class SendingThread(threading.Thread):
 
 
 class ReceivingThread(threading.Thread):
-    def __init__(self, sock, lock, waiting_msgs, subscriptions):
+    def __init__(self, sock, lock, send_q, waiting_msgs, subscriptions):
         super(ReceivingThread, self).__init__()
         self.lock = lock
         self.sock = sock
+        self.send_q = send_q
         self.subscriptions = subscriptions
         self.waiting_msgs = waiting_msgs
         self._is_running = False
@@ -85,7 +86,7 @@ class ReceivingThread(threading.Thread):
                     i, _, _ = select.select([self.sock], [], [])
                 except OSError as e:
                     if e.errno == 9:
-                        logger.error('SendingThread', 'Bad FD')
+                        logger.error('ReceivingThread', 'Bad FD')
                     self._is_running = False
                     break
 
@@ -103,11 +104,19 @@ class ReceivingThread(threading.Thread):
                         sid, kvs = msg_r.get_notification()
                         if sid in self.subscriptions:
                             cbk = self.subscriptions.get(sid)
-                            threading.Thread(target=cbk, args=(kvs,)).start()
-
-                    if self.waiting_msgs.get(msg_r.corr_id) is None:
+                            threading.Thread(target=cbk, args=(kvs,),
+                                             daemon=True).start()
+                            ok = MessageOk(0, msg_r.corr_id)
+                            self.send_q.put((ok, MVar()))
+                    elif self.waiting_msgs.get(msg_r.corr_id) is None:
                         print('This message was not expected!')
                     else:
+                        if msg_r.message_code == ERROR:
+                            logger.info('ReceivingThread',
+                                        'Got Error on Message {} '
+                                        'Error Code: {}'
+                                        .format(msg_r.corr_id,
+                                                msg_r.get_error()))
                         _, var = self.waiting_msgs.get(msg_r.corr_id)
                         self.waiting_msgs.pop(msg_r.corr_id)
                         var.put(msg_r)
@@ -118,7 +127,7 @@ class ReceivingThread(threading.Thread):
 
 
 class Access(object):
-    def __init__(self, queue, id, path, cache_size=0, encoding=None, subs={}):
+    def __init__(self, queue, id, path, cache_size=0, encoding=RAW, subs={}):
         self.__subscriptions = subs
         self.__send_queue = queue
         self.id = id
@@ -127,7 +136,7 @@ class Access(object):
         self.encoding = encoding
 
     def put(self, key, value):
-        msg_put = MessagePut(self.id, key, value)
+        msg_put = MessagePut(self.id, key, value, encoding=self.encoding)
         var = MVar()
         self.__send_queue.put((msg_put, var))
         r = var.get()
@@ -136,7 +145,7 @@ class Access(object):
         return False
 
     def delta_put(self, key, value):
-        msg_delta = MessagePatch(self.id, key, value)
+        msg_delta = MessagePatch(self.id, key, value, encoding=self.encoding)
         var = MVar()
         self.__send_queue.put((msg_delta, var))
         r = var.get()
@@ -154,7 +163,7 @@ class Access(object):
         return False
 
     def subscribe(self, key, callback):
-        msg_sub = MessageSub(self.id, key)
+        msg_sub = MessageSub(self.id, key, encoding=self.encoding)
         var = MVar()
         self.__send_queue.put((msg_sub, var))
         r = var.get()
@@ -183,7 +192,7 @@ class Access(object):
         return False
 
     def get(self, key):
-        msg_get = MessageGet(self.id, key)
+        msg_get = MessageGet(self.id, key, encoding=self.encoding)
         var = MVar()
         self.__send_queue.put((msg_get, var))
         r = var.get()
@@ -240,9 +249,9 @@ class YAKS(object):
 
         self.st = SendingThread(self.sock, self.lock, self.send_queue,
                                 self.working_set, self.subscriptions)
+        self.rt = ReceivingThread(self.sock, self.lock, self.send_queue,
+                                  self.working_set, self.subscriptions)
         self.st.start()
-        self.rt = ReceivingThread(self.sock, self.lock, self.working_set,
-                                  self.subscriptions)
         self.rt.start()
 
         open_msg = MessageOpen()
@@ -260,7 +269,7 @@ class YAKS(object):
         self.st.close()
         self.rt.close()
 
-    def create_access(self, path, cache_size=1024, encoding=None):
+    def create_access(self, path, cache_size=1024, encoding=RAW):
         create_msg = MessageCreate(EntityType.ACCESS, path)
         var = MVar()
         self.send_queue.put((create_msg, var))

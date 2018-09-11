@@ -49,6 +49,18 @@ class MessagesTests(unittest.TestCase):
         v2 = msg2.get_values()
         self.assertEqual(v1, v2)
 
+    def test_set_encoding(self):
+        msg1 = messages.Message()
+        msg1.set_encoding(messages.PROTOBUF)
+        packed = msg1.pack()
+        msg2 = messages.Message(packed)
+        self.assertEqual(msg1.flag_enc, msg2.flag_enc)
+        self.assertEqual(msg1.flags, msg2.flags)
+
+    def test_set_encoding_exception(self):
+        msg1 = messages.Message()
+        self.assertRaises(ValueError, msg1.set_encoding, 12)
+
     def test_ok_message(self):
         msg1 = messages.MessageOk('1', '123')
         self.assertEqual(msg1.message_code, 0xD0)
@@ -108,7 +120,7 @@ class MessagesTests(unittest.TestCase):
         self.assertEqual(msg1.flag_s, 0)
         self.assertEqual(msg1.get_key_value(), v)
 
-    def test_pach_value(self):
+    def test_patch_value(self):
         msg1 = messages.MessagePatch('321', '//a/path', 'a_new_value')
         v = {'key': '//a/path', 'value': 'a_new_value'}
         self.assertEqual(msg1.message_code, 0xA1)
@@ -124,6 +136,17 @@ class MessagesTests(unittest.TestCase):
         self.assertEqual(msg1.flag_a, 0)
         self.assertEqual(msg1.flag_s, 0)
         self.assertEqual(msg1.get_selector(), '//a/path')
+
+    def test_value_message(self):
+        v1 = [
+            {'key': 'hello', 'value': 'world'},
+        ]
+        msg1 = messages.MessageValues('321', v1)
+        self.assertEqual(msg1.message_code, 0xD2)
+        self.assertEqual(msg1.flag_p, 1)
+        self.assertEqual(msg1.flag_a, 0)
+        self.assertEqual(msg1.flag_s, 0)
+        self.assertEqual(msg1.get_values(), v1)
 
     def test_subscribe_message(self):
         msg1 = messages.MessageSub('321', '//a/path')

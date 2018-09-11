@@ -16,7 +16,7 @@ class APILogger:
             log_format = '[%(asctime)s] - [%(levelname)s] > %(message)s'
             log_level = logging.DEBUG
 
-            self.logger = logging.getLogger(__name__ + '.yaks.python.api')
+            self.logger = logging.getLogger(__name__ + 'is.yaks.python.api')
 
             self.logger.setLevel(log_level)
             formatter = logging.Formatter(log_format)

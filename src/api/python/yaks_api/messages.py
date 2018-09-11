@@ -20,15 +20,15 @@ LITTLE ENDIAN
 
 
 7 6 5 4 3 2 1 0
-+-+-+-+-+-+-+-+-+ ---------------+
-|  MESSAGE CODE |    8bit        |
-+-+-+-+-+-+-+-+-+                |
-|X|X|X|X|X|A|S|P|    8bit        +--> Header
-+-+-+-+-+-+-+-+-+                |
-~   Coor. ID    ~  VLE max 64bit |
-+---------------+ ---------------+
-~   Properties  ~ --> Present if P = 1
-+---------------+
++-+-+-+-+-+-+-+-+ ----------------------+
+|  MESSAGE CODE |    8bit               |
++-+-+-+-+-+-+-+-+                       |
+|X|X|E|N|C|A|S|P|    8bit               +--> Header
++-+-+-+-+-+-+-+-+                       |
+~   Coor. ID    ~  VLE max 64bit        |
++---------------+                       |
+~   Properties  ~ --> Present if P = 1  |
++---------------+ ----------------------+
 ~     Body      ~ --> its structure depends on the message code
 +---------------+
 
@@ -38,17 +38,28 @@ WIRE MESSAGE:
  7 6 5 4 3 2 1 0
 +-+-+-+-+-+-+-+-+
 ~    Lenght     ~ VLE max 64bit
-+-+-+-+-+-+-+-+-+
-|  MESSAGE CODE | 8bit
-+-+-+-+-+-+-+-+-+
-|X|X|X|X|X|A|S|P| 8bit
-+-+-+-+-+-+-+-+-+
-~    Corr. id   ~ VLE max 64bit
-+---------------~
-~   Properties  ~ VL
-+---------------+
++-+-+-+-+-+-+-+-+ ----------------------+
+|  MESSAGE CODE |    8bit               |
++-+-+-+-+-+-+-+-+                       |
+|X|X|E|N|C|A|S|P|    8bit               +--> Header
++-+-+-+-+-+-+-+-+                       |
+~    Corr. id   ~  VLE max 64bit        |
++---------------+                       |
+~   Properties  ~ --> Present if P = 1  |
++---------------+ ----------------------+
 ~     Body      ~ VL
 +---------------+
+
+VALUE ENCODING:
++----------+---+---+---+
+|   TYPE   | E | N | C |
++----------+---+---+---+
+|   RAW    | 0 | 0 | 0 |
++----------+---+---+---+
+|  JSON    | 0 | 0 | 1 |
++----------+---+---+---+
+| Protobuf | 0 | 1 | 0 |
++----------+---+---+---+
 
 
 '''
@@ -59,6 +70,7 @@ import hexdump
 from enum import Enum
 from .encoder import VLEEncoder
 
+# Message Codes
 OPEN = 0x01
 CREATE = 0x02
 DELETE = 0x03
@@ -74,6 +86,11 @@ VALUE = 0xD1
 VALUES = 0xD2
 ERROR = 0xE0
 
+# Encoding
+RAW = 0x0
+JSON = 0x1
+PROTOBUF = 0x2
+
 
 class EntityType(Enum):
     ACCESS = 0
@@ -88,7 +105,9 @@ class Message(object):
         self.message_code = 0x0
         # 8bit
         self.flags = 0x0
-        # 8bit comprises A,S,P
+        # 8bit comprises ENC,A,S,P
+        self.flag_enc = 0x0
+        #3bit
         self.flag_a = 0x0
         # 1bit
         self.flag_s = 0x0
@@ -163,6 +182,7 @@ class Message(object):
         self.message_code = msg[0]
         self.flags = msg[1]
 
+        self.flag_enc = (self.flags & 0x38) >> 3
         self.flag_a = (self.flags & 0x04) >> 2
         self.flag_s = (self.flags & 0x02) >> 1
         self.flag_p = self.flags & 0x01
@@ -345,6 +365,12 @@ class Message(object):
         e, _ = self.__get_vle(self.data, 0)
         return e
 
+    def set_encoding(self, encoding):
+        if encoding > 7:
+            raise ValueError('Encoding not supported')
+        self.flag_enc = encoding
+        self.flags = (encoding << 3) | self.flags
+
     def set_p(self):
         self.flag_p = 1
         self.flags = self.flags | 0x01
@@ -400,8 +426,9 @@ class Message(object):
                  + '\n# CODE: {}'.format(self.message_code) \
                  + '\n# CORR.ID: {}'.format(self.corr_id) \
                  + '\n# LENGTH: {}'.format(self.length) \
-                 + '\n# FLAGS: RAW: {} | A:{} S:{} P:{}'.\
-                format(self.flags, self.flag_a, self.flag_s, self.flag_p)
+                 + '\n# FLAGS: RAW: {} | ENC: {} A:{} S:{} P:{}'.\
+                format(self.flags,self.flag_enc,
+                       self.flag_a, self.flag_s, self.flag_p)
 
         if self.flag_p:
             pretty = pretty + '\n# HAS PROPERTIES\n# NUMBER OF PROPERTIES:' \
@@ -436,17 +463,17 @@ class MessageCreate(Message):
         if type is EntityType.ACCESS:
             self.set_a()
             if id is not None:
-                self.add_property('is.yaks.access.id', id)
+                self.add_property('is.yaks.access.alias', id)
             if cache_size is not None:
-                self.add_property('yaks.cache.size', str(cache_size))
+                self.add_property('is.yaks.access.cachesize', str(cache_size))
         elif type is EntityType.STORAGE:
             self.set_s()
             if id is not None:
                 self.add_property('is.yaks.storage.id', id)
             if config is not None:
-                self.add_property('yaks.storage.config', json.dumps(config))
+                self.add_property('is.yaks.storage.config', json.dumps(config))
             if complete is not None and complete is True:
-                self.add_property('yaks.storage.complete', 'true')
+                self.add_property('is.yaks.storage.complete', 'true')
 
 
 class MessageDelete(Message):
@@ -466,36 +493,40 @@ class MessageDelete(Message):
 
 
 class MessagePut(Message):
-    def __init__(self, id, key, value):
+    def __init__(self, id, key, value, encoding=RAW):
         super(MessagePut, self).__init__()
         self.message_code = PUT
+        self.set_encoding(encoding)
         self.generate_corr_id()
         self.add_property('is.yaks.access.id', id)
         self.add_key_value(key, value)
 
 
 class MessagePatch(Message):
-    def __init__(self, id, key, value):
+    def __init__(self, id, key, value, encoding=RAW):
         super(MessagePatch, self).__init__()
         self.message_code = PATCH
+        self.set_encoding(encoding)
         self.generate_corr_id()
         self.add_property('is.yaks.access.id', id)
         self.add_key_value(key, value)
 
 
 class MessageGet(Message):
-    def __init__(self, id, key):
+    def __init__(self, id, key, encoding=RAW):
         super(MessageGet, self).__init__()
         self.message_code = GET
+        self.set_encoding(encoding)
         self.generate_corr_id()
         self.add_property('is.yaks.access.id', id)
         self.add_selector(key)
 
 
 class MessageSub(Message):
-    def __init__(self, id, key):
+    def __init__(self, id, key, encoding=RAW):
         super(MessageSub, self).__init__()
         self.message_code = SUB
+        self.set_encoding(encoding)
         self.generate_corr_id()
         self.add_property('is.yaks.access.id', id)
         self.add_subscription(key)
@@ -518,12 +549,21 @@ class MessageEval(Message):
         self.add_property('is.yaks.access.id', id)
 
 
+class MessageValues(Message):
+    def __init__(self, id, kvs):
+        super(MessageValues, self).__init__()
+        self.message_code = VALUES
+        self.generate_corr_id()
+        self.add_property('is.yaks.access.id', id)
+        self.add_values(kvs)
+
+
 class MessageOk(Message):
     def __init__(self, id, corr_id):
         super(MessageOk, self).__init__()
         self.message_code = OK
         self.corr_id = corr_id
-        self.add_property('yaks.id', id)
+        # self.add_property('yaks.id', id)
 
 
 class MessageError(Message):
@@ -531,5 +571,5 @@ class MessageError(Message):
         super(MessageError, self).__init__()
         self.message_code = ERROR
         self.corr_id = corr_id
-        self.add_property('yaks.id', id)
+        # self.add_property('yaks.id', id)
         self.add_error(errno)

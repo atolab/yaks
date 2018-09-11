@@ -14,7 +14,7 @@ def main():
 
     print('>> Put Tuple')
     input()
-    access.put('//fos/blabla/one', 'hello!')
+    access.put('//fos/blabla', 'hello!')
     
     print('>> Get Tuple')
     input()
@@ -23,7 +23,6 @@ def main():
     print('>> Dispose Access')
     input()
     access.dispose()
-    
 
     y.close()
     print('bye!')
