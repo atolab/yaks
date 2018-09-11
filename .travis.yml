@@ -8,5 +8,4 @@ env:
     - PINS="yaks:. yaks-be-mm:. yaks-fe-rest:. yaks-fe-sock:. yaks-core:.  cohttp-mirage:--dev cohttp-lwt-unix:--dev cohttp:--dev apero-core:https://github.com/atolab/apero.git apero-net:https://github.com/atolab/apero.git apero:https://github.com/atolab/apero.git"
     - PACKAGE=yaks 
     matrix:
-    - OCAML_VERSION=4.07 
-# yaks-fe-rest-mirage:.
+    - OCAML_VERSION=4.07
