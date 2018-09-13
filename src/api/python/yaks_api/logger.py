@@ -1,5 +1,6 @@
 import logging
 import sys
+import os
 
 
 class APILogger:
@@ -14,7 +15,12 @@ class APILogger:
             self.debug_flag = debug_flag
 
             log_format = '[%(asctime)s] - [%(levelname)s] > %(message)s'
-            log_level = logging.DEBUG
+
+            l = os.environ.get('YAKS_PYTHON_API_VERBOSITY')
+            if l:
+                log_level = int(l)
+            else:
+                log_level = logging.ERROR
 
             self.logger = logging.getLogger(__name__ + 'is.yaks.python.api')
 

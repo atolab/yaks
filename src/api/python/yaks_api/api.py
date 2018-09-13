@@ -2,14 +2,20 @@ import socket
 import threading
 import queue
 import select
+import os
 from .messages import *
 from .mvar import MVar
 from .encoder import VLEEncoder
 from .logger import APILogger
 
 BUFFSIZE = 1
-VERBOSE = True
-logger = APILogger(file_name='api.log', debug_flag=True)
+ver = os.environ.get('YAKS_PYTHON_API_LOGFILE')
+if ver is None:
+    VERBOSE = False
+else:
+    VERBOSE = bool(os.environ.get('YAKS_PYTHON_API_VERBOSE'))
+logger = APILogger(file_name=os.environ.get('YAKS_PYTHON_API_LOGFILE'),
+                   debug_flag=VERBOSE)
 
 
 class SendingThread(threading.Thread):

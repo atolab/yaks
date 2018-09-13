@@ -1,6 +1,4 @@
-import requests
-import json
-from random import randint
+from yaks_api import YAKS
 from time import time
 from colorama import Fore
 from colorama import Style
@@ -10,45 +8,35 @@ import scipy.io
 
 
 def main(times, ip, port):
-
-    SERVER = 'http://{}:{}/'.format(ip, port)
+    y = YAKS(ip, int(port))
 
     token = time()
-
-    uri = SERVER+'yaks/access?path=/afos/0/1/&cacheSize=100'
-    resp = requests.post(uri)
-    access_id = resp.cookies.get('is.yaks.access')
-    #print('Access created with id {}\n'.format(access_id))
+    access = y.create_access('//afos/0/1')
     i = 0
     tries = times
-    #input('Press enter to get {} times all the values and calculate response time'.format(tries))
 
     resp_times = []
     successed = 0
     failed = 0
     results = []
     while i < tries:
-        cookies = {'is.yaks.access': access_id}
-        uri = SERVER + 'afos/0/1/data-{}'.format(i)
-        #resp = requests.get(uri,cookies=cookies)
-        #data = resp.text
-        #print('Data is {}\n'.format(data))
-        try:
-            starttime = time()
-            resp = requests.get(uri, cookies=cookies)
+        key = '//afos/0/1/data-{}'.format(i)
+        starttime = time()
+        resp = access.get(key)
+        if len(resp)>0:
             timetaken = time() - starttime
             resp_times.append(timetaken)
             successed = successed+1
             results.append(0)
             print('[{}SUCCESS{}] Run {}'.format(
                 Fore.GREEN, Style.RESET_ALL, i))
-        except:
+        else:
             failed = failed + 1
             results.append(-1)
             print('[{}FAILED{}] Run {}'.format(Fore.RED, Style.RESET_ALL, i))
-        finally:
-            i = i + 1
+        i = i + 1
 
+    access.dispose()
     print('Results:')
     print('Successful: {} Failed: {}'.format(successed, failed))
     print('Success Rate: {}%'.format((float(successed)/float(tries))*100))
