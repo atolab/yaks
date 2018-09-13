@@ -277,9 +277,9 @@ let unsubscribe fe access_id sub_id =
 
   let status_ok = `Ok
 
-  let json_string_of_key_values (kvs : (string * Value.t) list) =
+  let json_string_of_key_values (kvs : (Path.t * Value.t) list) =
     kvs
-    |> List.map (fun (key, value) -> Printf.sprintf "\"%s\":%s" key  (Value.to_string value))
+    |> List.map (fun (key, value) -> Printf.sprintf "\"%s\":%s" (Path.to_string key)  (Value.to_string value))
     |> String.concat ","
     |> Printf.sprintf "{%s}"
 
@@ -350,7 +350,7 @@ let remove_key_value fe access_id selector =
         | (None, _)    -> missing_query (["path:string"])
         | (_, None)    -> missing_query (["cacheSize:int"])
         | (Some(path), Some(cache_size)) -> (
-            match Path.of_string path with 
+            match Path.of_string_opt path with 
             | Some p -> create_access fe p cache_size 
             | None -> invalid_path path)
       )
@@ -365,7 +365,7 @@ let remove_key_value fe access_id selector =
         | (_, None)    -> missing_query (["cacheSize:int"])
         | (Some(path), Some(cache_size)) ->
           let access_id = id in
-          match Path.of_string path with 
+          match Path.of_string_opt path with 
           |Some p -> create_access_with_id fe p cache_size access_id 
           | None -> invalid_path path
 
@@ -400,7 +400,7 @@ let remove_key_value fe access_id selector =
         match storage_path with
         | None -> missing_query (["path:string"])
         | Some(path) -> 
-          (match Path.of_string path with 
+          (match Path.of_string_opt path with 
            | Some p -> 
              let properties = query |> List.filter (fun (n, _) -> n != "path") |> properties_of_query in        
              create_storage fe p properties
@@ -420,7 +420,7 @@ let remove_key_value fe access_id selector =
         | Some(path) -> 
           let properties = query |> List.filter (fun (n, _) -> n != "path") |> properties_of_query in
           let storage_id = id in 
-          (match Path.of_string path with 
+          (match Path.of_string_opt path with 
            | Some p -> create_storage_with_id fe p properties storage_id 
            | None -> invalid_path path)
           (* unsupported_uri "ZZZ" *)

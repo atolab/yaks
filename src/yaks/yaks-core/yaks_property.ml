@@ -43,6 +43,7 @@ module Property = struct
   module Backend = struct
     module Key = struct 
       let key = "is.yaks.backend"    
+      let kind = "is.yaks.backend.kind"    
     end
     module Value = struct
       let memory = "memory"
@@ -63,14 +64,20 @@ end [@@deriving show]
 
 type properties = Property.Value.t Property.Map.t
 
+let empty_properties = Property.Map.empty
+
+let singleton_properties = Property.Map.singleton
 
 let rec properties_of_list = function
   | [] -> Property.Map.empty
   | (k,v)::l -> Property.Map.add k v @@ properties_of_list l
 
-let list_of_properties p =
-  Property.Map.fold (fun k v l -> (k,v)::l) p []
+let list_of_properties (p:properties) = Property.Map.bindings p
 
+let string_of_properties (p:properties) =
+  Property.Map.bindings p |> List.map (fun (k,v)-> k^"="^v) |> String.concat ","
+
+let add_property = Property.Map.add
 
 let get_property prop ps = Property.Map.find_opt prop ps
 

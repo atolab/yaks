@@ -11,6 +11,9 @@ module SEngine : sig
     type t 
 
     val make : unit -> t 
+
+    val add_backend : t -> (module Backend) -> unit Lwt.t
+
     val create_access : t  -> ?alias:string -> Path.t -> int64 ->  Access.t Lwt.t
     val get_access : t -> Access.Id.t -> Access.t option Lwt.t
     val dispose_access : t -> Access.Id.t -> unit Lwt.t
@@ -19,19 +22,12 @@ module SEngine : sig
     val get_storage : t -> Storage.Id.t -> Storage.t option Lwt.t
     val dispose_storage : t -> Storage.Id.t -> unit Lwt.t
 
-    val create_subscriber : t -> Path.t -> Selector.t -> bool -> SubscriberId.t Lwt.t  
-
-    (* TODO: This should return Path.t*Value.t list Lwt.t  *)
-    val get : t -> Access.Id.t -> Selector.t -> (string * Value.t) list  Lwt.t
-
+    val get : t -> Access.Id.t -> Selector.t -> (Path.t * Value.t) list  Lwt.t
     val put : t -> Access.Id.t -> Selector.t -> Value.t -> unit Lwt.t
     val put_delta : t -> Access.Id.t -> Selector.t -> Value.t -> unit Lwt.t
-
     val remove : t -> Access.Id.t -> Selector.t -> unit Lwt.t
 
-    val add_backend_factory : t -> string -> (module BackendFactory) -> unit Lwt.t
-
-
+    val create_subscriber : t -> Path.t -> Selector.t -> bool -> SubscriberId.t Lwt.t  
   end
 
   module Make (MVar: Apero.MVar) : S 

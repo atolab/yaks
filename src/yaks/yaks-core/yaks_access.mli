@@ -11,5 +11,9 @@ module Access : sig
   val path : t -> Path.t
   val cache_size : t -> int64
 
+  val to_string : t -> string
+
+  val is_covering : t -> Selector.t -> bool
+  (** [is_covering a sel] tests if [a] covers the Selector [sel] (i.e. if [sel] might match some path accessible by [a]) *)
 
 end  [@@deriving show]

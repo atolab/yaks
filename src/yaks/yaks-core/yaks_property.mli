@@ -43,6 +43,7 @@ module Property : sig
   module Backend : sig
     module Key : sig 
       val key : string 
+      val kind : string 
     end
     module Value : sig
       val memory : string
@@ -62,8 +63,13 @@ end [@@deriving show]
 
 type properties = Property.Value.t Property.Map.t
 
+val empty_properties : properties
+val singleton_properties : string -> string -> properties
 val properties_of_list : (string * string) list -> properties
 val list_of_properties : properties -> (string * string) list
+val string_of_properties : properties -> string
+
+val add_property : string -> string -> properties -> properties
 
 val get_property : string -> properties -> string option
 val has_property : string -> properties -> bool

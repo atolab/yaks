@@ -1,10 +1,18 @@
 open Yaks_core
 open Cmdliner
+open Apero.LwtM.InfixM
 
 let listen_address = Unix.inet_addr_any
-let port = 8448
 let backlog = 10
 let max_buf_len = 64 * 1024
+
+
+let without_storage = Arg.(value & flag & info ["w"; "without-storage"] ~docv:"true|false"
+                             ~doc:"If true, disable the creation at startup of a default memory storage with '//' as path")
+let http_port = Arg.(value & opt int 8000 & info ["h"; "http-port"] ~docv:"PORT"
+                       ~doc:"HTTP port used by the REST front-end")
+let sock_port = Arg.(value & opt int 7887 & info ["s"; "sock-port"] ~docv:"PORT"
+                       ~doc:"TCP port used by the Socket front-end")
 
 
 let setup_log style_renderer level =
@@ -13,38 +21,51 @@ let setup_log style_renderer level =
   Logs.set_reporter (Logs_fmt.reporter ());
   ()
 
-let setup_log =
-  let env = Arg.env_var "YAKSD_VERBOSITY" in
-  Term.(const setup_log $ Fmt_cli.style_renderer () $ Logs_cli.level ~env ())
 
+module YEngine = Yaks_core.SEngine.Make (Apero.MVar_lwt)
 
-let yaksd () = 
-  let open Apero.LwtM.InfixM in 
-  (* let module M = Yaks_sec_dum.DummySecurity.Make(Apero.MVar_lwt) in  *)
-  let module YEngine = Yaks_core.SEngine.Make (Apero.MVar_lwt) in
+let add_default_storage engine without_storage =
+  let props = Property.Map.singleton Property.Backend.Key.kind Property.Backend.Value.memory in
+  if not without_storage then 
+    (* Some (YEngine.create_storage engine (Path.of_string "//") props) *)
+    YEngine.create_storage engine (Path.of_string "//") props >|= Apero.Option.return
+  else Lwt.return_none
+
+let add_rest_fe engine http_port =
   let module YRestFE = Yaks_fe_rest.Make (YEngine) in 
+  let restfe_cfg = YRestFE.{ port = http_port } in
+  let restfe = YRestFE.create restfe_cfg  engine in 
+  YRestFE.start restfe
+
+let add_socket_fe engine sock_port =
   let module YSockFE = Yaks_fe_sock.Make (YEngine) in 
-  let engine = YEngine.make () in
+  let socket_addr = "tcp/0.0.0.0:"^(string_of_int sock_port) in
+  let socket_cfg = YSockFE.Config.create (Apero.Option.get @@ Apero_net.TcpLocator.of_string socket_addr) in 
+  let sockfe = YSockFE.create socket_cfg engine in 
+  YSockFE.start sockfe
 
-  try%lwt 
-    YEngine.add_backend_factory engine (Property.Backend.Value.memory) (module Yaks_be_mm.MainMemoryBEF : BackendFactory) >>= 
-    fun _ -> 
-    let props = Property.Map.add Property.Backend.Key.key Property.Backend.Value.memory Property.Map.empty
-    in YEngine.create_storage engine (Apero.Option.get @@ Path.of_string "/") props  >>=
-    fun _ ->
-    let restfe_cfg = YRestFE.{ port = 8000 } in
-    let restfe = YRestFE.create restfe_cfg  engine in 
-    let rfep = YRestFE.start restfe in 
-    let socket_cfg = YSockFE.Config.create (Apero.Option.get @@ Apero_net.TcpLocator.of_string "tcp/0.0.0.0:7887") in 
-    let sockfe = YSockFE.create socket_cfg engine in 
-    let sfep = YSockFE.start sockfe
-    in Lwt.join [rfep; sfep]
 
+let run_yaksd without_storage http_port sock_port = 
+  try%lwt
+    let engine = YEngine.make () in
+    YEngine.add_backend engine (Yaks_be_mm.MainMemoryBEF.make empty_properties) >>= fun _ ->
+    let def_store = add_default_storage engine without_storage >>= fun _ -> Lwt.return_unit in
+    let rest_fe = add_rest_fe engine http_port in
+    let sock_fe = add_socket_fe engine sock_port in
+    Lwt.join [def_store; rest_fe; sock_fe]
   with 
-  | YException e  -> Logs_lwt.err (fun m -> m "%s" (show_yerror e)) >> Lwt.return_unit
-  | exn -> Logs_lwt.err (fun m -> m "Exception %s raised" (Printexc.to_string exn)) >> Lwt.return_unit
+  | YException e  -> 
+    Logs_lwt.err (fun m -> m "Exception %s raised:\n%s" (show_yerror e) (Printexc.get_backtrace ())) >> Lwt.return_unit
+  | exn -> 
+    Logs_lwt.err (fun m -> m "Exception %s raised:\n%s" (Printexc.to_string exn) (Printexc.get_backtrace ())) >> Lwt.return_unit
 
-let () =  
-  Printexc.record_backtrace true;  
-  let _ = Term.(eval (setup_log, Term.info "tool")) in  
-  Lwt_main.run @@ yaksd ()
+
+let run without_storage http_port sock_port style_renderer level = 
+  setup_log style_renderer level; 
+  Lwt_main.run @@ run_yaksd without_storage http_port sock_port
+
+
+let () =
+  Printexc.record_backtrace true;
+  let env = Arg.env_var "YAKSD_VERBOSITY" in
+  let _ = Term.(eval (const run $ without_storage $ http_port $ sock_port $ Fmt_cli.style_renderer () $ Logs_cli.level ~env (), Term.info "Yaks daemon")) in  ()

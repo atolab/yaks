@@ -42,17 +42,18 @@ let get_encoding flags =
   match int_to_value_encoding @@ (int_of_char flags) land 0x18 with 
   | Some e -> e 
   | None -> ENCODING_INVALID
-  
+
 type payload = 
   | YEmpty
   | YPath of Yaks_core.Path.t
   | YSelector of Yaks_core.Selector.t
-  | YKeyDeltaValue of Yaks_core.Selector.t * Yaks_core.Value.t
-  | YKeyValueList of (Yaks_core.Selector.t * Yaks_core.Value.t) list
+  | YSelectorValueList of (Yaks_core.Selector.t * Yaks_core.Value.t) list
+  (* | YKeyDeltaValue of Yaks_core.Selector.t * Yaks_core.Value.t *)
+  | YPathValueList of (Yaks_core.Path.t * Yaks_core.Value.t) list
   | YSubscription of string
   | YNotification of string * ((Yaks_core.Path.t * Yaks_core.Value.t) list)
   | YErrorInfo of Vle.t
-  
+
 
 type message = {
   header: header;  
@@ -76,14 +77,14 @@ let get_selector_payload msg =
   | YSelector s -> Some s
   | _ -> None 
 
-let get_key_delta_value_payload msg = 
+let get_selector_value_list_payload msg = 
   match msg.body with  
-  | YKeyDeltaValue (k,dv) -> Some (k,dv)
+  | YSelectorValueList svs -> Some svs
   | _ -> None 
 
-let get_key_value_list_payload msg = 
+let get_path_value_list_payload msg = 
   match msg.body with  
-  | YKeyValueList kvs -> Some kvs
+  | YPathValueList pvs -> Some pvs
   | _ -> None 
 
 let get_subscription_payload msg = 

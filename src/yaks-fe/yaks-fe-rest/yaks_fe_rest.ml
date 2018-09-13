@@ -122,7 +122,7 @@ module Make (YEngine : Yaks_engine.SEngine.S) = struct
       (fun () -> YEngine.create_access fe.engine ?alias path cache_size)
       (fun access ->
          let aid = Access.Id.to_string @@ Access.id access in
-         Logs_lwt.debug (fun m -> m "Created Access with id : %s responding client" aid) >>      
+         Logs_lwt.debug (fun m -> m "[FER]   Created Access with id : %s responding client" aid) >>      
          let headers = Header.add_list (Header.init()) 
              [("Location", match alias with | Some(_) -> "." | None -> aid);
               (set_cookie cookie_name_access_id aid)] in
@@ -230,9 +230,9 @@ let unsubscribe fe access_id sub_id =
   (*      Key/Value operations      *)
   (**********************************)
 
-  let json_string_of_key_values (kvs : (string * Value.t) list) =
+  let json_string_of_key_values (kvs : (Path.t * Value.t) list) =
     kvs
-    |> List.map (fun (key, value) -> Printf.sprintf "\"%s\":%s" key  (Value.to_string value))
+    |> List.map (fun (key, value) -> Printf.sprintf "\"%s\":%s" (Path.to_string key)  (Value.to_string value))
     |> String.concat ","
     |> Printf.sprintf "{%s}"
 
@@ -274,7 +274,6 @@ let unsubscribe fe access_id sub_id =
   (**********************************)
   (*let execute_control_operation fe meth path query headers body =  *)
   let execute_control_operation fe meth path query headers _ =
-    let%lwt _ = Logs_lwt.debug (fun m -> m "-- execute_control_operation --" ) in  
     match (meth, path) with
 
     (* POST /yaks/access ? path & cacheSize *)
@@ -288,7 +287,7 @@ let unsubscribe fe access_id sub_id =
         | (None, _)    -> missing_query (["path:string"])
         | (_, None)    -> missing_query (["cacheSize:int"])
         | (Some(path), Some(cache_size)) -> (
-            match Path.of_string path with 
+            match Path.of_string_opt path with 
             | Some p -> create_access fe p cache_size 
             | None -> invalid_path path)
       )
@@ -304,7 +303,7 @@ let unsubscribe fe access_id sub_id =
         | (None, _)    -> missing_query (["path:string"])
         | (_, None)    -> missing_query (["cacheSize:int"])
         | (Some(path), Some(cache_size)) -> 
-          match Path.of_string path with 
+          match Path.of_string_opt path with 
           |Some p -> create_access fe ~alias:id p cache_size 
           | None -> invalid_path path
       )
@@ -334,9 +333,9 @@ let unsubscribe fe access_id sub_id =
         match storage_path with
         | None -> missing_query (["path:string"])
         | Some(path) -> 
-          (match Path.of_string path with 
+          (match Path.of_string_opt path with 
            | Some p -> 
-             let properties = query |> List.filter (fun (n, _) -> n != "path") |> properties_of_query in        
+             let properties = query |> properties_of_query |> Property.Map.remove "path"  in      
              create_storage fe p properties
            | None -> invalid_path path)
       )
@@ -352,9 +351,10 @@ let unsubscribe fe access_id sub_id =
         match storage_path with
         | None -> missing_query (["path:string"])
         | Some(path) -> 
-          let properties = query |> List.filter (fun (n, _) -> n != "path") |> properties_of_query in
-          (match Path.of_string path with 
-           | Some p -> create_storage fe ~alias:id p properties 
+          let properties = query |> properties_of_query |> Property.Map.remove "path"  in      
+          (match Path.of_string_opt path with 
+           | Some p ->
+             create_storage fe ~alias:id p properties 
            | None -> invalid_path path)
       )
     (* GET /yaks/storages *)
@@ -392,15 +392,12 @@ let unsubscribe fe access_id sub_id =
   case and make changes accordingly
  *)
   let execute_data_operation fe meth (selector: Selector.t) headers body =
-    let%lwt _ = Logs_lwt.debug (fun m -> m "(-- execute_data_operation --" ) in 
     let open Apero.Option.Infix in
-
     let access_id : Access.Id.t option = 
       (Cookie.Cookie_hdr.extract headers
        |> List.find_opt (fun (key, _) -> key = cookie_name_access_id)
           >== fun (_, value) -> value) >>= (fun aid -> Access.Id.of_string aid) 
     in  
-
     match (meth, access_id) with
     | (_, None) ->
       missing_cookie cookie_name_access_id
@@ -430,15 +427,21 @@ let unsubscribe fe access_id sub_id =
                                     |> List.find_opt (fun (key, _) -> String.starts_with "is.yaks" key)
                                     |> function | Some(k,v) -> k^"="^v | _ -> ""))
     in
-    if path = "/" then
-      empty_path
-    else if String.length path >= 5 && String.sub path 0 5 = yaks_control_uri_prefix then
-      let normalized_path = path |> String.split_on_char '/' |> List.filter (fun s -> String.length s > 0) in
-      execute_control_operation fe meth normalized_path query headers body
-    else
-      (match Selector.of_string path with 
-       | Some selector -> execute_data_operation fe meth selector headers body
-       | None -> invalid_path path)
+    try%lwt
+      if path = "/" then
+        empty_path
+      else if String.length path >= 5 && String.sub path 0 5 = yaks_control_uri_prefix then
+        let normalized_path = path |> String.split_on_char '/' |> List.filter (fun s -> String.length s > 0) in
+        execute_control_operation fe meth normalized_path query headers body
+      else
+        (match Selector.of_string path with 
+         | Some selector -> execute_data_operation fe meth selector headers body
+         | None -> invalid_path path)
+    with
+    | YException e as exn -> 
+      Logs_lwt.err (fun m -> m "Exception %s raised:\n%s" (show_yerror e) (Printexc.get_backtrace ())) >>= fun _ -> raise exn
+    | exn ->
+      Logs_lwt.err (fun m -> m "Exception %s raised:\n%s" (Printexc.to_string exn) (Printexc.get_backtrace ())) >>= fun _ -> raise exn
 
 
   let create cfg engine = 

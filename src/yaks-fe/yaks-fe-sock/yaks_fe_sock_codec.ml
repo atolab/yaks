@@ -44,9 +44,9 @@ let encode_header h buf =
   >>= fun buf ->
   encode_vle h.corr_id buf 
   >>= fun buf -> 
-    if h.properties <> Property.Map.empty then 
-      encode_properties h.properties buf
-    else Result.ok buf
+  if h.properties <> Property.Map.empty then 
+    encode_properties h.properties buf
+  else Result.ok buf
 
 
 let decode_header buf =   
@@ -70,21 +70,21 @@ let decode_value flags buf =
   | RAW -> 
     decode_vle buf 
     >>= fun (len, buf) ->        
-      IOBuf.blit_to_bytes (Vle.to_int len) buf 
-      >>= fun (bs, buf) ->
-        Result.ok (Yaks_core.Value.RawValue bs, buf)
+    IOBuf.blit_to_bytes (Vle.to_int len) buf 
+    >>= fun (bs, buf) ->
+    Result.ok (Yaks_core.Value.RawValue bs, buf)
   | JSON -> 
     decode_string buf 
     >>= fun (s, buf) -> 
-      Result.ok (Yaks_core.Value.JSonValue s, buf)      
+    Result.ok (Yaks_core.Value.JSonValue s, buf)      
   | _ ->         
     Result.fail @@ `InvalidFormat `NoMsg
 
 let decode_pair decode_fst decode_snd buf = 
   decode_fst buf 
   >>= fun (fst, buf) ->
-    decode_snd buf 
-    >>= fun (snd, buf) -> Result.ok ((fst, snd), buf)  
+  decode_snd buf 
+  >>= fun (snd, buf) -> Result.ok ((fst, snd), buf)  
 
 let encode_pair encode_fst encode_snd fst snd buf = 
   encode_fst fst buf >>= encode_snd snd 
@@ -104,7 +104,7 @@ let encode_path p = encode_string (Yaks_core.Path.to_string p)
 let decode_paths buf = 
   decode_string buf 
   >>= fun (p, buf) -> 
-  match (Yaks_core.Path.of_string p) with 
+  match (Yaks_core.Path.of_string_opt p) with 
   | Some path -> Result.ok (path, buf)
   | None ->       
     Result.fail  @@ `InvalidFormat (`Msg "Invalid selector format" )
@@ -114,7 +114,7 @@ let decode_body (mid:message_id) (flags:char) (buf: IOBuf.t) =
   | OPEN -> Ok (YEmpty, buf)
   | CREATE -> 
     decode_string buf >>= fun (path, buf) -> 
-    (match Yaks_core.Path.of_string path with 
+    (match Yaks_core.Path.of_string_opt path with 
      | Some p ->  Ok (YPath p, buf) 
      | None -> Result.fail (`InvalidFormat (`Msg "Invalid path syntax")))
 
@@ -129,18 +129,12 @@ let decode_body (mid:message_id) (flags:char) (buf: IOBuf.t) =
         | Some s ->  Ok (YSelector s, buf)  
         | None -> Result.fail (`InvalidFormat (`Msg "Invalid selector syntax"))) 
      | _ -> Result.fail `InvalidFlags)  
-  
-  | PUT ->
+
+  | PUT | PATCH ->
     let decode_sv = decode_pair decode_selector (decode_value flags) in 
     let decode_svs = decode_seq decode_sv in 
     decode_svs buf 
-    >>= fun (svs, buf) -> Result.ok (YKeyValueList svs, buf)
-
-  | PATCH ->
-    decode_selector buf 
-    >>= fun (s, buf) -> 
-      decode_value flags buf 
-      >>= fun (v, buf) -> Result.ok (YKeyDeltaValue (s, v), buf)
+    >>= fun (svs, buf) -> Result.ok (YSelectorValueList svs, buf)
 
   | GET | SUB -> decode_selector buf >>= fun (s, buf) -> Result.ok (YSelector s, buf)  
   | UNSUB -> decode_string buf >>= fun (s, buf) -> Ok (YSubscription s, buf)    
@@ -157,13 +151,13 @@ let encode_body body buf =
   | YEmpty -> Ok buf
   | YPath p -> encode_string (Yaks_core.Path.to_string p) buf
   | YSelector s -> encode_string (Yaks_core.Selector.to_string s) buf
+  | YSelectorValueList svs -> 
+    encode_vle (Vle.of_int @@ List.length svs) buf >>=     
+    Result.fold_m (fun (s, v) buf -> encode_selector s buf >>= encode_value v) svs 
+  | YPathValueList  pvs -> 
+    encode_vle (Vle.of_int @@ List.length pvs) buf >>=     
+    Result.fold_m (fun (p, v) buf -> encode_path p buf >>= encode_value v) pvs 
   | YSubscription s -> encode_string s buf
-  | YKeyDeltaValue (s, v) -> 
-    encode_selector s buf >>= encode_value v   
-  | YKeyValueList  kvs -> 
-    encode_vle (Vle.of_int @@ List.length kvs) buf >>=     
-    Result.fold_m (fun (s, v) buf -> encode_selector s buf >>= encode_value v) kvs 
-    
   | YNotification (sid, kvs) -> 
     encode_string sid buf 
     >>= Result.fold_m (fun (k, v) buf -> encode_path k buf >>= encode_value v) kvs 

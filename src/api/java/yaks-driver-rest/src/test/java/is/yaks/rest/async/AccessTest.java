@@ -40,20 +40,10 @@ public class AccessTest {
         Access access1 = fAccess1.get();
         Assert.assertNotNull(access1);
 
-        CompletableFuture<Storage> fStorage1 = yaks.createStorage("MM-async-store2",
-                Path.ofString("//is.yaks.tests.async"), new Properties());
-        Storage storage1 = fStorage1.get();
-        Assert.assertNotNull(storage1);
-
         CompletableFuture<Access> fAccess2 = yaks.createAccess("access-async-1", Path.ofString("//is.yaks.tests.async"),
                 100000L, Encoding.JSON);
         Access access = fAccess2.get();
         Assert.assertNotNull(access);
-
-        CompletableFuture<Storage> fStorage2 = yaks.createStorage("MM-async-store2",
-                Path.ofString("//is.yaks.tests.async"), new Properties());
-        Storage storage2 = fStorage2.get();
-        Assert.assertNotNull(storage2);
 
         /*
          * TODO to activate CompletableFuture<List<String>> futureListAccess = yaks.getAccess(); List<String> listAccess

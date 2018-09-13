@@ -53,8 +53,7 @@ public class AccessTest {
     public void BasicTest() {
         // create access
         Access access1 = yaks.createAccess("access-1", Path.ofString("//is.yaks.tests"), 1024, Encoding.JSON);
-        Storage storage1 = yaks.createStorage("MM-store1", Path.ofString("//is.yaks.tests"), new Properties());
-        Assert.assertNotNull(storage1);
+        Assert.assertNotNull(access1);
 
         // put
         access1.put(Selector.ofString("//is.yaks.tests/a"), "ABC");
@@ -74,8 +73,6 @@ public class AccessTest {
         // create access
         Access access2 = yaks.createAccess("access-2", Path.ofString("//is.yaks.tests-2"), 1024, Encoding.JSON);
         Assert.assertNotNull(access2);
-        Storage storage2 = yaks.createStorage("MM-store2", Path.ofString("//is.yaks.tests-2"), new Properties());
-        Assert.assertNotNull(storage2);
 
         /*
          * TODO to solve/to activate String data = response.getEntity(String.class); //in get returns
@@ -95,8 +92,6 @@ public class AccessTest {
 
         Access access3 = yaks.createAccess("access-3", Path.ofString("//is.yaks.tests-3"), 1024, Encoding.JSON);
         Assert.assertNotNull(access3);
-        Storage storage3 = yaks.createStorage("MM-store3", Path.ofString("//is.yaks.tests-3"), new Properties());
-        Assert.assertNotNull(storage3);
 
         // TODO activate
         // List<String> listAccess = yaks.getAccess();
@@ -108,9 +103,6 @@ public class AccessTest {
 
         // dispose
         // access1.unsubscribe(subId);
-        storage1.dispose();
-        storage2.dispose();
-        storage3.dispose();
 
         access1.dispose();
         access2.dispose();

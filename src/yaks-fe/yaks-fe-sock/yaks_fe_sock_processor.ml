@@ -26,7 +26,7 @@ module Processor = struct
   end
 
   module Make (Engine : Yaks_engine.SEngine.S ) = struct 
-    
+
     module YEngine = Engine  
 
     let reply_with_ok msg ps =     
@@ -35,7 +35,7 @@ module Processor = struct
 
     let reply_with_values msg vs =     
       let header = make_header OK [] msg.header.corr_id Property.Map.empty in 
-      make_message header (YKeyValueList vs)
+      make_message header (YPathValueList vs)
 
     let reply_with_error msg code =   
       let header = make_header ERROR [] msg.header.corr_id Property.Map.empty in 
@@ -128,18 +128,18 @@ module Processor = struct
     let process_put engine msg = 
       let%lwt _ = Logs_lwt.debug (fun m -> m "FES: processing PUT") in 
       let ps = msg.header.properties in       
-      let params = Option.bind (get_key_value_list_payload msg) 
-        @@ fun kvs ->       
+      let params = Option.bind (get_selector_value_list_payload msg) 
+        @@ fun svs ->
         let id = Option.bind (get_property Property.Access.Key.id ps) Access.Id.of_string in 
         Option.bind id 
-        @@ fun aid -> Some (kvs, aid) 
+        @@ fun aid -> Some (svs, aid) 
       in match params with 
-      | Some (kvs, aid) ->         
+      | Some (svs, aid) ->
         Lwt.join 
-          @@ List.map (fun (k,v) -> 
-                let%lwt _ = Logs_lwt.debug (fun m -> m "FES: PUT %s" (Yaks_core.Selector.to_string k)) in 
-                YEngine.put engine aid k v)  
-              kvs       
+        @@ List.map (fun (s,v) -> 
+            let%lwt _ = Logs_lwt.debug (fun m -> m "FES: PUT %s" (Yaks_core.Selector.to_string s)) in 
+            YEngine.put engine aid s v)  
+          svs   
         >>= fun () -> Lwt.return @@ reply_with_ok msg Property.Map.empty
       | None -> Lwt.return @@ reply_with_error msg BAD_REQUEST
 
@@ -156,9 +156,7 @@ module Processor = struct
       match params with 
       | Some (aid, s) -> 
         YEngine.get engine aid s 
-        >>= fun kvs -> 
-        let vs = List.map (fun (k,v) -> (Option.get (Selector.of_string k), v)) kvs  in
-        Lwt.return @@ reply_with_values msg vs
+        >>= fun pvs -> Lwt.return @@ reply_with_values msg pvs
       | None -> Lwt.return @@ reply_with_error msg BAD_REQUEST
 
     let process_sub engine msg = let _ = engine in Lwt.return @@ reply_with_ok msg Property.Map.empty
