@@ -22,8 +22,7 @@ install: [
 depends: [
   "dune"
   "atdgen"
-  "apero-core"
-  "apero-net"
+  "apero_core" {>= "0.3.0"}
   "cmdliner"
   "fmt" 
   "logs" 
