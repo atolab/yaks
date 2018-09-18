@@ -24,8 +24,8 @@ depends: [
   "dune"
   "lwt" {>= "4.0.0"}
   "yaks-core"
-  "apero_core" {>= "0.3.0"}
-  "apero_net" {>= "0.3.0"}
+  "apero-core" {>= "0.3.0"}
+  "apero-net" {>= "0.3.0"}
 ]
 
 conflicts: [

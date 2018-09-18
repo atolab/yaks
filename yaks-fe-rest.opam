@@ -23,7 +23,7 @@ install: [
 depends: [
   "dune"
   "lwt" {>= "4.0.0"}
-  "apero_core" {>= "0.3.0"}  
+  "apero-core" {>= "0.3.0"}  
   "cohttp-lwt-unix" {>= "1.0.2"}
 ]
 
