@@ -77,6 +77,11 @@ val has_same_property : string -> string -> properties -> bool
 (** [has_same_property k v ps] tests if [ps] contains a property with [k] as key and [v] as value *)
 val is_subset : properties -> properties -> bool
 (** [is_subset p p'] tests if all properties of [p] are present in [p'] with the same values *)
+val has_conflicting_property : string -> string -> properties -> bool
+(** [has_conflicting_property k v ps] tests if [ps] contains a property with [k] as key and a value which is not equal to [v]
+    (if [ps] doesn't contain a property [k] their is no conflict) *)
+val not_conflicting : properties -> properties -> bool
+(** [is_subset p p'] tests if some properties are present in both [p] and [p'] they have the same value *)
 
 val decode_property_value : (string -> 'a) -> string -> properties -> 'a option
 

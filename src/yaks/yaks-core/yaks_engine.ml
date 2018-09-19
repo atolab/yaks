@@ -94,7 +94,8 @@ module SEngine = struct
     let find_compatible_backend (self:state) properties =
       List.find_opt (fun be ->
           let module BE = (val be: Backend) in
-          Yaks_property.is_subset properties BE.properties) self.backends
+          let _ = Logs_lwt.debug (fun m -> m "[YE]:    try Backend %s" BE.to_string) in
+          Yaks_property.not_conflicting properties BE.properties) self.backends
 
     let create_storage engine ?alias path properties =
       MVar.guarded engine
@@ -104,9 +105,10 @@ module SEngine = struct
         | Some be ->
           let module BE = (val be : Backend) in
           let%lwt _ = Logs_lwt.debug (fun m -> m "[YE]: create_storage %s {%s} using Backend %s" (Path.to_string path) (string_of_properties properties) (BE.to_string)) in
-          let store = BE.create_storage ?alias path properties in
+          let%lwt store = BE.create_storage ?alias path properties in
           MVar.return (store) {self with stores = (StorageMap.add (Storage.id store) store self.stores)}
         | None ->
+          let%lwt _ = Logs_lwt.err (fun m -> m "[YE]: create_storage %s {%s} failed: no compatible backend" (Path.to_string path) (string_of_properties properties)) in
           Lwt.fail @@ YException (`NoCompatibleBackend (`Msg (string_of_properties properties)))
       else
         Lwt.fail @@ YException (`ConflictingStorage (`Msg (Path.to_string path)))
@@ -115,8 +117,12 @@ module SEngine = struct
       MVar.read engine >|= fun self -> StorageMap.find_opt storage_id self.stores
 
     let dispose_storage engine storage_id =
+      let _ = Logs_lwt.debug (fun m -> m "[YE]: dispose_storage") in
       MVar.guarded engine
       @@ fun self ->
+      let open Apero.Option.Infix in
+      let _ = StorageMap.find_opt storage_id self.stores |> function | Some _ -> print_endline "!!!!! FOUND" | None -> print_endline "!!!! NOT_FOUND" in
+      let%lwt _ = StorageMap.find_opt storage_id self.stores >== Storage.dispose >?= Lwt.return_unit in
       let self' = {self with stores =  StorageMap.remove storage_id self.stores } in
       MVar.return () self'
 

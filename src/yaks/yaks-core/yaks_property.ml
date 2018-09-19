@@ -82,8 +82,8 @@ let add_property = Property.Map.add
 let get_property prop ps = Property.Map.find_opt prop ps
 
 (* let get_property_value key ps = 
-  let open Apero.Option.Infix in 
-  get_property key ps >|= fun (_,v) -> v *)
+   let open Apero.Option.Infix in 
+   get_property key ps >|= fun (_,v) -> v *)
 
 let decode_property_value decoder prop ps = 
   let open Apero.Option.Infix in 
@@ -107,5 +107,11 @@ let has_same_property k v ps =
   | Some v' -> v = v'
   | None -> false  
 
+let has_conflicting_property k v ps = 
+  match get_property k ps with
+  | Some v' -> v <> v'
+  | None -> false
 
 let is_subset ps ps' = not @@ Property.Map.exists (fun k v -> not @@ has_same_property k v ps') ps
+
+let not_conflicting ps ps' = not @@ Property.Map.exists (fun k v -> has_conflicting_property k v ps') ps

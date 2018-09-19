@@ -48,7 +48,6 @@ type payload =
   | YPath of Yaks_core.Path.t
   | YSelector of Yaks_core.Selector.t
   | YSelectorValueList of (Yaks_core.Selector.t * Yaks_core.Value.t) list
-  (* | YKeyDeltaValue of Yaks_core.Selector.t * Yaks_core.Value.t *)
   | YPathValueList of (Yaks_core.Path.t * Yaks_core.Value.t) list
   | YSubscription of string
   | YNotification of string * ((Yaks_core.Path.t * Yaks_core.Value.t) list)

@@ -88,7 +88,7 @@ module MainMemoryBE = struct
 
 
     let create_storage ?alias path props =
-      Storage.make ?alias path props dispose get put put_delta remove
+      Lwt.return @@ Storage.make ?alias path props dispose get put put_delta remove
   end
 end 
 

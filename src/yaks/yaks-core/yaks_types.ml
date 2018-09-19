@@ -16,6 +16,7 @@ module KeyValue =  Apero.KeyValueF.Make (String) (String) [@@deriving show]
 type error_info = [`NoMsg | `Msg of string | `Code of int | `Pos of (string * int * int * int) | `Loc of string] [@@deriving show]  
 
 type yerror = [
+  | `InvalidBackendProperty of error_info
   | `InsufficientStorage
   | `InvalidPath of error_info
   | `Forbidden of error_info
