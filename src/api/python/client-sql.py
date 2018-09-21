@@ -1,11 +1,11 @@
 from yaks_api import api
 import sys
 
-# CREATE TABLE test (id SERIAL NOT NULL PRIMARY KEY, mystring VARCHAR(255), myint INT, myfloat REAL, mydate DATE);
+# CREATE TABLE test (id SERIAL NOT NULL PRIMARY KEY, mystring VARCHAR(255),
+#  myint INT, myfloat REAL, mydate DATE);
 # INSERT INTO test VALUES (1, 'test1', 1, 1.1, '2018-01-01');
 # INSERT INTO test VALUES (2, 'test2', 2, 2.2, '2018-02-02');
 # INSERT INTO test VALUES (3, 'test3', 3, 3.3, '2018-03-03');
-
 
 
 def main():
@@ -14,15 +14,21 @@ def main():
 
     print('>> Create memory storage')
     input()
-    storage1 = y.create_storage('//is/test/mem', {'is.yaks.backend.kind':'memory'})
+    storage1 = y.create_storage('//is/test/mem',
+                                {'is.yaks.backend.kind': 'memory'})
 
     print('>> Create SQL storage on legacy table "test"')
     input()
-    storage2 = y.create_storage('//is/test/db/leg-table', {'is.yaks.backend.kind':'dbms', 'is.yaks.backend.sql.table':'test'})
+    storage2 = y.create_storage('//is/test/db/leg-table',
+                                {'is.yaks.backend.kind': 'dbms',
+                                 'is.yaks.backend.sql.table': 'test'})
 
-    print('>> Create SQL storage on a new key/value table which will be droped at storage disposal')
+    print('>> Create SQL storage on a new key/value '
+          'table which will be droped at storage disposal')
     input()
-    storage3 = y.create_storage('//is/test/db/new-table', {'is.yaks.backend.kind':'dbms', 'is.yaks.backend.sql.on_dispose':'drop'})
+    storage3 = y.create_storage('//is/test/db/new-table',
+                                {'is.yaks.backend.kind': 'dbms',
+                                 'is.yaks.backend.sql.on_dispose': 'drop'})
 
     print('>> Create access')
     input()
@@ -49,10 +55,6 @@ def main():
     print('>> Get //is/test/db/leg-table')
     input()
     print('GET: {}'.format(access.get('//is/test/db/leg-table')))
-
-
-
-
 
     print('>> Dispose Access')
     input()

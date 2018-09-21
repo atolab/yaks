@@ -16,13 +16,13 @@ class APILogger:
 
             log_format = '[%(asctime)s] - [%(levelname)s] > %(message)s'
 
-            l = os.environ.get('YAKS_PYTHON_API_VERBOSITY')
-            if l:
-                log_level = int(l)
+            level = os.environ.get('YAKS_PYTHON_API_VERBOSITY')
+            if level:
+                log_level = int(level)
             else:
                 log_level = logging.ERROR
 
-            self.logger = logging.getLogger(__name__ + 'is.yaks.python.api')
+            self.logger = logging.getLogger('is.yaks.python.api')
 
             self.logger.setLevel(log_level)
             formatter = logging.Formatter(log_format)

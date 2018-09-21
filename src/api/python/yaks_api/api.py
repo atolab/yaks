@@ -47,6 +47,15 @@ class SendingThread(threading.Thread):
                     if e.errno == 9:
                         logger.error('SendingThread', 'Bad FD')
                     self._is_running = False
+                except ConnectionResetError as cre:
+                    logger.error('SendingThread',
+                                 'Server Closed connection {}'.format(cre))
+                    self._is_running = False
+                except struct.error as se:
+                    logger.error('SendingThread', 'Pack Error {}'.format(se))
+                    err = MessageError(msg_s.corr_id, 400)
+                    self.waiting_msgs.pop(msg_s.corr_id)
+                    var.put(err)
                 finally:
                     self.lock.release()
 
@@ -90,46 +99,56 @@ class ReceivingThread(threading.Thread):
 
                 try:
                     i, _, _ = select.select([self.sock], [], [])
+                    logger.info('ReceivingThread', 'Socket ready')
+                    self.lock.acquire()
+                    length = self.read_length()
+                    if length > 0:
+
+                        data = b''
+                        while len(data) < length:
+                            data = data + self.sock.recv(BUFFSIZE)
+                        msg_r = Message(data)
+                        logger.info('ReceivingThread',
+                                    'Read from socket {} bytes'.format(length))
+                        logger.debug('ReceivingThread',
+                                     'Message Received {} \n{}'.
+                                     format(msg_r.pprint(), msg_r.dump()))
+                        if msg_r.message_code == NOTIFY:
+                            sid, kvs = msg_r.get_notification()
+                            if sid in self.subscriptions:
+                                cbk = self.subscriptions.get(sid)
+                                threading.Thread(target=cbk, args=(kvs,),
+                                                 daemon=True).start()
+                                ok = MessageOk(0, msg_r.corr_id)
+                                self.send_q.put((ok, MVar()))
+                        elif self.waiting_msgs.get(msg_r.corr_id) is None:
+                            logger.info('ReceivingThread',
+                                        'This message was not expected!')
+                        else:
+                            if msg_r.message_code == ERROR:
+                                logger.info('ReceivingThread',
+                                            'Got Error on Message {} '
+                                            'Error Code: {}'
+                                            .format(msg_r.corr_id,
+                                                    msg_r.get_error()))
+                            _, var = self.waiting_msgs.get(msg_r.corr_id)
+                            self.waiting_msgs.pop(msg_r.corr_id)
+                            var.put(msg_r)
+                except struct.error as se:
+                    logger.error('ReceivingThread',
+                                 'Unpack Error {}'.format(se))
                 except OSError as e:
                     if e.errno == 9:
                         logger.error('ReceivingThread', 'Bad FD')
                     self._is_running = False
-                    break
-
-                logger.info('ReceivingThread', 'Socket ready')
-                self.lock.acquire()
-                length = self.read_length()
-                if length > 0:
-                    data = self.sock.recv(length)
-                    msg_r = Message(data)
-                    logger.info('ReceivingThread',
-                                'Read from socket {} bytes'.format(length))
-                    logger.debug('ReceivingThread', 'Message Received {} \n{}'.
-                                 format(msg_r.pprint(), msg_r.dump()))
-                    if msg_r.message_code == NOTIFY:
-                        sid, kvs = msg_r.get_notification()
-                        if sid in self.subscriptions:
-                            cbk = self.subscriptions.get(sid)
-                            threading.Thread(target=cbk, args=(kvs,),
-                                             daemon=True).start()
-                            ok = MessageOk(0, msg_r.corr_id)
-                            self.send_q.put((ok, MVar()))
-                    elif self.waiting_msgs.get(msg_r.corr_id) is None:
-                        print('This message was not expected!')
-                    else:
-                        if msg_r.message_code == ERROR:
-                            logger.info('ReceivingThread',
-                                        'Got Error on Message {} '
-                                        'Error Code: {}'
-                                        .format(msg_r.corr_id,
-                                                msg_r.get_error()))
-                        _, var = self.waiting_msgs.get(msg_r.corr_id)
-                        self.waiting_msgs.pop(msg_r.corr_id)
-                        var.put(msg_r)
-                else:
-                    raise \
-                        ConnectionError('The server has closed the connection')
-                self.lock.release()
+                except ConnectionResetError as cre:
+                    logger.error('ReceivingThread',
+                                 'Server Closed connection {}'.format(cre))
+                    self._is_running = False
+                finally:
+                    self.lock.release()
+        if not self._is_running:
+            self.close()
 
 
 class Access(object):
