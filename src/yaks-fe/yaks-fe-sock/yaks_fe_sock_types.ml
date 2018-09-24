@@ -27,6 +27,8 @@ type header = {
   properties : Yaks_core.properties;
 }
 
+let max_msg_size  = 1024 * 64 
+
 let make_header mid (mflags: message_flags list) corr_id properties = 
   let base_flags = List.fold_left (fun a f -> a lor (message_flags_to_int f)) 0 mflags in 
   let flags = char_of_int @@ match Property.Map.is_empty properties with 
@@ -56,7 +58,7 @@ type payload =
 
 type message = {
   header: header;  
-  body : payload (* This could be a variant*)
+  body : payload 
 }
 
 let make_message header body = {header; body} 

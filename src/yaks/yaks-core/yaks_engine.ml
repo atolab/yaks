@@ -9,6 +9,7 @@ module SEngine = struct
 
   module type S = sig 
     type t 
+    type subscription_pusher = Yaks_types.SubscriberId.t -> (Yaks_types.Path.t * Yaks_types.Value.t) list -> unit Lwt.t
 
     val make : unit -> t 
 
@@ -27,21 +28,30 @@ module SEngine = struct
     val put_delta : t -> Access.Id.t -> Selector.t -> Value.t -> unit Lwt.t
     val remove : t -> Access.Id.t -> Selector.t -> unit Lwt.t
 
-    val create_subscriber : t -> Path.t -> Selector.t -> bool -> SubscriberId.t Lwt.t  
+    val create_subscriber : t -> Access.Id.t -> Selector.t -> bool -> subscription_pusher -> SubscriberId.t Lwt.t  
   end
 
   module Make (MVar: Apero.MVar) = struct
 
     module StorageMap  = Map.Make (Storage.Id)
     module AccessMap = Map.Make (Access.Id)
+    module SubscriberMap = Map.Make (SubscriberId)
 
+    type subscription_pusher = Yaks_types.SubscriberId.t -> (Yaks_types.Path.t * Yaks_types.Value.t) list -> unit Lwt.t
+    
+    type subscription = 
+      { selector : Selector.t 
+      ; pusher : subscription_pusher
+      ; is_push : bool }
 
     type state = 
       { backends : (module Backend) list 
       ; stores : Storage.t StorageMap.t
-      ; accs : Access.t AccessMap.t } 
+      ; accs : Access.t AccessMap.t 
+      ; subs : subscription SubscriberMap.t } 
 
     type t = state MVar.t
+    
 
     (* 
     let create_access engine path cache_size = (engine, Lwt.return @@ Access.Id.next_id ())
@@ -55,7 +65,8 @@ module SEngine = struct
       MVar.create 
         { backends = []
         ; stores = StorageMap.empty
-        ; accs = AccessMap.empty }
+        ; accs = AccessMap.empty
+        ; subs = SubscriberMap.empty }
 
 
 
@@ -157,11 +168,25 @@ module SEngine = struct
        there might be duplicate keys from different Storages in this result.
        Shall we remove duplicates?? *)
 
+   let notify_subscriber subs path value = 
+      SubscriberMap.iter 
+        (fun sid sub -> 
+          if Selector.is_matching path sub.selector then Lwt.ignore_result (sub.pusher sid [(path, value)]) 
+          else ()) subs
+
     let put (engine: t) access_id (selector:Selector.t) (value:Value.t) =
       let%lwt _ = Logs_lwt.debug (fun m -> m "[YE]: put") in
       MVar.read engine 
       >>= fun self ->      
-      let%lwt _ = check_access self access_id selector in
+      let%lwt _ = check_access self access_id selector in      
+      (* TODO: Potentially here we need to compare two selectors... That measn 
+      that we need to agree when the selectors are equivalent. For the time being
+      when there is a put of a selector I do notify based on matching on the Path that
+      prefixes the selector. This is far from being pefect, but at least a starting point *)
+      let _ = match Selector.as_unique_path selector with 
+      | Some p -> Lwt.return @@ notify_subscriber self.subs p value 
+      | _ -> Logs_lwt.warn (fun m -> m "Unable to extract path from seletor to notify subscribers") 
+      in 
       get_matching_stores self selector
       |> List.map (fun (_,store) -> Storage.put store selector value)
       |> Lwt.join
@@ -187,8 +212,18 @@ module SEngine = struct
     (*******************************)
     (*   Subscribers management    *)
     (*******************************)
-    (* TODO !! *)
-    let create_subscriber _ _ _ _ = Lwt.return @@  SubscriberId.next_id ()
+    
+ 
+
+    let create_subscriber engine _ (* access  *) (selector:Selector.t) (is_push: bool) (pusher:subscription_pusher) =       
+      (* @TODO: Should check that we can really subscribe to this.... *)
+      let sid = SubscriberId.next_id () in 
+      let sub = {selector; pusher; is_push} in 
+      (MVar.guarded engine 
+      @@ fun self ->         
+        let subs' = SubscriberMap.add sid sub self.subs in 
+        MVar.return () {self with subs = subs'} )
+      >|= fun () -> sid
 
   end
 end

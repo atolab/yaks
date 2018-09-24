@@ -15,10 +15,12 @@ module Make (YEngine : Yaks_engine.SEngine.S) = struct
 
   module TcpSocketFE = NetServiceTcp.Make (MVar_lwt)  
   
+  module MVar = MVar_lwt 
+
   type t = 
     { tcp_fe: TcpSocketFE.t
     ; io_svc: TcpSocketFE.io_service }
-
+    
   let reader sock  = 
     let lbuf = IOBuf.create 16 in 
     let%lwt len = Net.read_vle sock lbuf in          
@@ -47,7 +49,15 @@ module Make (YEngine : Yaks_engine.SEngine.S) = struct
     | DELETE -> P.process_delete engine msg
     | PUT -> P.process_put engine msg
     | GET -> P.process_get engine msg 
-    | SUB -> P.process_sub engine tx_sex msg
+    | SUB -> 
+      let sock = TxSession.socket tx_sex in 
+      let buf = IOBuf.create Yaks_fe_sock_types.max_msg_size in 
+      let push_sub buf sid pvs = 
+        let body = YNotification (Yaks_core.SubscriberId.to_string sid, pvs)  in                 
+        let h = make_header NOTIFY [] Vle.zero Yaks_core.Property.Map.empty in         
+        let msg = make_message h body in 
+        writer buf sock msg >|= fun _ -> () 
+      in  P.process_sub engine msg (push_sub buf)
     | UNSUB -> P.process_unsub engine msg
     | EVAL -> P.process_eval engine msg    
     | _ ->  P.process_error msg BAD_REQUEST

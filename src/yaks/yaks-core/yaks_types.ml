@@ -6,7 +6,6 @@ module EventStream  = struct
   include  Apero.EventStream
 end 
 
-
 module SubscriberId = Apero.Id.Make (Int64)
 module PluginId = Apero.Id.Make (Int64)
 

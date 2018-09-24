@@ -29,6 +29,7 @@ module Property = struct
       let id = "is.yaks.access.id" 
       let alias = "is.yaks.access.alias" 
       let cache_size = "is.yaks.access.cachesize" 
+      let subscription_id = "is.yaks.subscription.id"
     end
   end
   module Storage = struct

@@ -1,5 +1,4 @@
 open Apero
-open Apero_net
 open Yaks_core 
 open Yaks_fe_sock_codes
 open Yaks_fe_sock_types
@@ -20,7 +19,7 @@ module Processor = struct
     val process_delete : YEngine.t -> message -> message Lwt.t
     val process_put : YEngine.t -> message -> message Lwt.t
     val process_get : YEngine.t -> message -> message Lwt.t
-    val process_sub : YEngine.t -> TxSession.t -> message  -> message Lwt.t
+    val process_sub : YEngine.t -> message -> YEngine.subscription_pusher ->  message Lwt.t
     val process_unsub : YEngine.t -> message -> message Lwt.t
     val process_eval : YEngine.t -> message -> message Lwt.t
     val process_error :  message -> error_code -> message Lwt.t
@@ -160,7 +159,24 @@ module Processor = struct
         >>= fun pvs -> Lwt.return @@ reply_with_values msg pvs
       | None -> Lwt.return @@ reply_with_error msg BAD_REQUEST
 
-    let process_sub engine (* tx_sex *) _ msg = let _ = engine in Lwt.return @@ reply_with_ok msg Property.Map.empty
+    let process_sub engine msg pusher  = 
+      let open Apero.Infix in 
+      let is_push = true in      
+      let ps = msg.header.properties in 
+      let params = Option.bind (decode_property_value (Option.get <.> Access.Id.of_string) Property.Access.Key.id ps) 
+        @@ fun aid -> 
+        Option.bind (get_selector_payload msg)
+        @@ fun s -> Some (aid, s) 
+      in     
+      match params with 
+      | Some (aid, s) ->
+        let%lwt subid = YEngine.create_subscriber engine aid s is_push pusher  in 
+        let props = Property.Map.singleton Property.Access.Key.subscription_id (SubscriberId.to_string subid) in 
+        Lwt.return @@ reply_with_ok msg props         
+      | None -> Lwt.return @@ reply_with_error msg BAD_REQUEST
+
+
+      
     let process_unsub engine msg = let _ = engine in Lwt.return @@ reply_with_ok msg Property.Map.empty
     let process_eval engine msg = let _ = engine in Lwt.return @@ reply_with_ok msg Property.Map.empty
 
