@@ -18,9 +18,11 @@ type message_id =
 
 [%%cenum 
 type value_encoding = 
-| RAW [@id  0x08]
-| JSON [@id 0x10]
-| PROTOBUF [@id 0x18]
+| RAW [@id  0x01]
+| STRING [@id  0x02]
+| JSON [@id 0x03]
+| PROTOBUF [@id 0x04]
+| SQL [@id 0x05]
 | ENCODING_INVALID [@id 0x0]
 [@@uint8_t]]
 
@@ -29,10 +31,6 @@ type message_flags =
 | PROPERTY [@id 0x01]
 | STORAGE [@id 0x02]
 | ACCESS [@id 0x04]
-| ENCODING [@id 0x38]
-| ENCODING_RAW [@id 0x08]
-| ENCODING_JSON [@id 0x10]
-| ENCODING_PROTO [@id 0x18]
 
 [@@uint8_t]]
 
