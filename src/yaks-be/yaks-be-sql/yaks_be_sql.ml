@@ -27,21 +27,23 @@ module SQLBE = struct
       ; on_dispose : on_dispose
       }
 
-    let row_to_json col_names row = List.map2 (fun n v -> n^": "^v) col_names row |> String.concat ", "
-
 
     let get storage_info (selector:Selector.t) =
       if Selector.is_matching storage_info.path selector then
         let open Lwt.Infix in
         let (col_names, typ) = storage_info.schema in
         Caqti_driver.get C.conx storage_info.table_name typ ?condition:(Selector.query selector) ()
-        >|= List.map (fun row -> storage_info.path, Value.JSonValue (row_to_json col_names row)) 
+        >|= List.map (fun row -> storage_info.path, Value.SqlValue (row, Some col_names)) 
       else
         Lwt.return []
 
-    let put storage_info (selector:Selector.t) (value:Value.t) =        
+    let put storage_info (selector:Selector.t) (value:Value.t) =
       if Selector.is_matching storage_info.path selector then
-        Caqti_driver.put C.conx storage_info.table_name (Value.to_string value) ()
+        let open Value in 
+        match transcode value Sql_Encoding with 
+        | Ok SqlValue (row, _) -> Caqti_driver.put C.conx storage_info.table_name (String.concat "," row) ()
+        | Ok _ -> Lwt.fail @@ YException (`UnsupportedTranscoding (`Msg "Transcoding to SQL didn't return an SqlValue"))
+        | Error e -> Lwt.fail @@ YException e
       else
         let%lwt _ = Logs_lwt.warn (fun m -> m "[SQL]: Can't put Selector %s in Storage with path %s - the exact Storage path is required"
                                       (Selector.to_string selector) (Path.to_string storage_info.path))
@@ -53,9 +55,12 @@ module SQLBE = struct
         get storage_info selector
         >>= Lwt_list.iter_p (fun (_,v) -> 
             match Value.update v delta with
-            | Ok v' -> Caqti_driver.put C.conx storage_info.table_name (Value.to_string v') ()
-            | Error e -> Logs_lwt.warn (fun m -> m "[SQL]: put_delta on value %s failed: %s"
-                                           (Value.to_string v) (show_yerror e)))
+            | Ok SqlValue (row, _) ->
+              Caqti_driver.put C.conx storage_info.table_name (String.concat "," row) ()
+            | Ok _ -> Logs_lwt.warn (
+              fun m -> m "[SQL]: put_delta on value %s failed: update of SqlValue didn't return a SqlValue" (Value.to_string v))
+            | Error e -> Logs_lwt.warn (
+              fun m -> m "[SQL]: put_delta on value %s failed: %s" (Value.to_string v) (show_yerror e)))
       else
         let%lwt _ = Logs_lwt.warn (fun m -> m "[SQL]: Can't put_delta Selector %s in Storage with path %s - the exact Storage path is required"
                                       (Selector.to_string selector) (Path.to_string storage_info.path))

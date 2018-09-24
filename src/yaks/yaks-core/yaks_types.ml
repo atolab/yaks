@@ -195,16 +195,16 @@ module Value = struct
     | Raw_Encoding
     | String_Encoding 
     | Json_Encoding  
+    | Sql_Encoding  
+
+  type sql_row = string list
+  type sql_column_names = string list
 
   type t  = 
     | RawValue of Lwt_bytes.t 
     | StringValue of string
     | JSonValue of string
-
-  let make buf = function 
-    | Raw_Encoding -> RawValue buf
-    | String_Encoding -> StringValue (Lwt_bytes.to_string buf)
-    | Json_Encoding -> JSonValue (Lwt_bytes.to_string buf)
+    | SqlValue of (sql_row * sql_column_names option)
 
   let update _ _ = Apero.Result.fail `UnsupportedOperation
 
@@ -212,38 +212,72 @@ module Value = struct
     | RawValue _ -> Raw_Encoding
     | StringValue _ -> String_Encoding
     | JSonValue _ -> Json_Encoding
+    | SqlValue _ -> Sql_Encoding
+
+
+  let sql_to_string = function
+    | (row, None) -> String.concat "," row
+    | (row, Some col) -> (String.concat "," row)^";"^(String.concat "," col)
+
+  let sql_of_string s = 
+    match String.split_on_char ';' s with
+    | row::[] -> String.split_on_char ',' row , None
+    | row::col::[] -> String.split_on_char ',' row , Some (String.split_on_char ',' col)
+    | _ -> raise @@ YException (`UnsupportedTranscoding (`Msg ("String to SQL of  "^s)))
 
   let to_raw_encoding = function
     | RawValue _ as v -> Apero.Result.ok @@ v
-    | StringValue s -> Apero.Result.ok @@ RawValue  (Lwt_bytes.of_string s)
+    | StringValue s -> Apero.Result.ok @@ RawValue (Lwt_bytes.of_string s)
     | JSonValue s -> Apero.Result.ok @@ RawValue (Lwt_bytes.of_string s)
+    | SqlValue v  -> Apero.Result.ok @@ RawValue (Lwt_bytes.of_string @@ sql_to_string v)
 
   let to_string_encoding = function 
     | RawValue r  -> Apero.Result.ok @@ StringValue (Lwt_bytes.to_string r)
     | StringValue _ as v  -> Apero.Result.ok @@ v
-    | JSonValue s -> Apero.Result.ok @@ StringValue s 
+    | JSonValue s -> Apero.Result.ok @@ StringValue s
+    | SqlValue v -> Apero.Result.ok @@ StringValue (sql_to_string v)
 
-  (* @TODO: Should really do the JSON validation *)
-  let to_json_encoding = function 
-    | RawValue r  -> Apero.Result.ok @@ JSonValue (Lwt_bytes.to_string r)
-    | StringValue s  -> Apero.Result.ok @@ JSonValue s
+  let json_from_sql (row, col) =
+    let open Yojson.Basic in
+    let kv_list = match col with
+    | None -> List.mapi (fun i v -> "'col_"^(string_of_int i) , `String v ) row
+    | Some col -> List.map2 (fun k v -> k , `String v) col row
+    in
+    to_string (`Assoc kv_list)
+
+  let to_json_encoding = 
+    let open Yojson.Basic in
+    function
+    | RawValue r  -> Apero.Result.ok @@ JSonValue (to_string @@ `String (Lwt_bytes.to_string r))  (* @TODO: base-64 encoding? *)
+    | StringValue s  -> Apero.Result.ok @@ JSonValue (to_string @@ `String s)
     | JSonValue _ as v -> Apero.Result.ok @@ v
+    | SqlValue v -> Apero.Result.ok @@ StringValue (json_from_sql v)
+
+  (* @TODO: use Error instead of Exception *)
+  let sql_from_json json =
+    let open Yojson.Basic in
+    match from_string json with
+    | `Assoc l -> List.split l |> fun (col, row) -> (List.map (fun json -> to_string json) row), Some col
+    | _ -> raise @@ YException (`UnsupportedTranscoding (`Msg ("Json to SQL of  "^json)))
+
+  let to_sql_encoding = function
+    | RawValue r -> Apero.Result.ok @@ SqlValue (sql_of_string (Lwt_bytes.to_string r))
+    | StringValue s  -> Apero.Result.ok @@ SqlValue (sql_of_string s)
+    | JSonValue s -> Apero.Result.ok @@ SqlValue (sql_from_json s)
+    | SqlValue _ as v -> Apero.Result.ok @@ v
+
 
   let transcode v = function   
     | Raw_Encoding -> to_raw_encoding v
     | String_Encoding -> to_string_encoding v
     | Json_Encoding -> to_json_encoding v
+    | Sql_Encoding -> to_sql_encoding v
 
   let of_string s e = transcode (StringValue s)  e
   let to_string  = function 
     | RawValue r -> Lwt_bytes.to_string r
     | StringValue s -> s 
     | JSonValue j -> j 
+    | SqlValue s -> sql_to_string s
 
-  let to_bytes  = function 
-    | RawValue r ->  r
-    | StringValue s -> Lwt_bytes.of_string s 
-    | JSonValue j -> Lwt_bytes.of_string j 
-
-  let of_bytes = make 
 end

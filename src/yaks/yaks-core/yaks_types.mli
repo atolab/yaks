@@ -70,20 +70,23 @@ module Value : sig
   type encoding = 
     | Raw_Encoding
     | String_Encoding 
-    | Json_Encoding  
+    | Json_Encoding
+    | Sql_Encoding  
+
+  type sql_row = string list
+  type sql_column_names = string list
 
   type t  = 
     | RawValue of Lwt_bytes.t 
     | StringValue of string
     | JSonValue of string
+    | SqlValue of (sql_row * sql_column_names option)
 
 
-  val make : Lwt_bytes.t -> encoding ->  t  
   val update : t -> t -> (t, yerror) Apero.Result.t
   val encoding : t -> encoding
   val transcode : t -> encoding -> (t, yerror) Apero.Result.t   
   val of_string : string -> encoding -> (t, yerror) Apero.Result.t 
   val to_string : t -> string  
-  val to_bytes : t -> Lwt_bytes.t
-  val of_bytes : Lwt_bytes.t -> encoding -> t 
+
 end
