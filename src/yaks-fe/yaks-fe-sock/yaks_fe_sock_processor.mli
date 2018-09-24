@@ -1,6 +1,6 @@
 open Yaks_fe_sock_types
 open Yaks_fe_sock_codes
-
+open Apero_net 
 module Processor : sig
 
   module type S = sig 
@@ -17,7 +17,7 @@ module Processor : sig
     val process_delete : YEngine.t -> message -> message Lwt.t
     val process_put : YEngine.t -> message -> message Lwt.t
     val process_get : YEngine.t -> message -> message Lwt.t
-    val process_sub : YEngine.t -> message -> message Lwt.t
+    val process_sub : YEngine.t -> TxSession.t -> message ->  message Lwt.t
     val process_unsub : YEngine.t -> message -> message Lwt.t
     val process_eval : YEngine.t -> message -> message Lwt.t
     val process_error :  message -> error_code -> message Lwt.t

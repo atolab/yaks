@@ -1,7 +1,7 @@
 module Make (YEngine : Yaks_engine.SEngine.S) : sig
 
   module Config : sig 
-    include module type of Apero_net.TcpService.Config
+    include module type of Apero_net.NetServiceTcp.TcpConfig
   end  
 
   type t 
