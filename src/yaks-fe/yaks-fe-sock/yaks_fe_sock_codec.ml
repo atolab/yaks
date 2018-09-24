@@ -63,22 +63,41 @@ let decode_header buf =
   | Some mid -> Result.ok ({mid; flags; corr_id; properties}, buf)
   | None -> Result.fail `UnknownMessageId 
 
-let encode_value v = encode_string @@ Yaks_core.Value.to_string v 
+let encode_value v buf =
+  let open Value in
+  let encode_value_encoding e = IOBuf.put_char (char_of_int @@ value_encoding_to_int e) buf in
+  (* TEMPORARY transcode to JSON *) let v = Value.transcode v Value.Json_Encoding |> Apero.Result.get in
+  match v with
+  | RawValue b -> encode_value_encoding RAW
+    >>= fun buf -> Apero.encode_bytes (IOBuf.from_bytes b) buf
+  | StringValue s -> encode_value_encoding STRING
+    >>= fun buf -> Apero.encode_string s buf
+  | JSonValue s -> encode_value_encoding JSON
+    >>= fun buf -> Apero.encode_string s buf
+  | SqlValue (row, col) -> encode_value_encoding SQL
+    >>= fun buf -> Apero.encode_seq Apero.encode_string row buf
+    >>= (fun buf -> match col with
+        | Some col -> Apero.encode_seq Apero.encode_string col buf
+        | None -> Apero.encode_seq Apero.encode_string [] buf)
 
-let decode_value flags buf =   
-  match get_encoding flags with 
-  | RAW -> 
-    decode_vle buf 
-    >>= fun (len, buf) ->        
-    IOBuf.blit_to_bytes (Vle.to_int len) buf 
-    >>= fun (bs, buf) ->
-    Result.ok (Yaks_core.Value.RawValue bs, buf)
-  | JSON -> 
-    decode_string buf 
-    >>= fun (s, buf) -> 
-    Result.ok (Yaks_core.Value.JSonValue s, buf)      
-  | _ ->         
-    Result.fail @@ `InvalidFormat `NoMsg
+let decode_value buf =
+  let open Value in
+  IOBuf.get_char buf
+  >>= fun (encoding, buf) -> match int_to_value_encoding @@ int_of_char encoding with
+    | Some RAW -> Apero.decode_bytes buf
+      >>= fun (b, buf) -> Result.ok (RawValue (IOBuf.to_bytes b), buf)
+    | Some STRING -> Apero.decode_string buf
+      >>= fun (s, buf) -> Result.ok (StringValue s, buf)
+    | Some JSON -> Apero.decode_string buf
+      >>= fun (s, buf) -> Result.ok (JSonValue s, buf)
+    | Some SQL -> Apero.decode_seq Apero.decode_string buf
+      >>= fun (row, buf) -> Apero.decode_seq Apero.decode_string buf
+      >>= (fun (col, buf) -> match col with
+          | [] -> Result.ok (SqlValue (row, None), buf)
+          | _  -> Result.ok (SqlValue (row, Some col), buf))
+    | Some _ -> Result.fail @@ `InvalidFormat (`Msg ("Unkown encoding: "^(int_of_char encoding |> string_of_int)))
+    | None -> Result.fail @@ `InvalidFormat `NoMsg
+
 
 let decode_pair decode_fst decode_snd buf = 
   decode_fst buf 
@@ -131,7 +150,7 @@ let decode_body (mid:message_id) (flags:char) (buf: IOBuf.t) =
      | _ -> Result.fail `InvalidFlags)  
 
   | PUT | PATCH ->
-    let decode_sv = decode_pair decode_selector (decode_value flags) in 
+    let decode_sv = decode_pair decode_selector decode_value in
     let decode_svs = decode_seq decode_sv in 
     decode_svs buf 
     >>= fun (svs, buf) -> Result.ok (YSelectorValueList svs, buf)

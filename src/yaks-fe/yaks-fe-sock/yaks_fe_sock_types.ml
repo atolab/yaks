@@ -8,7 +8,7 @@ open Yaks_fe_sock_codes
     +-+-+-+-+-+-+-+-+  ---+
     |  MESSAGE CODE |     |
     +-+-+-+-+-+-+-+-+     |
-    |X|X|E|N|C|A|S|P|     +--> Header
+    |X|X|X|X|X|A|S|P|     +--> Header
     +-+-+-+-+-+-+-+-+     | 
     ~   Coor. ID    ~     |
     +---------------+     |
@@ -38,10 +38,6 @@ let make_header mid (mflags: message_flags list) corr_id properties =
 let has_property_flag flags = (int_of_char flags) land 0x01 <> 0
 let has_storage_flag flags = (int_of_char flags) land 0x02 <> 0
 let has_access_flag flags = (int_of_char flags) land 0x04 <> 0
-let get_encoding flags = 
-  match int_to_value_encoding @@ (int_of_char flags) land 0x18 with 
-  | Some e -> e 
-  | None -> ENCODING_INVALID
 
 type payload = 
   | YEmpty

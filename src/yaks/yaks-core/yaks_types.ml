@@ -215,14 +215,20 @@ module Value = struct
     | SqlValue _ -> Sql_Encoding
 
 
+  let sql_val_sep = Char.chr 31 (* US - unit separator *)
+  let sql_val_sep_str = String.make 1 sql_val_sep
+  let sql_row_sep = Char.chr 30 (* RS - record separator *)
+  let sql_row_sep_str = String.make 1 sql_row_sep
+  
+
   let sql_to_string = function
-    | (row, None) -> String.concat "," row
-    | (row, Some col) -> (String.concat "," row)^";"^(String.concat "," col)
+    | (row, None) -> String.concat sql_val_sep_str row
+    | (row, Some col) -> (String.concat sql_val_sep_str row)^sql_row_sep_str^(String.concat sql_val_sep_str col)
 
   let sql_of_string s = 
-    match String.split_on_char ';' s with
-    | row::[] -> String.split_on_char ',' row , None
-    | row::col::[] -> String.split_on_char ',' row , Some (String.split_on_char ',' col)
+    match String.split_on_char sql_row_sep s with
+    | row::[] -> String.split_on_char sql_val_sep row , None
+    | row::col::[] -> String.split_on_char sql_val_sep row , Some (String.split_on_char sql_val_sep col)
     | _ -> raise @@ YException (`UnsupportedTranscoding (`Msg ("String to SQL of  "^s)))
 
   let to_raw_encoding = function
