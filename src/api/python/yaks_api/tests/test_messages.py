@@ -21,6 +21,11 @@ class MessagesTests(unittest.TestCase):
         self.assertEqual(msg1.flags, msg2.flags)
         self.assertEqual(msg1.properties, msg2.properties)
 
+    def test_set_encoding(self):
+        msg1 = messages.Message()
+        msg1.set_encoding(messages.JSON)
+        self.assertEqual(msg1.get_encoding(), messages.JSON)
+
     def test_add_get_string(self):
         msg1 = messages.Message()
         msg1.add_path('test_string_as_payload')
@@ -28,38 +33,92 @@ class MessagesTests(unittest.TestCase):
         msg2 = messages.Message(packed)
         self.assertEqual('test_string_as_payload', msg2.get_path())
 
-    def test_add_get_kv(self):
-        msg1 = messages.Message()
-        msg1.add_key_value('test_key', 'test_value')
-        packed = msg1.pack()
-        msg2 = messages.Message(packed)
-        kv = msg2.get_key_value()
-        self.assertEqual('test_key', kv.get('key'))
-        self.assertEqual('test_value', kv.get('value'))
-
     def test_add_get_values(self):
         msg1 = messages.Message()
         v1 = [
             {'key': 'hello', 'value': 'world'},
             {'key': 'another', 'value': 'longvalue'}
         ]
+        msg1.set_encoding(messages.RAW)
+        msg1.message_code = messages.VALUES
         msg1.add_values(v1)
         packed = msg1.pack()
         msg2 = messages.Message(packed)
         v2 = msg2.get_values()
         self.assertEqual(v1, v2)
 
-    def test_set_encoding(self):
+    def test_set_encoding_json(self):
+        v1 = [
+            {'key': 'hello', 'value': 'world'},
+            {'key': 'another', 'value': 'longvalue'}
+        ]
         msg1 = messages.Message()
-        msg1.set_encoding(messages.PROTOBUF)
+        msg1.message_code = messages.VALUES
+        msg1.set_encoding(messages.JSON)
+        msg1.add_values(v1)
         packed = msg1.pack()
         msg2 = messages.Message(packed)
-        self.assertEqual(msg1.flag_enc, msg2.flag_enc)
+        self.assertEqual(msg1.get_encoding(), msg2.get_encoding())
         self.assertEqual(msg1.flags, msg2.flags)
+        self.assertEqual(msg2.get_values(), v1)
+
+    def test_set_encoding_raw(self):
+        v1 = [
+            {'key': 'hello', 'value': 'world'},
+            {'key': 'another', 'value': 'longvalue'}
+        ]
+        msg1 = messages.Message()
+        msg1.message_code = messages.VALUES
+        msg1.set_encoding(messages.RAW)
+        msg1.add_values(v1)
+        packed = msg1.pack()
+        msg2 = messages.Message(packed)
+        self.assertEqual(msg1.get_encoding(), msg2.get_encoding())
+        self.assertEqual(msg1.flags, msg2.flags)
+        self.assertEqual(msg2.get_values(), v1)
+
+    def test_set_encoding_string(self):
+        v1 = [
+            {'key': 'hello', 'value': 'world'},
+            {'key': 'another', 'value': 'longvalue'}
+        ]
+        msg1 = messages.Message()
+        msg1.message_code = messages.VALUES
+        msg1.set_encoding(messages.STRING)
+        msg1.add_values(v1)
+        packed = msg1.pack()
+        msg2 = messages.Message(packed)
+        self.assertEqual(msg1.get_encoding(), msg2.get_encoding())
+        self.assertEqual(msg1.flags, msg2.flags)
+        self.assertEqual(msg2.get_values(), v1)
+
+    def test_set_encoding_sql(self):
+        v1 = [
+            {'key': 'hello', 'value': (['val1', 'val2'], ['col1', 'col2'])}
+        ]
+        msg1 = messages.Message()
+        msg1.message_code = messages.VALUES
+        msg1.set_encoding(messages.SQL)
+        msg1.add_values(v1)
+        packed = msg1.pack()
+        msg2 = messages.Message(packed)
+        self.assertEqual(msg1.get_encoding(), msg2.get_encoding())
+        self.assertEqual(msg1.flags, msg2.flags)
+        self.assertEqual(msg2.get_values(), v1)
+
+    def test_set_encoding_protobuf(self):
+        v1 = [
+            {'key': 'hello', 'value': (['val1', 'val2'], ['col1', 'col2'])}
+        ]
+        msg1 = messages.Message()
+        msg1.message_code = messages.VALUES
+        msg1.set_encoding(messages.PROTOBUF)
+        self.assertRaises(NotImplementedError, msg1.add_values, v1)
 
     def test_set_encoding_exception(self):
         msg1 = messages.Message()
-        self.assertRaises(ValueError, msg1.set_encoding, 12)
+        msg1.message_code = messages.VALUES
+        self.assertRaises(ValueError, msg1.set_encoding, 0x100)
 
     def test_ok_message(self):
         msg1 = messages.MessageOk('1', '123')

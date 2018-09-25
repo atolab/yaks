@@ -50,17 +50,6 @@ WIRE MESSAGE:
 ~     Body      ~ VL
 +---------------+
 
-VALUE ENCODING:
-+----------+---+---+---+
-|   TYPE   | E | N | C |
-+----------+---+---+---+
-|   RAW    | 0 | 0 | 1 |
-+----------+---+---+---+
-|  JSON    | 0 | 1 | 0 |
-+----------+---+---+---+
-| Protobuf | 0 | 1 | 1 |
-+----------+---+---+---+
-
 
 '''
 import random
@@ -87,9 +76,12 @@ VALUES = 0xD2
 ERROR = 0xE0
 
 # Encoding
-RAW = 0x1
-JSON = 0x2
-PROTOBUF = 0x3
+RAW = 0x01
+STRING = 0x02
+JSON = 0x03
+PROTOBUF = 0x04
+SQL = 0x05
+INVALID = 0x00
 
 
 class EntityType(Enum):
@@ -105,9 +97,7 @@ class Message(object):
         self.message_code = 0x0
         # 8bit
         self.flags = 0x0
-        # 8bit comprises ENC,A,S,P
-        self.flag_enc = 0x0
-        #3bit
+        # 8bit comprises A,S,P
         self.flag_a = 0x0
         # 1bit
         self.flag_s = 0x0
@@ -119,6 +109,10 @@ class Message(object):
         self.length = 0x0
         # 64bit
         self.properties = []
+
+        # 8bit
+        self.encoding = 0x00
+
         # key-value tuple list (string,string)
         self.data = b''
         if self.raw_msg is not None:
@@ -134,6 +128,12 @@ class Message(object):
             data = buf[base_p]
             vle_field.append(data.to_bytes(1, byteorder='big'))
         return self.encoder.decode(vle_field), base_p + 1
+
+    def __read_encoding(self, data, base_p):
+        _, base_p = self.__read_vle_field(data, base_p)
+        k_len, base_p = self.__read_vle_field(data, base_p)
+        base_p = base_p + k_len
+        return struct.unpack('<B', data[base_p: base_p + 1])[0]
 
     def pack(self):
         header = struct.pack('<BB', self.message_code, self.flags)
@@ -178,11 +178,10 @@ class Message(object):
     def unpack(self):
         sub_header = self.raw_msg[0:2]
 
-        msg = struct.unpack("<BB", sub_header)
+        msg = struct.unpack('<BB', sub_header)
         self.message_code = msg[0]
         self.flags = msg[1]
 
-        self.flag_enc = (self.flags & 0x38) >> 3
         self.flag_a = (self.flags & 0x04) >> 2
         self.flag_s = (self.flags & 0x02) >> 1
         self.flag_p = self.flags & 0x01
@@ -196,19 +195,21 @@ class Message(object):
                 key_length, base_p = \
                     self.__read_vle_field(self.raw_msg, base_p)
                 key_raw = self.raw_msg[base_p:base_p + key_length]
-                k = struct.unpack("<{}s".format(key_length),
+                k = struct.unpack('<{}s'.format(key_length),
                                   key_raw)[0].decode()
                 base_p = base_p + key_length
 
                 value_length, base_p = \
                     self.__read_vle_field(self.raw_msg, base_p)
                 value_raw = self.raw_msg[base_p:base_p + value_length]
-                v = struct.unpack("<{}s".format(value_length),
+                v = struct.unpack('<{}s'.format(value_length),
                                   value_raw)[0].decode()
                 base_p = base_p + value_length
                 self.properties.append({'key': k, 'value': v})
 
         self.data = self.raw_msg[base_p:]
+        if len(self.data) > 0 and self.message_code == VALUES:
+            self.encoding = self.__read_encoding(self.data, 0)
         return self
 
     def __add_vle(self, number):
@@ -232,45 +233,77 @@ class Message(object):
     def __get_string(self, data, base_p):
         path_length, base_p = self.__read_vle_field(data, base_p)
         path_raw = data[base_p:base_p + path_length]
-        string = struct.unpack("<{}s".format(path_length),
+        string = struct.unpack('<{}s'.format(path_length),
                                path_raw)[0].decode()
         return string, base_p + path_length
 
-    def __add_key_value(self, k, v):
-        body = b''
+    def __encode_list(self, value_list):
+        data = b''
+        llen = len(value_list)
+        for b in self.encoder.encode(llen):
+            data = data + b
+        for e in value_list:
+            e_len = len(e)
+            for b in self.encoder.encode(e_len):
+                data = data + b
+            fmt = '<{}s'.format(e_len)
+            data = data + struct.pack(fmt, e.encode())
+        return data
 
-        k = k.encode()
-        v = v.encode()
-        len_k = len(k)
-        len_v = len(v)
+    def __decode_list(self, data, base_p):
+        value_list = []
+        llen, base_p = self.__read_vle_field(data, base_p)
+        for i in range(0, llen):
+            s_len, base_p = self.__read_vle_field(data, base_p)
+            s_raw = data[base_p: base_p + s_len]
+            fmt = '<{}s'.format(s_len)
+            value_list.append(struct.unpack(fmt, s_raw)[0].decode())
+            base_p = base_p + s_len
+        return value_list, base_p
 
-        for b in self.encoder.encode(len_k):
-            body = body + b
+    def __value_encoding(self, value):
+        data = b''
+        if self.encoding in [RAW, JSON, STRING]:
+            len_v = len(value)
+            data = data + struct.pack('<B', self.encoding)
+            for b in self.encoder.encode(len_v):
+                data = data + b
+            fmt = '<{}s'.format(len_v)
+            data = data + struct.pack(fmt, value.encode())
+        elif self.encoding == SQL:
+            data = data + struct.pack('<B', self.encoding)
+            row_values, column_names = value
+            data = data + self.__encode_list(row_values)
+            data = data + self.__encode_list(column_names)
+        elif self.encoding == PROTOBUF:
+            raise NotImplementedError('Not yet implemented')
+        elif self.encoding == INVALID:
+            raise ValueError('Encoding invalid')
+        else:
+            raise ValueError('Unknown encoding')
+        return data
 
-        fmt = '<{}s'.format(len_k)
-        body = body + struct.pack(fmt, k)
-
-        for b in self.encoder.encode(len_v):
-            body = body + b
-
-        fmt = '<{}s'.format(len_v)
-        body = body + struct.pack(fmt, v)
-        return body
-
-    def __get_key_value(self, data, base_p):
-
-        key_length, base_p = self.__read_vle_field(data, base_p)
-        key_raw = data[base_p:base_p + key_length]
-        k = struct.unpack("<{}s".format(key_length),
-                          key_raw)[0].decode()
-        base_p = base_p + key_length
-
-        value_length, base_p = \
-            self.__read_vle_field(data, base_p)
-        value_raw = data[base_p:base_p + value_length]
-        v = struct.unpack("<{}s".format(value_length),
-                          value_raw)[0].decode()
-        return {'key': k, 'value': v}, base_p + value_length
+    def __value_decoding(self, data, base_p):
+        v = None
+        self.encoding = struct.unpack('<B', data[base_p: base_p + 1])[0]
+        base_p = base_p + 1
+        if self.encoding in [RAW, JSON, STRING]:
+            len_v, base_p = self.__read_vle_field(data, base_p)
+            fmt = '<{}s'.format(len_v)
+            val_raw = data[base_p:base_p + len_v]
+            v = struct.unpack(fmt, val_raw)[0].decode()
+            base_p = base_p + len_v
+        elif self.encoding == SQL:
+            l_values, base_p = self.__decode_list(data, base_p)
+            l_names, base_p = self.__decode_list(data, base_p)
+            v = (l_values, l_names)
+        elif self.encoder == PROTOBUF:
+            raise NotImplementedError('Not yet implemented')
+        elif self.encoding == INVALID:
+            raise ValueError('Encoding invalid')
+        else:
+            raise ValueError('Unknown encoding')
+        return v, base_p
 
     def __add_key_value_list(self, kvs):
         body = b''
@@ -279,9 +312,8 @@ class Message(object):
             body = body + b
         for p in kvs:
             k = p.get('key').encode()
-            v = p.get('value').encode()
+            v = p.get('value')
             len_k = len(k)
-            len_v = len(v)
 
             for b in self.encoder.encode(len_k):
                 body = body + b
@@ -289,11 +321,7 @@ class Message(object):
             fmt = '<{}s'.format(len_k)
             body = body + struct.pack(fmt, k)
 
-            for b in self.encoder.encode(len_v):
-                body = body + b
-
-            fmt = '<{}s'.format(len_v)
-            body = body + struct.pack(fmt, v)
+            body = body + self.__value_encoding(v)
         return body
 
     def __get_key_value_list(self, data, base_p):
@@ -302,16 +330,11 @@ class Message(object):
         for i in range(0, num_kvs):
             key_length, base_p = self.__read_vle_field(data, base_p)
             key_raw = data[base_p:base_p + key_length]
-            k = struct.unpack("<{}s".format(key_length),
+            k = struct.unpack('<{}s'.format(key_length),
                               key_raw)[0].decode()
             base_p = base_p + key_length
 
-            value_length, base_p = \
-                self.__read_vle_field(data, base_p)
-            value_raw = data[base_p:base_p + value_length]
-            v = struct.unpack("<{}s".format(value_length),
-                              value_raw)[0].decode()
-            base_p = base_p + value_length
+            v, base_p = self.__value_decoding(data, base_p)
             kvs.append({'key': k, 'value': v})
         return kvs, base_p
 
@@ -337,13 +360,6 @@ class Message(object):
         kvs, _ = self.__get_key_value_list(self.data, pos)
         return subid, kvs
 
-    def add_key_value(self, k, v):
-        self.data = self.__add_key_value(k, v)
-
-    def get_key_value(self):
-        kv, _ = self.__get_key_value(self.data, 0)
-        return kv
-
     def add_subscription(self, subid):
         self.data = self.__add_string(subid)
 
@@ -366,10 +382,12 @@ class Message(object):
         return e
 
     def set_encoding(self, encoding):
-        if encoding > 7:
+        if encoding > 0xFF:
             raise ValueError('Encoding not supported')
-        self.flag_enc = encoding
-        self.flags = (encoding << 3) | self.flags
+        self.encoding = encoding
+
+    def get_encoding(self):
+        return self.encoding
 
     def set_p(self):
         self.flag_p = 1
@@ -429,9 +447,8 @@ class Message(object):
                  + '\n# CODE: {}'.format(self.message_code) \
                  + '\n# CORR.ID: {}'.format(self.corr_id) \
                  + '\n# LENGTH: {}'.format(self.length) \
-                 + '\n# FLAGS: RAW: {} | ENC: {} A:{} S:{} P:{}'.\
-                format(self.flags, self.flag_enc,
-                       self.flag_a, self.flag_s, self.flag_p)
+                 + '\n# FLAGS: RAW: {} | A:{} S:{} P:{}'.\
+                format(self.flags, self.flag_a, self.flag_s, self.flag_p)
 
         if self.flag_p:
             pretty = pretty + '\n# HAS PROPERTIES\n# NUMBER OF PROPERTIES:' \
@@ -555,11 +572,12 @@ class MessageEval(Message):
 
 
 class MessageValues(Message):
-    def __init__(self, id, kvs):
+    def __init__(self, id, kvs, encoding=RAW):
         super(MessageValues, self).__init__()
         self.message_code = VALUES
         self.generate_corr_id()
         self.add_property('is.yaks.access.id', id)
+        self.set_encoding(encoding)
         self.add_values(kvs)
 
 
