@@ -141,13 +141,13 @@ let create_kv_table_query table_name props =
        "CREATE TABLE %s (k VARCHAR(%d) NOT NULL PRIMARY KEY, v TEXT)"
        table_name key_size)
 
-let kv_table_schema = "k"::"v"::[], Dyntype.(add string string)
+let kv_table_schema = "k"::"v"::"e"::[], Dyntype.(add string (add string string))
 
 let create_kv_table conx table_name props =
   let open Yaks_property in
   let open Apero.Option.Infix in
   let key_size = get_property Be_sql_property.Key.key_size props >>= int_of_string_opt >?= default_key_size in
-  let query = "CREATE TABLE "^table_name^" (k VARCHAR("^(string_of_int key_size)^") NOT NULL PRIMARY KEY, v TEXT)" in
+  let query = "CREATE TABLE "^table_name^" (k VARCHAR("^(string_of_int key_size)^") NOT NULL PRIMARY KEY, v TEXT, e VARCHAR(20))" in
   let open Apero.LwtM.InfixM in
   exec_query conx query >> Lwt.return kv_table_schema
 

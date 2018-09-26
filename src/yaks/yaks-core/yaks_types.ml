@@ -32,6 +32,7 @@ type yerror = [
   | `UnauthorizedAccess of error_info
   | `UnsupportedTranscoding of error_info
   | `UnsupportedOperation
+  | `InternalError of error_info
 ] [@@deriving show]
 
 exception YException of yerror [@@deriving show]
@@ -140,12 +141,11 @@ module Selector = struct
   let is_matching ?(prefix_matching=false) path selector =
     let sel_path = remove_last_slash selector.path and path = remove_last_slash path in
     let _ = Logs_lwt.debug (fun m -> m "---- is_matching %b %s %s " prefix_matching path sel_path) in
-    let sel = full_split wildcard_regex sel_path in
     let rec check_matching sel path =
       let _ = Logs_lwt.debug (fun m -> m "   - check_match %s %s " (string_of_sel sel) path) in
       match (sel, path) with
       | ([], "") -> let _ = Logs_lwt.debug (fun m -> m "   - exact match ") in true
-      | (_::[], "") -> let _ = Logs_lwt.debug (fun m -> m "   - path too short ") in prefix_matching  (* path too short: OK if prefix_matching expected, not-OK if full match expected *)
+      | (_, "") -> let _ = Logs_lwt.debug (fun m -> m "   - path too short") in prefix_matching  (* path too short: OK if prefix_matching expected, not-OK if full match expected *)
       | ([], _) -> let _ = Logs_lwt.debug (fun m -> m "   - path too long ") in false                (* path too long *)
       | (Text(t)::sel, path) ->
         if prefix_matching then
@@ -177,17 +177,33 @@ module Selector = struct
         )
       | (Delim(_)::_, _) -> raise (Invalid_argument "Invalid Selector") (* Shouldn't happen !!!*)
     in
-    check_matching sel path
+    check_matching (full_split wildcard_regex sel_path) path
 
-  (* let match_string sel str = 
-     match Path.of_string str with 
-     | Some p -> match_path sel p
-     | None -> false *)
 
-  (* let of_string_list selectors = 
-     List.map (fun e -> match of_string e with | Some s -> s | _ -> failwith "Selector.of_string_list error non valid selector after check ??") @@ List.filter (fun e -> is_valid e) selectors *)
-  (* let to_string_list selectors = 
-     List.map (fun e -> to_string e) selectors *)
+    let remove_prefix prefix selector =
+      (* NOTE: this algo assumes that matching of prefix with the selector have been checked *)
+      let sel = to_string selector in
+      let open Apero in
+      let rec next_char ip is =
+        if is >= String.length sel then ""
+        else if ip >= String.length prefix then String.after sel is
+        else match String.get sel is with
+          | c when c = String.get prefix ip -> next_char (ip+1) (is+1)
+          | '*' ->
+            if is+1 = String.length sel then ""
+            else let next_sel_char = String.get sel (is+1) in 
+              if next_sel_char = '*' then   (* found '**' in selector *)
+                raise (Invalid_argument "Selector with ** not supported yet in remove_prefix operation")
+              else  (* found '*' in selector *)
+                let ip' = String.index_from prefix (ip+1) next_sel_char in
+                next_char ip' (is+1)
+
+          | _ -> String.after sel is
+
+
+      in
+      next_char 0 0
+
 end
 
 module Value = struct 
@@ -214,6 +230,17 @@ module Value = struct
     | JSonValue _ -> Json_Encoding
     | SqlValue _ -> Sql_Encoding
 
+  let encoding_to_string = function 
+    | Raw_Encoding -> "RAW"
+    | String_Encoding -> "STRING"
+    | Json_Encoding -> "JSON"
+    | Sql_Encoding -> "SQL"
+
+  let encoding_of_string s =
+    if s = "STRING" then String_Encoding
+    else if s = "JSON" then Json_Encoding
+    else if s = "SQL" then Sql_Encoding
+    else Raw_Encoding
 
   let sql_val_sep = Char.chr 31 (* US - unit separator *)
   let sql_val_sep_str = String.make 1 sql_val_sep

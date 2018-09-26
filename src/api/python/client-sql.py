@@ -34,6 +34,37 @@ def main():
     input()
     access = y.create_access('//is/test/')
 
+    print('****** SQL storage - key/value table ********')
+
+    print('>> Put //is/test/db/new-table/A')
+    input()
+    access.put('//is/test/db/new-table/A', "ABC")
+
+    print('>> Put //is/test/db/new-table/D')
+    input()
+    access.put('//is/test/db/new-table/D', "DEF")
+
+    print('>> Put //is/test/db/new-table/G')
+    input()
+    access.put('//is/test/db/new-table/G', "GHI")
+
+    print('>> Get //is/test/db/new-table/A')
+    input()
+    print('GET: {}'.format(access.get('//is/test/db/new-table/A')))
+
+    print('>> Get //is/test/db/new-table/D')
+    input()
+    print('GET: {}'.format(access.get('//is/test/db/new-table/D')))
+
+    print('>> Remove //is/test/db/new-table/D')
+    input()
+    access.remove('//is/test/db/new-table/D')
+
+    print('>> Get //is/test/db/new-table/D')
+    input()
+    print('GET: {}'.format(access.get('//is/test/db/new-table/D')))
+
+
     print('****** SQL storage - legacy table ********')
 
     print('>> Get //is/test/db/leg-table')
@@ -55,6 +86,9 @@ def main():
     print('>> Get //is/test/db/leg-table')
     input()
     print('GET: {}'.format(access.get('//is/test/db/leg-table')))
+
+
+    print('****** DISPOSE ALL ********')
 
     print('>> Dispose Access')
     input()
