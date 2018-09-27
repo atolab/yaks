@@ -8,16 +8,16 @@ def obs(kvs):
 
 def main():
     print('creating api')
-    #y = api.YAKS(sys.argv[1])
-    y = api.YAKS('127.0.0.1')
+    y = api.YAKS(sys.argv[1])
+    # y = api.YAKS('127.0.0.1')
     print('>> Create storage')
     input()
-    #storage = y.create_storage('//fos')
+    # storage = y.create_storage('//fos')
     print('>> Create access')
     input()
     access = y.create_access('//fos')
 
-    sid = access.subscribe('//fos/example/*', obs)
+    # sid = access.subscribe('//fos/example/*', obs)
 
     print('>> Put Tuple')
     input()
@@ -25,7 +25,7 @@ def main():
 
     print('>> Unsubscribe and Put Tuple')
     input()
-    access.unsubscribe(sid)
+    # access.unsubscribe(sid)
     access.put('//fos/example/two', 'hello2!')
 
     print('>> Put Tuple')
@@ -50,7 +50,7 @@ def main():
 
     print('>> Dispose Storage')
     input()
-    #storage.dispose()
+    # storage.dispose()
 
     y.close()
     print('bye!')

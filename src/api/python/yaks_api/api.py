@@ -43,6 +43,8 @@ class SendingThread(threading.Thread):
                 self.waiting_msgs.update({msg_s.corr_id: (msg_s, var)})
                 try:
                     self.sock.sendall(msg_s.pack_for_transport())
+                    logger.debug('SendingThread', 'Message Sent on Wire\n{}'.
+                                 format(msg_s.dump_net()))
                 except OSError as e:
                     if e.errno == 9:
                         logger.error('SendingThread', 'Bad FD')
@@ -59,8 +61,6 @@ class SendingThread(threading.Thread):
                 finally:
                     self.lock.release()
 
-                logger.debug('SendingThread', 'Message Sent on Wire\n{}'.
-                             format(msg_s.dump_net()))
 
 
 class ReceivingThread(threading.Thread):
