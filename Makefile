@@ -4,7 +4,7 @@ BUILD_LIB=dune build
 EXES=src/yaks/yaks-daemon/yaksd.exe #src/yaks-tools/yaks-cat/yaksc.exe
 BUILD_EXE=dune build ${EXES}
 CLEAN= dune clean
-TEST=dune runtest -j1 --no-buffer --dev
+TEST=dune runtest -j1 --no-buffer
 INSTALL=dune install
 UNINSTALL = dune uninstall
 all:
