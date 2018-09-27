@@ -36,10 +36,12 @@ module Selector : sig
   val is_unique_path : t -> bool
   val as_unique_path : t -> Path.t option
   val is_matching : ?prefix_matching:bool -> Path.t -> t -> bool
-  (** [is_matching p s] tests if the Path [p] matches the Selector [s]*)
-  (* val match_string : t -> string -> bool *)
-  (* val of_string_list : string list -> t list *)
-  (* val to_string_list : t list -> string list *)
+  (** [is_matching p s] tests if the Path [p] matches the Selector [s].
+      I [prefix_matching] is true [p] can be only a prefix of [s] to match.
+      By default [prefix_matching] is set to false. *)
+  val remove_prefix : Path.t -> t -> string
+(** [remove_prefix p s] returns the remaining part of [s] when the prefix [p] has been removed
+    (assuming [p] is a matching prefix of [s]). *)
 end [@@deriving show]
 
 type error_info = [`NoMsg | `Msg of string | `Code of int | `Pos of (string * int * int * int) | `Loc of string] [@@deriving show]  
@@ -61,6 +63,7 @@ type yerror = [
   | `UnauthorizedAccess of error_info
   | `UnsupportedTranscoding of error_info
   | `UnsupportedOperation
+  | `InternalError of error_info
 ] [@@deriving show]
 
 
@@ -85,6 +88,8 @@ module Value : sig
 
   val update : t -> t -> (t, yerror) Apero.Result.t
   val encoding : t -> encoding
+  val encoding_to_string : encoding -> string
+  val encoding_of_string : string -> encoding
   val transcode : t -> encoding -> (t, yerror) Apero.Result.t   
   val of_string : string -> encoding -> (t, yerror) Apero.Result.t 
   val to_string : t -> string  
