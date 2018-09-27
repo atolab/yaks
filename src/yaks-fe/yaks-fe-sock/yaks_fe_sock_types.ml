@@ -52,7 +52,7 @@ type payload =
   | YSelectorValueList of (Yaks_core.Selector.t * Yaks_core.Value.t) list
   | YPathValueList of (Yaks_core.Path.t * Yaks_core.Value.t) list
   | YSubscription of string
-  | YNotification of string * ((Yaks_core.Path.t * Yaks_core.Value.t) list)
+  | YNotification of string * (Yaks_core.Path.t * Yaks_core.Value.t) list
   | YErrorInfo of Vle.t
 
 
