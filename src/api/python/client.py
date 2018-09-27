@@ -23,8 +23,9 @@ def main():
     input()
     access.put('//fos/example/one', 'hello!')
 
-    print('>> Put Tuple')
+    print('>> Unsubscribe and Put Tuple')
     input()
+    access.unsubscribe(sid)
     access.put('//fos/example/two', 'hello2!')
 
     print('>> Put Tuple')

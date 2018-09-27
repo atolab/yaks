@@ -207,11 +207,11 @@ class Access(object):
         self.__send_queue.put((msg_unsub, var))
         r = var.get()
         if YAKS.check_msg(r, msg_unsub.corr_id, expected=OK):
-            subid = msg_unsub.get_property('is.yaks.subscription.id')
-            if subid != subscription_id:
-                raise RuntimeError('Subscription ID does not match'
-                                   ' (local) {} != (net) {}'.
-                                   format(subscription_id, subid))
+            # subid = r.get_property('is.yaks.subscription.id')
+            # if subid != subscription_id:
+            #    raise RuntimeError('Subscription ID does not match'
+            #                       ' (local) {} != (net) {}'.
+            #                       format(subscription_id, subid))
             self.__subscriptions.pop(subscription_id)
             return True
         return False
