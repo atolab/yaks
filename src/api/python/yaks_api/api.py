@@ -119,8 +119,8 @@ class ReceivingThread(threading.Thread):
                                 cbk = self.subscriptions.get(sid)
                                 threading.Thread(target=cbk, args=(kvs,),
                                                  daemon=True).start()
-                                ok = MessageOk(0, msg_r.corr_id)
-                                self.send_q.put((ok, MVar()))
+                                # ok = MessageOk(0, msg_r.corr_id)
+                                # self.send_q.put((ok, MVar()))
                         elif self.waiting_msgs.get(msg_r.corr_id) is None:
                             logger.info('ReceivingThread',
                                         'This message was not expected!')
@@ -193,7 +193,7 @@ class Access(object):
         self.__send_queue.put((msg_sub, var))
         r = var.get()
         if YAKS.check_msg(r, msg_sub.corr_id, expected=OK):
-            subid = msg_sub.get_property('is.yaks.subscription.id')
+            subid = r.get_property('is.yaks.subscription.id')
             self.__subscriptions.update({subid: callback})
             return subid
         return None
@@ -207,11 +207,11 @@ class Access(object):
         self.__send_queue.put((msg_unsub, var))
         r = var.get()
         if YAKS.check_msg(r, msg_unsub.corr_id, expected=OK):
-            subid = msg_unsub.get_property('is.yaks.subscription.id')
-            if subid != subscription_id:
-                raise RuntimeError('Subscription ID does not match'
-                                   ' (local) {} != (net) {}'.
-                                   format(subscription_id, subid))
+            # subid = r.get_property('is.yaks.subscription.id')
+            # if subid != subscription_id:
+            #    raise RuntimeError('Subscription ID does not match'
+            #                       ' (local) {} != (net) {}'.
+            #                       format(subscription_id, subid))
             self.__subscriptions.pop(subscription_id)
             return True
         return False
@@ -301,7 +301,8 @@ class YAKS(object):
         msg = var.get()
         if self.check_msg(msg, create_msg.corr_id):
             id = msg.get_property('is.yaks.access.id')
-            acc = Access(self.send_queue, id, path, cache_size, encoding)
+            acc = Access(self.send_queue, id, path, cache_size, encoding,
+                         self.subscriptions)
             self.accesses.update({id: acc})
             return acc
         else:
