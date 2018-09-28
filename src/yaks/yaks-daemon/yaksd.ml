@@ -40,6 +40,7 @@ let add_rest_fe engine http_port =
 let add_socket_fe engine sock_port =
   let module YSockFE = Yaks_fe_sock.Make (YEngine) in 
   let socket_addr = "tcp/0.0.0.0:"^(string_of_int sock_port) in
+  
   let socket_cfg = YSockFE.Config.make (Apero.Option.get @@ Apero_net.TcpLocator.of_string socket_addr) in 
   let sockfe = YSockFE.create socket_cfg engine in 
   YSockFE.start sockfe
@@ -51,7 +52,7 @@ let run_yaksd without_storage http_port sock_port =
   try%lwt
     let engine = YEngine.make () in
     YEngine.add_backend engine (Yaks_be_mm.MainMemoryBEF.make empty_properties) >>= fun _ ->
-    YEngine.add_backend engine (Yaks_be_sql.SQLBEF.make sql_props) >>= fun _ ->
+    (* YEngine.add_backend engine (Yaks_be_sql.SQLBEF.make sql_props) >>= fun _ -> *)
     let def_store = add_default_storage engine without_storage >>= fun _ -> Lwt.return_unit in
     let rest_fe = add_rest_fe engine http_port in
     let sock_fe = add_socket_fe engine sock_port in

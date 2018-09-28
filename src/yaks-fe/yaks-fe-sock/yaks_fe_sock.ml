@@ -21,14 +21,20 @@ module Make (YEngine : Yaks_engine.SEngine.S) = struct
     { tcp_fe: TcpSocketFE.t
     ; io_svc: TcpSocketFE.io_service }
     
-  let reader sock  = 
+ 
+  let reader sock  =     
     let lbuf = IOBuf.create 16 in 
-    let%lwt len = Net.read_vle sock lbuf in          
-    let buf = IOBuf.create (Vle.to_int len) in 
-    let%lwt _ = Net.read sock buf in     
+    let%lwt len = Net.read_vle sock lbuf in    
+    let%lwt _ = Logs_lwt.debug (fun m -> m "Message lenght : %d" (Vle.to_int len)) in      
+    let buf = IOBuf.create (Vle.to_int len) in     
+    let%lwt n = Net.read sock buf in         
+    let%lwt _ = Logs_lwt.debug (fun m -> m "Read %d bytes our of the socket" n) >>= fun _ -> Lwt.return_unit in      
+            
     match decode_message buf with 
     | Ok (msg, _) -> Lwt.return msg
-    | Error e -> Lwt.fail @@ Exception e
+    | Error e -> 
+      let%lwt _ = Logs_lwt.debug (fun m -> m "Falied in parsing message %s" (Apero.show_error e)) in
+      Lwt.fail @@ Exception e
 
   let writer buf sock msg = 
     match encode_message msg buf with 
@@ -38,8 +44,12 @@ module Make (YEngine : Yaks_engine.SEngine.S) = struct
       (match encode_vle (Vle.of_int @@ IOBuf.limit fbuf) lbuf with 
        | Ok lbuf -> 
          Net.send_vec sock [IOBuf.flip lbuf; fbuf]
-       | Error e -> Lwt.fail @@ Exception e )     
-    | Error e -> Lwt.fail @@ Exception e 
+       | Error e -> 
+        let%lwt _ = Logs_lwt.debug (fun m -> m "Falied in writing message") in
+        Lwt.fail @@ Exception e )     
+    | Error e -> 
+      let%lwt _ = Logs_lwt.debug (fun m -> m "Falied in encoding messge") in
+      Lwt.fail @@ Exception e 
 
   
   let dispatch_message engine tx_sex  msg = 

@@ -68,9 +68,10 @@ let encode_value v = encode_string @@ Yaks_core.Value.to_string v
 let decode_value flags buf =   
   match get_encoding flags with 
   | RAW -> 
-    decode_vle buf 
+    decode_vle buf     
     >>= fun (len, buf) ->        
-    IOBuf.blit_to_bytes (Vle.to_int len) buf 
+    (let _ = Logs_lwt.debug (fun m -> m "IOBuf.blit_to_bytes %d "(Vle.to_int len)) in    
+    IOBuf.blit_to_bytes (Vle.to_int len) buf )
     >>= fun (bs, buf) ->
     Result.ok (Yaks_core.Value.RawValue bs, buf)
   | JSON -> 
