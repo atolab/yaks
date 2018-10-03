@@ -16,10 +16,12 @@ else:
     VERBOSE = bool(os.environ.get('YAKS_PYTHON_API_VERBOSE'))
 logger = APILogger(file_name=os.environ.get('YAKS_PYTHON_API_LOGFILE'),
                    debug_flag=VERBOSE)
+IS_CONNECTED = False
 
 
 class SendingThread(threading.Thread):
-    def __init__(self, sock, lock, send_q, waiting_msgs, subscriptions):
+    def __init__(self, sock, lock, send_q, waiting_msgs, subscriptions,
+                 conn_flag):
         super(SendingThread, self).__init__()
         self.lock = lock
         self.subscriptions = subscriptions
@@ -28,6 +30,7 @@ class SendingThread(threading.Thread):
         self.waiting_msgs = waiting_msgs
         self._is_running = False
         self.daemon = True
+        self.is_connected = conn_flag
 
     def close(self):
         pass
@@ -56,10 +59,12 @@ class SendingThread(threading.Thread):
                     if e.errno == 9:
                         logger.error('SendingThread', 'Bad FD')
                     self.send_error_to_all()
+                    self.is_connected = False
                 except ConnectionResetError as cre:
                     logger.error('SendingThread',
                                  'Server Closed connection {}'.format(cre))
                     self.send_error_to_all()
+                    self.is_connected = False
                 except struct.error as se:
                     logger.error('SendingThread', 'Pack Error {}'.format(se))
                     err = MessageError(msg_s.corr_id, 400)
@@ -70,7 +75,8 @@ class SendingThread(threading.Thread):
 
 
 class ReceivingThread(threading.Thread):
-    def __init__(self, sock, lock, send_q, waiting_msgs, subscriptions):
+    def __init__(self, sock, lock, send_q, waiting_msgs, subscriptions,
+                 conn_flag):
         super(ReceivingThread, self).__init__()
         self.lock = lock
         self.sock = sock
@@ -80,6 +86,7 @@ class ReceivingThread(threading.Thread):
         self._is_running = False
         self.daemon = True
         self.encoder = VLEEncoder()
+        self.is_connected = conn_flag
 
     def close(self):
         self._is_running = False
@@ -152,6 +159,8 @@ class ReceivingThread(threading.Thread):
                         logger.error('ReceivingThread', 'Socket is closed!')
                         self.send_error_to_all()
                         self.sock.close()
+                        self.sock.close()
+                        self.is_connected = False
                 except struct.error as se:
                     logger.error('ReceivingThread',
                                  'Unpack Error {}'.format(se))
@@ -159,10 +168,12 @@ class ReceivingThread(threading.Thread):
                     if e.errno == 9:
                         logger.error('ReceivingThread', 'Bad FD')
                     self.send_error_to_all()
+                    self.is_connected = False
                 except ConnectionResetError as cre:
                     logger.error('ReceivingThread',
                                  'Server Closed connection {}'.format(cre))
                     self.send_error_to_all()
+                    self.is_connected = False
                 finally:
                     self.lock.release()
         if not self._is_running:
@@ -170,15 +181,18 @@ class ReceivingThread(threading.Thread):
 
 
 class Access(object):
-    def __init__(self, queue, id, path, cache_size=0, encoding=RAW, subs={}):
+    def __init__(self, y, queue, id, path, cache_size=0,
+                 encoding=RAW, subs={}):
         self.__subscriptions = subs
         self.__send_queue = queue
         self.id = id
         self.path = path
         self.cache_size = cache_size
         self.encoding = encoding
+        self.__yaks = y
 
     def put(self, key, value):
+        self.__yaks.check_connection()
         msg_put = MessagePut(self.id, key, value, encoding=self.encoding)
         var = MVar()
         self.__send_queue.put((msg_put, var))
@@ -188,6 +202,7 @@ class Access(object):
         return False
 
     def delta_put(self, key, value):
+        self.__yaks.check_connection()
         msg_delta = MessagePatch(self.id, key, value, encoding=self.encoding)
         var = MVar()
         self.__send_queue.put((msg_delta, var))
@@ -197,6 +212,7 @@ class Access(object):
         return False
 
     def remove(self, key):
+        self.__yaks.check_connection()
         msg_rm = MessageDelete(self.id, path=key)
         var = MVar()
         self.__send_queue.put((msg_rm, var))
@@ -206,6 +222,7 @@ class Access(object):
         return False
 
     def subscribe(self, key, callback):
+        self.__yaks.check_connection()
         msg_sub = MessageSub(self.id, key, encoding=self.encoding)
         var = MVar()
         self.__send_queue.put((msg_sub, var))
@@ -217,9 +234,11 @@ class Access(object):
         return None
 
     def get_subscriptions(self):
+        self.__yaks.check_connection()
         return self.__subscriptions
 
     def unsubscribe(self, subscription_id):
+        self.__yaks.check_connection()
         msg_unsub = MessageUnsub(self.id, subscription_id)
         var = MVar()
         self.__send_queue.put((msg_unsub, var))
@@ -230,6 +249,7 @@ class Access(object):
         return False
 
     def get(self, key):
+        self.__yaks.check_connection()
         msg_get = MessageGet(self.id, key, encoding=self.encoding)
         var = MVar()
         self.__send_queue.put((msg_get, var))
@@ -239,9 +259,11 @@ class Access(object):
         return None
 
     def eval(self, key, computation):
+        self.__yaks.check_connection()
         raise NotImplementedError('Not yet...')
 
     def dispose(self):
+        self.__yaks.check_connection()
         var = MVar()
         msg = MessageDelete(self.id, EntityType.ACCESS)
         self.__send_queue.put((msg, var))
@@ -252,7 +274,8 @@ class Access(object):
 
 
 class Storage(object):
-    def __init__(self, queue, id, path, properties=[]):
+    def __init__(self,y , queue, id, path, properties=[]):
+        self.__yaks = y
         self.__send_queue = queue
         self.id = id
         self.path = path
@@ -261,6 +284,7 @@ class Storage(object):
                     format(self.id, self.path))
 
     def dispose(self):
+        self.__yaks.check_connection()
         var = MVar()
         msg = MessageDelete(self.id, EntityType.STORAGE)
         self.__send_queue.put((msg, var))
@@ -272,6 +296,7 @@ class Storage(object):
 
 class YAKS(object):
     def __init__(self, server_address, server_port=7887):
+        self.is_connected = False
         self.subscriptions = {}
         self.send_queue = queue.Queue()
         self.address = server_address
@@ -284,11 +309,14 @@ class YAKS(object):
         self.lock = threading.Lock()
         self.working_set = {}
         self.sock.connect((self.address, self.port))
+        self.is_connected = True
 
         self.st = SendingThread(self.sock, self.lock, self.send_queue,
-                                self.working_set, self.subscriptions)
+                                self.working_set, self.subscriptions,
+                                self.is_connected)
         self.rt = ReceivingThread(self.sock, self.lock, self.send_queue,
-                                  self.working_set, self.subscriptions)
+                                  self.working_set, self.subscriptions,
+                                  self.is_connected)
         self.st.start()
         self.rt.start()
 
@@ -303,6 +331,11 @@ class YAKS(object):
     def check_msg(msg, corr_id, expected=OK):
         return msg.message_code == expected and corr_id == msg.corr_id
 
+    def check_connection(self):
+        if not self.is_connected:
+            raise ConnectionError('Lost connection with YAKS')
+        pass
+
     def close(self):
         self.st.close()
         self.rt.close()
@@ -314,7 +347,7 @@ class YAKS(object):
         msg = var.get()
         if self.check_msg(msg, create_msg.corr_id):
             id = msg.get_property('is.yaks.access.id')
-            acc = Access(self.send_queue, id, path, cache_size, encoding,
+            acc = Access(self, self.send_queue, id, path, cache_size, encoding,
                          self.subscriptions)
             self.accesses.update({id: acc})
             return acc
@@ -328,7 +361,7 @@ class YAKS(object):
         return self.accesses.get(access_id)
 
     def create_storage(self, path, properties=None):
-        create_msg = MessageCreate(EntityType.STORAGE, path)
+        create_msg = MessageCreate(self, EntityType.STORAGE, path)
         if properties:
             for k in properties:
                 v = properties.get(k)
