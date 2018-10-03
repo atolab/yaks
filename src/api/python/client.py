@@ -44,6 +44,10 @@ def main():
     input()
     print('GET: {}'.format(access.get('//fos/example/*')))
 
+    print('>> REMOVE Tuple')
+    input()
+    print('REMOVE: {}'.format(access.remove('//fos/example/one')))
+
     print('>> Dispose Access')
     input()
     access.dispose()

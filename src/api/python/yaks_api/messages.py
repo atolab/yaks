@@ -23,7 +23,7 @@ LITTLE ENDIAN
 +-+-+-+-+-+-+-+-+ ----------------------+
 |  MESSAGE CODE |    8bit               |
 +-+-+-+-+-+-+-+-+                       |
-|X|X|E|N|C|A|S|P|    8bit               +--> Header
+|X|X|X|X|X|A|S|P|    8bit               +--> Header
 +-+-+-+-+-+-+-+-+                       |
 ~   Coor. ID    ~  VLE max 64bit        |
 +---------------+                       |
@@ -41,7 +41,7 @@ WIRE MESSAGE:
 +-+-+-+-+-+-+-+-+ ----------------------+
 |  MESSAGE CODE |    8bit               |
 +-+-+-+-+-+-+-+-+                       |
-|X|X|E|N|C|A|S|P|    8bit               +--> Header
+|X|X|X|X|X|A|S|P|    8bit               +--> Header
 +-+-+-+-+-+-+-+-+                       |
 ~    Corr. id   ~  VLE max 64bit        |
 +---------------+                       |
@@ -49,17 +49,6 @@ WIRE MESSAGE:
 +---------------+ ----------------------+
 ~     Body      ~ VL
 +---------------+
-
-VALUE ENCODING:
-+----------+---+---+---+
-|   TYPE   | E | N | C |
-+----------+---+---+---+
-|   RAW    | 0 | 0 | 1 |
-+----------+---+---+---+
-|  JSON    | 0 | 1 | 0 |
-+----------+---+---+---+
-| Protobuf | 0 | 1 | 1 |
-+----------+---+---+---+
 
 
 '''
@@ -564,17 +553,15 @@ class MessageValues(Message):
 
 
 class MessageOk(Message):
-    def __init__(self, id, corr_id):
+    def __init__(self, corr_id):
         super(MessageOk, self).__init__()
         self.message_code = OK
         self.corr_id = corr_id
-        # self.add_property('yaks.id', id)
 
 
 class MessageError(Message):
-    def __init__(self, id, corr_id, errno):
+    def __init__(self, corr_id, errno):
         super(MessageError, self).__init__()
         self.message_code = ERROR
         self.corr_id = corr_id
-        # self.add_property('yaks.id', id)
         self.add_error(errno)

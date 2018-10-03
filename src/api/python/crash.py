@@ -28,6 +28,9 @@ def main():
     access.put('//afos/0/53712df296494a21be2e80eed00ff9ce', s*4)
     access.put('//afos/0/53712df296494a21be2e80eed00ff9ce', s*5)
 
+    print('>> Remove Tuple')
+    access.remove('//afos/0/53712df296494a21be2e80eed00ff9ce')
+
     print('>> Dispose Access')
     #input()
     access.dispose()

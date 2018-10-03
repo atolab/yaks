@@ -30,7 +30,14 @@ class SendingThread(threading.Thread):
         self.daemon = True
 
     def close(self):
-        self._is_running = False
+        pass
+
+    def send_error_to_all(self):
+        for cid in list(self.waiting_msgs.keys()):
+            _, var = self.waiting_msgs.get(cid)
+            e_msg = MessageError(cid, 412)
+            var.put(e_msg)
+            self.waiting_msgs.pop(cid)
 
     def run(self):
         self._is_running = True
@@ -48,11 +55,11 @@ class SendingThread(threading.Thread):
                 except OSError as e:
                     if e.errno == 9:
                         logger.error('SendingThread', 'Bad FD')
-                    self._is_running = False
+                    self.send_error_to_all()
                 except ConnectionResetError as cre:
                     logger.error('SendingThread',
                                  'Server Closed connection {}'.format(cre))
-                    self._is_running = False
+                    self.send_error_to_all()
                 except struct.error as se:
                     logger.error('SendingThread', 'Pack Error {}'.format(se))
                     err = MessageError(msg_s.corr_id, 400)
@@ -60,7 +67,6 @@ class SendingThread(threading.Thread):
                     var.put(err)
                 finally:
                     self.lock.release()
-
 
 
 class ReceivingThread(threading.Thread):
@@ -81,6 +87,13 @@ class ReceivingThread(threading.Thread):
         self.sock.close()
         self.lock.release()
 
+    def send_error_to_all(self):
+        for cid in list(self.waiting_msgs.keys()):
+            _, var = self.waiting_msgs.get(cid)
+            e_msg = MessageError(cid, 412)
+            var.put(e_msg)
+            self.waiting_msgs.pop(cid)
+
     def read_length(self):
         l_vle = []
         data = self.sock.recv(BUFFSIZE)
@@ -97,19 +110,22 @@ class ReceivingThread(threading.Thread):
         self._is_running = True
         while self._is_running:
 
+            i, _, xs = select.select([self.sock], [], [self.sock])
+            if len(xs) != 0:
+                logger.error('ReceivingThread', 'Exception on socket')
+            elif len(i) != 0:
                 try:
-                    i, _, _ = select.select([self.sock], [], [])
                     logger.info('ReceivingThread', 'Socket ready')
                     self.lock.acquire()
                     length = self.read_length()
                     if length > 0:
-
                         data = b''
                         while len(data) < length:
                             data = data + self.sock.recv(BUFFSIZE)
                         msg_r = Message(data)
                         logger.info('ReceivingThread',
-                                    'Read from socket {} bytes'.format(length))
+                                    'Read from socket {} bytes'.
+                                    format(length))
                         logger.debug('ReceivingThread',
                                      'Message Received {} \n{}'.
                                      format(msg_r.pprint(), msg_r.dump()))
@@ -119,8 +135,6 @@ class ReceivingThread(threading.Thread):
                                 cbk = self.subscriptions.get(sid)
                                 threading.Thread(target=cbk, args=(kvs,),
                                                  daemon=True).start()
-                                #k = MessageOk(0, msg_r.corr_id)
-                                #self.send_q.put((ok, MVar()))
                         elif self.waiting_msgs.get(msg_r.corr_id) is None:
                             logger.info('ReceivingThread',
                                         'This message was not expected!')
@@ -134,17 +148,21 @@ class ReceivingThread(threading.Thread):
                             _, var = self.waiting_msgs.get(msg_r.corr_id)
                             self.waiting_msgs.pop(msg_r.corr_id)
                             var.put(msg_r)
+                    else:
+                        logger.error('ReceivingThread', 'Socket is closed!')
+                        self.send_error_to_all()
+                        self.sock.close()
                 except struct.error as se:
                     logger.error('ReceivingThread',
                                  'Unpack Error {}'.format(se))
                 except OSError as e:
                     if e.errno == 9:
                         logger.error('ReceivingThread', 'Bad FD')
-                    self._is_running = False
+                    self.send_error_to_all()
                 except ConnectionResetError as cre:
                     logger.error('ReceivingThread',
                                  'Server Closed connection {}'.format(cre))
-                    self._is_running = False
+                    self.send_error_to_all()
                 finally:
                     self.lock.release()
         if not self._is_running:
@@ -192,7 +210,7 @@ class Access(object):
         var = MVar()
         self.__send_queue.put((msg_sub, var))
         r = var.get()
-        if YAKS.check_msg(r, msg_sub.corr_id, expected=OK):
+        if YAKS.check_msg(r, msg_sub.corr_id):
             subid = r.get_property('is.yaks.subscription.id')
             self.__subscriptions.update({subid: callback})
             return subid
@@ -206,12 +224,7 @@ class Access(object):
         var = MVar()
         self.__send_queue.put((msg_unsub, var))
         r = var.get()
-        if YAKS.check_msg(r, msg_unsub.corr_id, expected=OK):
-            # subid = r.get_property('is.yaks.subscription.id')
-            # if subid != subscription_id:
-            #    raise RuntimeError('Subscription ID does not match'
-            #                       ' (local) {} != (net) {}'.
-            #                       format(subscription_id, subid))
+        if YAKS.check_msg(r, msg_unsub.corr_id):
             self.__subscriptions.pop(subscription_id)
             return True
         return False
@@ -288,7 +301,7 @@ class YAKS(object):
 
     @staticmethod
     def check_msg(msg, corr_id, expected=OK):
-        return msg.message_code == expected or corr_id == msg.corr_id
+        return msg.message_code == expected and corr_id == msg.corr_id
 
     def close(self):
         self.st.close()

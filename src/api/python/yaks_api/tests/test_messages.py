@@ -62,11 +62,11 @@ class MessagesTests(unittest.TestCase):
         self.assertRaises(ValueError, msg1.set_encoding, 12)
 
     def test_ok_message(self):
-        msg1 = messages.MessageOk('1', '123')
+        msg1 = messages.MessageOk('123')
         self.assertEqual(msg1.message_code, 0xD0)
 
     def test_error_message(self):
-        msg1 = messages.MessageError('1', '123', 1234)
+        msg1 = messages.MessageError('123', 1234)
 
         self.assertEqual(msg1.message_code, 0xE0)
         self.assertEqual(1234, msg1.get_error())
