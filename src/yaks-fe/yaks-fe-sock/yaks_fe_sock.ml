@@ -23,9 +23,11 @@ module Make (YEngine : Yaks_engine.SEngine.S) = struct
     
   let reader sock  = 
     let lbuf = IOBuf.create 16 in 
-    let%lwt len = Net.read_vle sock lbuf in          
+    let%lwt len = Net.read_vle sock lbuf in    
+    let%lwt _ = Logs_lwt.debug (fun m -> m "Received message of %d bytes" (Vle.to_int len)) in       
     let buf = IOBuf.create (Vle.to_int len) in 
-    let%lwt _ = Net.read sock buf in     
+    let%lwt rb = Net.read sock buf in     
+    let%lwt _ = Logs_lwt.debug (fun m -> m "For expected message received %d bytes" rb) in 
     match decode_message buf with 
     | Ok (msg, _) -> Lwt.return msg
     | Error e -> Lwt.fail @@ Exception e

@@ -30,14 +30,17 @@ module Processor = struct
     module YEngine = Engine  
 
     let reply_with_ok msg ps =     
+      let _ = Logs.debug (fun m -> m "Replying with OK to msg with coor-id %Ld" (msg.header.corr_id)) in
       let header = make_header OK [] msg.header.corr_id ps in 
       make_message header YEmpty 
 
     let reply_with_values msg vs =     
+      let _ = Logs.debug (fun m -> m "Replying with VALUES to msg with coor-id %Ld" (msg.header.corr_id)) in
       let header = make_header OK [] msg.header.corr_id Property.Map.empty in 
       make_message header (YPathValueList vs)
 
     let reply_with_error msg code =   
+      let _ = Logs.warn (fun m -> m "Replying with ERROR to msg with coor-id %Ld" (msg.header.corr_id)) in
       let header = make_header ERROR [] msg.header.corr_id Property.Map.empty in 
       make_message header  @@ YErrorInfo (Vle.of_int @@ error_code_to_int code)
 

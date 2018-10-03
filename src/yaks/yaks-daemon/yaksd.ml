@@ -51,7 +51,7 @@ let run_yaksd without_storage http_port sock_port =
   try%lwt
     let engine = YEngine.make () in
     YEngine.add_backend engine (Yaks_be_mm.MainMemoryBEF.make empty_properties) >>= fun _ ->
-    YEngine.add_backend engine (Yaks_be_sql.SQLBEF.make sql_props) >>= fun _ ->
+    (* YEngine.add_backend engine (Yaks_be_sql.SQLBEF.make sql_props) >>= fun _ -> *)
     let def_store = add_default_storage engine without_storage >>= fun _ -> Lwt.return_unit in
     let rest_fe = add_rest_fe engine http_port in
     let sock_fe = add_socket_fe engine sock_port in
