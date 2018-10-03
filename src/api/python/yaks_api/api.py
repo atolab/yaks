@@ -20,17 +20,16 @@ IS_CONNECTED = False
 
 
 class SendingThread(threading.Thread):
-    def __init__(self, sock, lock, send_q, waiting_msgs, subscriptions,
-                 y):
+    def __init__(self, y):
         super(SendingThread, self).__init__()
-        self.lock = lock
-        self.subscriptions = subscriptions
-        self.send_q = send_q
-        self.sock = sock
-        self.waiting_msgs = waiting_msgs
+        self.__yaks = y
+        self.lock = self.__yaks.lock
+        self.subscriptions = self.__yaks.subscriptions
+        self.send_q = self.__yaks.send_queue
+        self.sock = self.__yaks.sock
+        self.waiting_msgs = self.__yaks.working_set
         self._is_running = False
         self.daemon = True
-        self.__yaks = y
 
     def close(self):
         pass
@@ -75,18 +74,17 @@ class SendingThread(threading.Thread):
 
 
 class ReceivingThread(threading.Thread):
-    def __init__(self, sock, lock, send_q, waiting_msgs, subscriptions,
-                 y):
+    def __init__(self, y):
         super(ReceivingThread, self).__init__()
-        self.lock = lock
-        self.sock = sock
-        self.send_q = send_q
-        self.subscriptions = subscriptions
-        self.waiting_msgs = waiting_msgs
+        self.__yaks = y
+        self.lock = self.__yaks.lock
+        self.sock = self.__yaks.sock
+        self.send_q = self.__yaks.send_queue
+        self.subscriptions = self.__yaks.subscriptions
+        self.waiting_msgs = self.__yaks.working_set
         self._is_running = False
         self.daemon = True
         self.encoder = VLEEncoder()
-        self.__yaks = y
 
     def close(self):
         self._is_running = False
@@ -181,15 +179,14 @@ class ReceivingThread(threading.Thread):
 
 
 class Access(object):
-    def __init__(self, y, queue, id, path, cache_size=0,
-                 encoding=RAW, subs={}):
-        self.__subscriptions = subs
-        self.__send_queue = queue
+    def __init__(self, y, id, path, cache_size=0, encoding=RAW):
+        self.__yaks = y
+        self.__subscriptions = self.__yaks.subscriptions
+        self.__send_queue = self.__yaks.send_queue
         self.id = id
         self.path = path
         self.cache_size = cache_size
         self.encoding = encoding
-        self.__yaks = y
 
     def put(self, key, value):
         self.__yaks.check_connection()
@@ -274,9 +271,9 @@ class Access(object):
 
 
 class Storage(object):
-    def __init__(self,y , queue, id, path, properties=[]):
+    def __init__(self, y, id, path, properties=[]):
         self.__yaks = y
-        self.__send_queue = queue
+        self.__send_queue = self.__yaks.send_queue
         self.id = id
         self.path = path
         self.properties = properties
@@ -311,12 +308,8 @@ class YAKS(object):
         self.sock.connect((self.address, self.port))
         self.is_connected = True
 
-        self.st = SendingThread(self.sock, self.lock, self.send_queue,
-                                self.working_set, self.subscriptions,
-                                self)
-        self.rt = ReceivingThread(self.sock, self.lock, self.send_queue,
-                                  self.working_set, self.subscriptions,
-                                  self)
+        self.st = SendingThread(self)
+        self.rt = ReceivingThread(self)
         self.st.start()
         self.rt.start()
 
@@ -347,8 +340,7 @@ class YAKS(object):
         msg = var.get()
         if self.check_msg(msg, create_msg.corr_id):
             id = msg.get_property('is.yaks.access.id')
-            acc = Access(self, self.send_queue, id, path, cache_size, encoding,
-                         self.subscriptions)
+            acc = Access(self, id, path, cache_size, encoding)
             self.accesses.update({id: acc})
             return acc
         else:
@@ -371,7 +363,7 @@ class YAKS(object):
         msg = var.get()
         if self.check_msg(msg, create_msg.corr_id):
             id = msg.get_property('is.yaks.storage.id')
-            sto = Storage(self.send_queue, id, path, properties)
+            sto = Storage(self, id, path, properties)
             self.storages.update({id: sto})
             return sto
         else:
