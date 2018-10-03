@@ -115,7 +115,7 @@ class ReceivingThread(threading.Thread):
 
     def run(self):
         self._is_running = True
-        while self._is_running:
+        while self._is_running and self.__yaks.is_connected:
 
             i, _, xs = select.select([self.sock], [], [self.sock])
             if len(xs) != 0:
@@ -332,7 +332,6 @@ class YAKS(object):
         return msg.message_code == expected and corr_id == msg.corr_id
 
     def check_connection(self):
-        print('>>> CONN: {}'.format(self.is_connected))
         if not self.is_connected:
             raise ConnectionError('Lost connection with YAKS')
         pass
