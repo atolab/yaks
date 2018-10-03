@@ -21,7 +21,7 @@ IS_CONNECTED = False
 
 class SendingThread(threading.Thread):
     def __init__(self, sock, lock, send_q, waiting_msgs, subscriptions,
-                 conn_flag):
+                 y):
         super(SendingThread, self).__init__()
         self.lock = lock
         self.subscriptions = subscriptions
@@ -30,7 +30,7 @@ class SendingThread(threading.Thread):
         self.waiting_msgs = waiting_msgs
         self._is_running = False
         self.daemon = True
-        self.is_connected = conn_flag
+        self.__yaks = y
 
     def close(self):
         pass
@@ -59,12 +59,12 @@ class SendingThread(threading.Thread):
                     if e.errno == 9:
                         logger.error('SendingThread', 'Bad FD')
                     self.send_error_to_all()
-                    self.is_connected = False
+                    self.__yaks.is_connected = False
                 except ConnectionResetError as cre:
                     logger.error('SendingThread',
                                  'Server Closed connection {}'.format(cre))
                     self.send_error_to_all()
-                    self.is_connected = False
+                    self.__yaks.is_connected = False
                 except struct.error as se:
                     logger.error('SendingThread', 'Pack Error {}'.format(se))
                     err = MessageError(msg_s.corr_id, 400)
@@ -76,7 +76,7 @@ class SendingThread(threading.Thread):
 
 class ReceivingThread(threading.Thread):
     def __init__(self, sock, lock, send_q, waiting_msgs, subscriptions,
-                 conn_flag):
+                 y):
         super(ReceivingThread, self).__init__()
         self.lock = lock
         self.sock = sock
@@ -86,7 +86,7 @@ class ReceivingThread(threading.Thread):
         self._is_running = False
         self.daemon = True
         self.encoder = VLEEncoder()
-        self.is_connected = conn_flag
+        self.__yaks = y
 
     def close(self):
         self._is_running = False
@@ -160,7 +160,7 @@ class ReceivingThread(threading.Thread):
                         self.send_error_to_all()
                         self.sock.close()
                         self.sock.close()
-                        self.is_connected = False
+                        self.__yaks.is_connected = False
                 except struct.error as se:
                     logger.error('ReceivingThread',
                                  'Unpack Error {}'.format(se))
@@ -168,12 +168,12 @@ class ReceivingThread(threading.Thread):
                     if e.errno == 9:
                         logger.error('ReceivingThread', 'Bad FD')
                     self.send_error_to_all()
-                    self.is_connected = False
+                    self.__yaks.is_connected = False
                 except ConnectionResetError as cre:
                     logger.error('ReceivingThread',
                                  'Server Closed connection {}'.format(cre))
                     self.send_error_to_all()
-                    self.is_connected = False
+                    self.__yaks.is_connected = False
                 finally:
                     self.lock.release()
         if not self._is_running:
@@ -313,10 +313,10 @@ class YAKS(object):
 
         self.st = SendingThread(self.sock, self.lock, self.send_queue,
                                 self.working_set, self.subscriptions,
-                                self.is_connected)
+                                self)
         self.rt = ReceivingThread(self.sock, self.lock, self.send_queue,
                                   self.working_set, self.subscriptions,
-                                  self.is_connected)
+                                  self)
         self.st.start()
         self.rt.start()
 
@@ -332,6 +332,7 @@ class YAKS(object):
         return msg.message_code == expected and corr_id == msg.corr_id
 
     def check_connection(self):
+        print('>>> CONN: {}'.format(self.is_connected))
         if not self.is_connected:
             raise ConnectionError('Lost connection with YAKS')
         pass
