@@ -44,7 +44,7 @@ class SendingThread(threading.Thread):
 
     def run(self):
         self._is_running = True
-        while self._is_running:
+        while self._is_running and self.__yaks.is_connected:
                 msg_s, var = self.send_q.get()
                 logger.info('SendingThread', 'Message from queue')
                 logger.debug('SendingThread', 'Message {}'.
