@@ -113,6 +113,7 @@ module SEngine = struct
       AccessMap.find_opt access_id self.accs
 
     let dispose_access engine access_id =
+      let%lwt _ = Logs_lwt.debug (fun m -> m "[YE]: dispose_access %s" (Access.Id.to_string access_id)) in
       MVar.guarded engine @@ fun self ->         
         let access = AccessMap.find_opt access_id self.accs in 
         let subs' = (match access with 
@@ -237,14 +238,6 @@ module SEngine = struct
       get_matching_stores self selector
       |> List.map (fun (_,store) -> Storage.remove store selector) 
       |> Lwt.join
-
-    (*******************************)
-    (*   Subscribers management    *)
-    (*******************************)
-    
- 
-
-   
 
   end
 end

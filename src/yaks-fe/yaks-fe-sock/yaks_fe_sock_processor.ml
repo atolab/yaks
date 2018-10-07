@@ -36,7 +36,7 @@ module Processor = struct
 
     let reply_with_values msg vs =     
       let _ = Logs.debug (fun m -> m "Replying with VALUES to msg with coor-id %Ld" (msg.header.corr_id)) in
-      let header = make_header OK [] msg.header.corr_id Property.Map.empty in 
+      let header = make_header VALUES [] msg.header.corr_id Property.Map.empty in 
       make_message header (YPathValueList vs)
 
     let reply_with_error msg code =   
@@ -163,6 +163,7 @@ module Processor = struct
       | None -> Lwt.return @@ reply_with_error msg BAD_REQUEST
 
     let process_sub engine msg pusher  = 
+      let%lwt _ = Logs_lwt.debug (fun m -> m "FES: processing SUB") in
       let open Apero.Infix in 
       let is_push = true in      
       let ps = msg.header.properties in 
@@ -179,8 +180,25 @@ module Processor = struct
       | None -> Lwt.return @@ reply_with_error msg BAD_REQUEST
 
 
+
       
-    let process_unsub engine msg = let _ = engine in Lwt.return @@ reply_with_ok msg Property.Map.empty
+    let process_unsub engine msg = 
+      let%lwt _ = Logs_lwt.debug (fun m -> m "FES: processing UNSUB") in
+      let open Apero.Infix in 
+      let ps = msg.header.properties in 
+      let params = 
+        let open Apero.Option.Infix in
+        let oaid = (decode_property_value (Option.get <.> Access.Id.of_string) Property.Access.Key.id ps) in
+        oaid >>= fun aid -> 
+          (get_subscription_payload msg) 
+          >>= fun s -> (SubscriberId.of_string_opt s) >>= fun sid -> Some  (aid, sid)
+      in
+      match params with 
+      | Some (aid, sid) ->  
+        let%lwt () = YEngine.remove_subscriber engine aid  sid in 
+        Lwt.return @@ reply_with_ok msg Property.Map.empty 
+      | None -> Lwt.return @@ reply_with_ok msg Property.Map.empty 
+
     let process_eval engine msg = let _ = engine in Lwt.return @@ reply_with_ok msg Property.Map.empty
 
     let process_error msg code = Lwt.return @@ reply_with_error msg code 
