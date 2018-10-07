@@ -29,6 +29,8 @@ module SEngine : sig
     val remove : t -> Access.Id.t -> Selector.t -> unit Lwt.t
 
     val create_subscriber : t -> Access.Id.t -> Selector.t -> bool -> subscription_pusher -> SubscriberId.t Lwt.t  
+    val remove_subscriber : t -> Access.Id.t -> SubscriberId.t -> unit Lwt.t  
+
   end
 
   module Make (MVar: Apero.MVar) : S 

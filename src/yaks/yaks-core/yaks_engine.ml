@@ -29,6 +29,8 @@ module SEngine = struct
     val remove : t -> Access.Id.t -> Selector.t -> unit Lwt.t
 
     val create_subscriber : t -> Access.Id.t -> Selector.t -> bool -> subscription_pusher -> SubscriberId.t Lwt.t  
+    val remove_subscriber : t -> Access.Id.t -> SubscriberId.t -> unit Lwt.t  
+
   end
 
   module Make (MVar: Apero.MVar) = struct
@@ -69,6 +71,22 @@ module SEngine = struct
         ; subs = SubscriberMap.empty }
 
 
+    (** Subscribers management *)
+     let create_subscriber engine _ (* access  *) (selector:Selector.t) (is_push: bool) (pusher:subscription_pusher) =       
+      (* @TODO: Should check that we can really subscribe to this.... *)
+      let sid = SubscriberId.next_id () in 
+      let sub = {selector; pusher; is_push} in 
+      (MVar.guarded engine 
+      @@ fun self ->         
+        let subs' = SubscriberMap.add sid sub self.subs in 
+        MVar.return () {self with subs = subs'} )
+      >|= fun () -> sid
+
+    let remove_subscriber engine _ (* access*) sid = 
+      (MVar.guarded engine 
+      @@ fun self ->         
+        let subs' = SubscriberMap.remove sid self.subs in 
+        MVar.return () {self with subs = subs'} )
 
     (**************************)
     (*   Backends management  *)
@@ -95,9 +113,20 @@ module SEngine = struct
       AccessMap.find_opt access_id self.accs
 
     let dispose_access engine access_id =
-      MVar.guarded engine @@ fun self ->
-      MVar.return () {self with accs =  AccessMap.remove access_id self.accs }
-
+      MVar.guarded engine @@ fun self ->         
+        let access = AccessMap.find_opt access_id self.accs in 
+        let subs' = (match access with 
+          | Some a ->         
+            (let asubs = Access.subscribers a in 
+            let rec remove_subs smap subs = match subs with 
+              | [] -> smap
+              | h::tl -> remove_subs (SubscriberMap.remove h smap) tl
+            in remove_subs self.subs asubs)
+          | None -> self.subs) 
+        in                    
+        MVar.return () 
+        {self with accs =  AccessMap.remove access_id self.accs ; subs = subs'}
+      
 
     (****************************)
     (*   Storages management    *)
@@ -215,15 +244,7 @@ module SEngine = struct
     
  
 
-    let create_subscriber engine _ (* access  *) (selector:Selector.t) (is_push: bool) (pusher:subscription_pusher) =       
-      (* @TODO: Should check that we can really subscribe to this.... *)
-      let sid = SubscriberId.next_id () in 
-      let sub = {selector; pusher; is_push} in 
-      (MVar.guarded engine 
-      @@ fun self ->         
-        let subs' = SubscriberMap.add sid sub self.subs in 
-        MVar.return () {self with subs = subs'} )
-      >|= fun () -> sid
+   
 
   end
 end
