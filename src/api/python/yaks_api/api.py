@@ -251,7 +251,7 @@ class Access(object):
         var = MVar()
         self.__send_queue.put((msg_get, var))
         r = var.get()
-        if YAKS.check_msg(r, msg_get.corr_id):
+        if YAKS.check_msg(r, msg_get.corr_id, expected=VALUES):
                 return r.get_values()
         return None
 

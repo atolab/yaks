@@ -28,9 +28,13 @@ def main():
     access.put('//afos/0/53712df296494a21be2e80eed00ff9ce', s*4)
     access.put('//afos/0/53712df296494a21be2e80eed00ff9ce', s*5)
 
+    sid = access.subscribe('//afos/0/**', lambda x: print('OBS {}'.format(x)))
+
     print('>> Remove Tuple')
     access.remove('//afos/0/53712df296494a21be2e80eed00ff9ce')
 
+
+    access.unsubscribe(sid)
     print('>> Dispose Access')
     #input()
     access.dispose()
