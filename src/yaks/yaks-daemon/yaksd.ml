@@ -13,7 +13,8 @@ let http_port = Arg.(value & opt int 8000 & info ["h"; "http-port"] ~docv:"PORT"
                        ~doc:"HTTP port used by the REST front-end")
 let sock_port = Arg.(value & opt int 7887 & info ["s"; "sock-port"] ~docv:"PORT"
                        ~doc:"TCP port used by the Socket front-end")
-
+let sql_url = Arg.(value & opt string "" & info ["u"; "sql-url"] ~docv:"URL"
+                       ~doc:"URL of the database used by the SQL backend")
 
 let setup_log style_renderer level =
   Fmt_tty.setup_std_outputs ?style_renderer ();
@@ -23,6 +24,16 @@ let setup_log style_renderer level =
 
 
 module YEngine = Yaks_core.SEngine.Make (Apero.MVar_lwt)
+
+let add_mem_be engine =
+  YEngine.add_backend engine (Yaks_be_mm.MainMemoryBEF.make empty_properties)
+
+let add_sql_be engine sql_url =
+  if String.length sql_url > 0 then
+    let sql_props = Property.Map.singleton Be_sql_property.Key.url sql_url in
+    YEngine.add_backend engine (Yaks_be_sql.SQLBEF.make sql_props)
+  else Lwt.return_unit
+
 
 let add_default_storage engine without_storage =
   let props = Property.Map.singleton Property.Backend.Key.kind Property.Backend.Value.memory in
@@ -44,18 +55,15 @@ let add_socket_fe engine sock_port =
   let sockfe = YSockFE.create socket_cfg engine in 
   YSockFE.start sockfe
 
-let sql_props = Property.Map.singleton Be_sql_property.Key.url "postgresql://postgres:postgres4test@localhost:5432"
-
-
-let run_yaksd without_storage http_port sock_port = 
+let run_yaksd without_storage http_port sock_port sql_url = 
   try%lwt
     let engine = YEngine.make () in
-    YEngine.add_backend engine (Yaks_be_mm.MainMemoryBEF.make empty_properties) >>= fun _ ->
-    (* YEngine.add_backend engine (Yaks_be_sql.SQLBEF.make sql_props) >>= fun _ -> *)
+    let mem_be = add_mem_be engine in
+    let sql_be = add_sql_be engine sql_url in
     let def_store = add_default_storage engine without_storage >>= fun _ -> Lwt.return_unit in
     let rest_fe = add_rest_fe engine http_port in
     let sock_fe = add_socket_fe engine sock_port in
-    Lwt.join [def_store; rest_fe; sock_fe]
+    Lwt.join [mem_be; sql_be; def_store; rest_fe; sock_fe]
   with 
   | YException e  -> 
     Logs_lwt.err (fun m -> m "Exception %s raised:\n%s" (show_yerror e) (Printexc.get_backtrace ())) >> Lwt.return_unit
@@ -63,12 +71,12 @@ let run_yaksd without_storage http_port sock_port =
     Logs_lwt.err (fun m -> m "Exception %s raised:\n%s" (Printexc.to_string exn) (Printexc.get_backtrace ())) >> Lwt.return_unit
 
 
-let run without_storage http_port sock_port style_renderer level = 
+let run without_storage http_port sock_port sql_url style_renderer level = 
   setup_log style_renderer level; 
-  Lwt_main.run @@ run_yaksd without_storage http_port sock_port
+  Lwt_main.run @@ run_yaksd without_storage http_port sock_port sql_url
 
 
 let () =
   Printexc.record_backtrace true;
   let env = Arg.env_var "YAKSD_VERBOSITY" in
-  let _ = Term.(eval (const run $ without_storage $ http_port $ sock_port $ Fmt_cli.style_renderer () $ Logs_cli.level ~env (), Term.info "Yaks daemon")) in  ()
+  let _ = Term.(eval (const run $ without_storage $ http_port $ sock_port $ sql_url $ Fmt_cli.style_renderer () $ Logs_cli.level ~env (), Term.info "Yaks daemon")) in  ()
