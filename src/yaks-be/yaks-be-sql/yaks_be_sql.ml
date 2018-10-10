@@ -31,15 +31,21 @@ module SQLBE = struct
     (************************************************)
     let get_sql_table storage_info (selector:Selector.t) =
       if Selector.is_matching storage_info.path selector then
+        let%lwt _ = Logs_lwt.debug (fun m -> m "[SQL]: get(%s) from legacy table %s"
+                      (Selector.to_string selector) (storage_info.table_name)) in
         let open Lwt.Infix in
         let (col_names, typ) = storage_info.schema in
         Caqti_driver.get C.conx storage_info.table_name typ ?condition:(Selector.query selector) ()
         >|= List.map (fun row -> storage_info.path, Value.SqlValue (row, Some col_names)) 
       else
-        Lwt.return []
+        let%lwt _ = Logs_lwt.warn (fun m -> m "[SQL]: Can't get Selector %s in Storage with path %s - the exact Storage path is required"
+                      (Selector.to_string selector) (Path.to_string storage_info.path))
+        in Lwt.return []
 
     let put_sql_table storage_info (selector:Selector.t) (value:Value.t) =
       if Selector.is_matching storage_info.path selector then
+        let%lwt _ = Logs_lwt.debug (fun m -> m "[SQL]: put(%s) into legacy table %s"
+                      (Selector.to_string selector) (storage_info.table_name)) in
         let open Value in 
         match transcode value Sql_Encoding with 
         | Ok SqlValue (row, _) -> Caqti_driver.put C.conx storage_info.table_name (String.concat "," row) ()
@@ -53,6 +59,8 @@ module SQLBE = struct
     let put_delta_sql_table storage_info selector delta =
       let open Apero.LwtM.InfixM in
       if Selector.is_matching storage_info.path selector then
+        let%lwt _ = Logs_lwt.debug (fun m -> m "[SQL]: put_delta(%s) into legacy table %s"
+                      (Selector.to_string selector) (storage_info.table_name)) in
         get_sql_table storage_info selector
         >>= Lwt_list.iter_p (fun (_,v) -> 
             match Value.update v delta with
@@ -69,80 +77,114 @@ module SQLBE = struct
 
     let remove_sql_table storage_info selector = 
       if Selector.is_matching storage_info.path selector then
+        let%lwt _ = Logs_lwt.debug (fun m -> m "[SQL]: remove(%s) from legacy table %s"
+                      (Selector.to_string selector) (storage_info.table_name)) in
         match Selector.query selector with
         | Some q -> Caqti_driver.remove C.conx storage_info.table_name q ()
         | None -> 
           let _ = Logs_lwt.debug (fun m -> m "[SQL]: Can't remove selector %s without a query" (Selector.to_string selector)) in
           Lwt.return_unit
       else
-        Lwt.return_unit
+        let%lwt _ = Logs_lwt.warn (fun m -> m "[SQL]: Can't remove Selector %s in Storage with path %s - the exact Storage path is required"
+                                      (Selector.to_string selector) (Path.to_string storage_info.path))
+        in Lwt.return_unit
 
 
 
     (***************************************)
     (*   Operations on key/value  tables   *)
     (***************************************)
+
+    let get_matching_keys storage_info sub_selector =
+      let open Apero.LwtM.InfixM in
+      Caqti_driver.get_keys_kv_table C.conx storage_info.table_name
+          >|= List.filter (fun k -> Selector.is_matching (Path.of_string ~is_absolute:false k) sub_selector)
+          >|= fun l -> let _ = Logs_lwt.debug (fun m -> m "[SQL]: in %s found matching keys of %s : %s"
+                    (storage_info.table_name) (Selector.to_string sub_selector) (String.concat " " l)) in l
+
+
     let get_kv_table storage_info (selector:Selector.t) =
-      if Selector.is_matching ~prefix_matching:true storage_info.path selector then
-        let sub_sel = Selector.remove_prefix storage_info.path selector in
-        let condition = match Selector.query selector with
-          | Some q -> "k='"^sub_sel^"' AND "^q
-          | None -> "k='"^sub_sel^"'"
-        in
-        let (_, typ) = storage_info.schema in
-        let open Lwt.Infix in
+      let%lwt _ = Logs_lwt.debug (fun m -> m "[SQL]: get(%s) from kv table %s"
+                    (Selector.to_string selector) (storage_info.table_name)) in
+      let open Apero.LwtM.InfixM in
+      let (_, typ) = storage_info.schema in
+      let sub_sel = Selector.remove_prefix storage_info.path selector in
+      let condition_suffix = match Selector.query selector with
+        | Some q -> "' AND "^q
+        | None -> "'"
+      in
+      let get_result =
+        if Selector.is_unique_path sub_sel then 
+          let condition = "k='"^(Selector.to_string sub_sel)^condition_suffix in
           Caqti_driver.get C.conx storage_info.table_name typ ~condition ()
-          >|= List.map (fun row -> match row with
-            | k::v::e::[] ->
-              let encoding = Value.encoding_of_string e in
-              (match Value.of_string v encoding with 
-              | Ok v -> Some (Path.of_string @@ (Path.to_string storage_info.path)^k, v)
-              | Error err ->
-                let _ = Logs_lwt.warn (fun m -> m "[SQL]: get in KV table %s returned a value for key %s that we failed to transcode: %s"
-                          storage_info.table_name k (show_yerror err)) in
-                None)
-            | _ -> let _ = Logs_lwt.warn (fun m -> m "[SQL]: get in KV table %s returned non k+v+e value: %s" storage_info.table_name (String.concat "," row)) in
-                None)
-          >|= List.filter Apero.Option.is_some
-          >|= List.map (fun o -> Apero.Option.get o)
-      else
-          Lwt.return []
+        else
+          get_matching_keys storage_info sub_sel
+          >|= List.map (fun k -> 
+                let condition = "k='"^k^condition_suffix in
+                Caqti_driver.get C.conx storage_info.table_name typ ~condition ())
+          >>= Apero.LwtM.flatten
+          >|= List.flatten
+      in
+        get_result
+        >|= List.map (fun row -> match row with
+          | k::v::e::[] ->
+            let encoding = Value.encoding_of_string e in
+            (match Value.of_string v encoding with 
+            | Ok v -> Some (Path.of_string @@ (Path.to_string storage_info.path)^k, v)
+            | Error err ->
+              let _ = Logs_lwt.warn (fun m -> m "[SQL]: get in KV table %s returned a value for key %s that we failed to transcode: %s"
+                        storage_info.table_name k (show_yerror err)) in
+              None)
+          | _ -> let _ = Logs_lwt.warn (fun m -> m "[SQL]: get in KV table %s returned non k+v+e value: %s" storage_info.table_name (String.concat "," row)) in
+              None)
+        >|= List.filter Apero.Option.is_some
+        >|= List.map (fun o -> Apero.Option.get o)
 
     let put_kv_table storage_info (selector:Selector.t) (value:Value.t) =
-      if Selector.is_matching ~prefix_matching:true storage_info.path selector then
-        let sub_sel = Selector.remove_prefix storage_info.path selector in
-        let v = Value.to_string value in
-        let enc = Value.encoding_to_string @@ Value.encoding value in
-        Caqti_driver.put C.conx storage_info.table_name ("'"^sub_sel^"','"^v^"','"^enc^"'") ()
-      else
-        let%lwt _ = Logs_lwt.warn (fun m -> m "[SQL]: Can't put Selector %s in Storage with path %s - the path is not a prefix of Selector"
-                                      (Selector.to_string selector) (Path.to_string storage_info.path))
-        in Lwt.return_unit
-
-    let put_delta_kv_table storage_info selector delta =
+      let%lwt _ = Logs_lwt.debug (fun m -> m "[SQL]: put(%s) into kv table %s"
+                    (Selector.to_string selector) (storage_info.table_name)) in
       let open Apero.LwtM.InfixM in
-      if Selector.is_matching ~prefix_matching:true storage_info.path selector then
-        get_kv_table storage_info selector
-        >>= Lwt_list.iter_p (fun (p,v) -> 
-            match Value.update v delta with
-            | Ok value ->
-               let sub_path = Apero.String.after (Path.to_string p) (String.length storage_info.table_name) in
-               let v = Value.to_string value in
-               let enc = Value.encoding_to_string @@ Value.encoding value in
-              Caqti_driver.put C.conx storage_info.table_name ("'"^sub_path^"','"^v^"','"^enc^"'") ()
-            | Error e -> Logs_lwt.warn (
-              fun m -> m "[SQL]: put_delta on value %s failed: %s" (Value.to_string v) (show_yerror e)))
+      let sub_sel = Selector.remove_prefix storage_info.path selector in
+      let v = Value.to_string value in
+      let enc = Value.encoding_to_string @@ Value.encoding value in
+      if Selector.is_unique_path sub_sel then
+        Caqti_driver.put C.conx storage_info.table_name ("'"^(Selector.to_string sub_sel)^"','"^v^"','"^enc^"'") ()
       else
-        let%lwt _ = Logs_lwt.warn (fun m -> m "[SQL]: Can't put_delta Selector %s in Storage with path %s - the path is not a prefix of Selector"
-                                      (Selector.to_string selector) (Path.to_string storage_info.path))
-        in Lwt.return_unit
+        let insert_suffix = "','"^v^"','"^enc^"'" in
+        get_matching_keys storage_info sub_sel
+        >|= List.map (fun k -> 
+          Caqti_driver.put C.conx storage_info.table_name ("'"^k^insert_suffix) ())
+        >>= Lwt.join
+          
+    let put_delta_kv_table storage_info selector delta =
+      let%lwt _ = Logs_lwt.debug (fun m -> m "[SQL]: put_delta(%s) into kv table %s"
+                    (Selector.to_string selector) (storage_info.table_name)) in
+      let open Apero.LwtM.InfixM in                                           (* @TODO  DEAL WITH SELECTOR CASE  *)
+      get_kv_table storage_info selector
+      >>= Lwt_list.iter_p (fun (p,v) -> 
+          match Value.update v delta with
+          | Ok value ->
+              let sub_path = Apero.String.after (Path.to_string p) (String.length storage_info.table_name) in
+              let v = Value.to_string value in
+              let enc = Value.encoding_to_string @@ Value.encoding value in
+            Caqti_driver.put C.conx storage_info.table_name ("'"^sub_path^"','"^v^"','"^enc^"'") ()
+          | Error e -> Logs_lwt.warn (
+            fun m -> m "[SQL]: put_delta on value %s failed: %s" (Value.to_string v) (show_yerror e)))
 
     let remove_kv_table storage_info selector = 
-      if Selector.is_matching ~prefix_matching:true storage_info.path selector then
-        let sub_sel = Selector.remove_prefix storage_info.path selector in
-        Caqti_driver.remove C.conx storage_info.table_name ("k='"^sub_sel^"'") ()
+      let%lwt _ = Logs_lwt.debug (fun m -> m "[SQL]: remove(%s) from kv table %s"
+                    (Selector.to_string selector) (storage_info.table_name)) in
+      let open Apero.LwtM.InfixM in
+      let sub_sel = Selector.remove_prefix storage_info.path selector in
+      if Selector.is_unique_path sub_sel then
+        Caqti_driver.remove C.conx storage_info.table_name ("k='"^(Selector.to_string sub_sel)^"'") ()
       else
-        Lwt.return_unit
+        get_matching_keys storage_info sub_sel
+        >|= List.map (fun k -> 
+          Caqti_driver.remove C.conx storage_info.table_name ("k='"^k^"'") ())
+        >>= Lwt.join
+
+
 
 
     (*************************)
@@ -152,10 +194,13 @@ module SQLBE = struct
     let dispose storage_info =
       match storage_info.on_dispose with
       | Drop -> 
+        let _ = Logs_lwt.debug (fun m -> m "[SQL]: dispose storage of table %s dropping it" (storage_info.table_name)) in
         drop_table C.conx storage_info.table_name
       | Truncate ->
+        let _ = Logs_lwt.debug (fun m -> m "[SQL]: dispose storage of table %s truncating it" (storage_info.table_name)) in
         trunc_table C.conx storage_info.table_name
       | DoNothing ->
+        let _ = Logs_lwt.debug (fun m -> m "[SQL]: dispose storage of table %s keeping it" (storage_info.table_name)) in
         fun () -> Lwt.return_unit 
 
     let make_kv_table_name () =
@@ -172,8 +217,9 @@ module SQLBE = struct
       let _ = Logs_lwt.debug (fun m -> m "[SQL]: create storage for table %s" table_name) in
       let%lwt (schema, is_kv_table) = match%lwt Caqti_driver.get_schema C.conx table_name with
         | Some s -> 
-          let%lwt _ = Logs_lwt.debug (fun m -> m "[SQL]: table %s found" table_name) in
-          Lwt.return (s, false)
+          let is_kv_table = s = Caqti_driver.kv_table_schema in
+          let%lwt _ = Logs_lwt.debug (fun m -> m "[SQL]: table %s found (kv table? %b)" table_name is_kv_table) in
+          Lwt.return (s, is_kv_table)
         | None -> 
           let%lwt _ = Logs_lwt.debug (fun m -> m "[SQL]: table %s not found - create it as key/value table" table_name) in
           Caqti_driver.create_kv_table C.conx table_name props >>= fun r -> Lwt.return (r, true)
@@ -195,7 +241,6 @@ module SQLBE = struct
           (put_sql_table storage_info)
           (put_delta_sql_table storage_info)
           (remove_sql_table storage_info)
-
   end
 end 
 

@@ -37,41 +37,49 @@ type yerror = [
 
 exception YException of yerror [@@deriving show]
 
+let () = Printexc.register_printer @@ function | YException(e) -> Some ("YException: "^(show_yerror e)) | _ -> None
+
 
 open Str
+
+
+let remove_useless_slashes s =
+  if String.length s <= 2 then s
+  else
+    let buf = Buffer.create (String.length s) in
+    let rec filter i =
+      if i < String.length s then
+        let c = String.get s i in
+        if c <> '/' || (i+1 < String.length s && (String.get s (i+1) <> '/')) then
+          Buffer.add_char buf c;
+        filter (i+1)
+    in
+    let _ =
+      (* Note: add 1 char anyway to preserve the starting // *)
+      Buffer.add_char buf (String.get s 0);
+      filter 1
+    in
+    Buffer.contents buf
+
 
 module Path = struct
   type t = string
   (* from https://tools.ietf.org/html/rfc3986#appendix-B *)
   (* let prefix = Str.regexp "\\(/[0-9A-za-z._-]*\\)+" *)
-  let path_regex = Str.regexp "//[^?#*]*"
+  let path_regex = Str.regexp "[^?#*]+"
 
   let is_valid s = Str.string_match path_regex s 0
 
-  (* let is_key p = 
-     match Str.string_match prefix p 0 with
-     | true -> (Str.matched_string p) = p 
-     | false -> false *)
+  let of_string_opt ?(is_absolute=true) s =
+    let open Apero.String in
+    if length s > 1 && is_valid s then
+      if is_absolute && not (starts_with s "//") then None
+      else Some (remove_useless_slashes s)
+    else None
 
-  (* let key p = 
-     let _ = Logs_lwt.debug (fun m -> m "Key for path: -%s-" p) in
-     match Str.string_match prefix p 0 with
-     | true -> 
-      let ms = Str.matched_string p in 
-      let _ = Logs_lwt.debug (fun m -> m "Matched Key = %s" ms) in
-      if ms = p then (Some p) else None
-     | false -> None *)
-
-  (* let prefix p = 
-     match Str.string_match prefix p 0 with
-     | true -> Str.matched_string p
-     | false -> "" *)
-
-  let of_string s =
-    if is_valid s then s else raise (YException (`InvalidPath (`Msg s)))
-
-  let of_string_opt s = 
-    if is_valid s then Some s else None
+  let of_string ?(is_absolute=true) s =
+    Apero.Option.get_or_else (of_string_opt ~is_absolute s)
+    (fun () -> raise (YException (`InvalidPath (`Msg s))))
 
   let to_string s = s
 
@@ -94,15 +102,21 @@ module Selector = struct
 
   (* let key s = s.key *)
 
-  let of_string s = 
-    match is_valid s with
-    | true ->
-      let path = Str.matched_group 1 s
-      and query = try Some(Str.matched_group 3 s) with Not_found -> None
-      and fragment = try Some(Str.matched_group 5 s) with Not_found -> None
-      in
-      Some { path; query; fragment }
-    | false -> None
+  let of_string_opt ?(is_absolute=true) s =
+    let open Apero.String in
+    if length s > 1 && is_valid s then
+      if is_absolute && not (starts_with s "//") then None
+      else 
+        let path = remove_useless_slashes @@ Str.matched_group 1 s
+        and query = try Some(Str.matched_group 3 s) with Not_found -> None
+        and fragment = try Some(Str.matched_group 5 s) with Not_found -> None
+        in
+        Some { path; query; fragment }
+    else None
+
+  let of_string ?(is_absolute=true) s =
+    Apero.Option.get_or_else (of_string_opt ~is_absolute s)
+    (fun () -> raise (YException (`InvalidPath (`Msg s))))
 
 
   let to_string s =
@@ -199,10 +213,8 @@ module Selector = struct
                 next_char ip' (is+1)
 
           | _ -> String.after sel is
-
-
       in
-      next_char 0 0
+      next_char 0 0 |> of_string ~is_absolute:false
 
 end
 

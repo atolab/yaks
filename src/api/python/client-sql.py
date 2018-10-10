@@ -36,33 +36,37 @@ def main():
 
     print('****** SQL storage - key/value table ********')
 
-    print('>> Put //is/test/db/new-table/A')
+    print('>> Put //is/test/db/new-table/A/B')
     input()
-    access.put('//is/test/db/new-table/A', "ABC")
+    access.put('//is/test/db/new-table/A/B', "BCD")
 
-    print('>> Put //is/test/db/new-table/D')
+    print('>> Put //is/test/db/new-table/A/D')
     input()
-    access.put('//is/test/db/new-table/D', "DEF")
+    access.put('//is/test/db/new-table/A/D', "DEF")
 
-    print('>> Put //is/test/db/new-table/G')
+    print('>> Put //is/test/db/new-table/A/B/G')
     input()
-    access.put('//is/test/db/new-table/G', "GHI")
+    access.put('//is/test/db/new-table/A/B/G', "GHI")
 
-    print('>> Get //is/test/db/new-table/A')
+    print('>> Get //is/test/db/new-table/A/B')
     input()
-    print('GET: {}'.format(access.get('//is/test/db/new-table/A')))
+    print('GET: {}'.format(access.get('//is/test/db/new-table/A/B')))
 
-    print('>> Get //is/test/db/new-table/D')
+    print('>> Get //is/test/db/new-table/A/*')
     input()
-    print('GET: {}'.format(access.get('//is/test/db/new-table/D')))
+    print('GET: {}'.format(access.get('//is/test/db/new-table/A/*')))
 
-    print('>> Remove //is/test/db/new-table/D')
+    print('>> Get //is/test/db/new-table/A/**')
     input()
-    access.remove('//is/test/db/new-table/D')
+    print('GET: {}'.format(access.get('//is/test/db/new-table/A/**')))
 
-    print('>> Get //is/test/db/new-table/D')
+    print('>> Remove //is/test/db/new-table/A/D')
     input()
-    print('GET: {}'.format(access.get('//is/test/db/new-table/D')))
+    access.remove('//is/test/db/new-table/A/D')
+
+    print('>> Get //is/test/db/new-table/A/D')
+    input()
+    print('GET: {}'.format(access.get('//is/test/db/new-table/A/D')))
 
 
     print('****** SQL storage - legacy table ********')

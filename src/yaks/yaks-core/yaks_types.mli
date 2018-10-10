@@ -11,13 +11,10 @@ end [@@deriving show]
 
 module Path : sig
   type t
-  (* val is_key : t -> bool *)
-  (* val key : t -> string option *)
-  (* val prefix : t -> t *)
-  val of_string : string -> t
+  val of_string : ?is_absolute:bool -> string -> t
   (** [of_string s] returns [s] as a Path if it's valid. Otherwise it raises a [YException] *)
-  val of_string_opt : string -> t option
-  (** [of_string s] returns [Some p] if [s] is a valid path. Otherwise it raises a [YException] *)
+  val of_string_opt : ?is_absolute:bool -> string -> t option
+  (** [of_string_opt s] returns [Some p] if [s] is a valid path. Otherwise it raises a [YException] *)
   val to_string : t -> string
   val is_prefix : t -> t -> bool
   (** [is_prefix prefix path] test if [prefix] is a prefix of [path] *)
@@ -27,7 +24,8 @@ end [@@deriving show]
 
 module Selector : sig
   type t          
-  val of_string : string -> t option
+  val of_string : ?is_absolute:bool -> string -> t
+  val of_string_opt : ?is_absolute:bool -> string -> t option
   val to_string : t -> string
   val path : t -> string
   (* val key : t -> string option *)
@@ -39,7 +37,7 @@ module Selector : sig
   (** [is_matching p s] tests if the Path [p] matches the Selector [s].
       I [prefix_matching] is true [p] can be only a prefix of [s] to match.
       By default [prefix_matching] is set to false. *)
-  val remove_prefix : Path.t -> t -> string
+  val remove_prefix : Path.t -> t -> t
 (** [remove_prefix p s] returns the remaining part of [s] when the prefix [p] has been removed
     (assuming [p] is a matching prefix of [s]). *)
 end [@@deriving show]

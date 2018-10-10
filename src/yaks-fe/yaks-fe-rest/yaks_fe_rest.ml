@@ -434,7 +434,7 @@ let unsubscribe fe access_id sub_id =
         let normalized_path = path |> String.split_on_char '/' |> List.filter (fun s -> String.length s > 0) in
         execute_control_operation fe meth normalized_path query headers body
       else
-        (match Selector.of_string path with 
+        (match Selector.of_string_opt path with 
          | Some selector -> execute_data_operation fe meth selector headers body
          | None -> invalid_path path)
     with

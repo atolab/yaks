@@ -113,7 +113,7 @@ let encode_selector s = encode_string (Yaks_core.Selector.to_string s)
 let decode_selector buf = 
   decode_string buf 
   >>= fun (s, buf) -> 
-  match (Yaks_core.Selector.of_string s) with 
+  match (Yaks_core.Selector.of_string_opt s) with 
   | Some s -> Result.ok (s, buf)
   | None ->       
     Result.fail  @@ `InvalidFormat (`Msg "Invalid selector format" )
@@ -144,7 +144,7 @@ let decode_body (mid:message_id) (flags:char) (buf: IOBuf.t) =
      | (false, false) -> 
        decode_string buf 
        >>= fun (sel, buf) -> 
-       (match Yaks_core.Selector.of_string sel with
+       (match Yaks_core.Selector.of_string_opt sel with
         | Some s ->  Ok (YSelector s, buf)  
         | None -> Result.fail (`InvalidFormat (`Msg "Invalid selector syntax"))) 
      | _ -> Result.fail `InvalidFlags)  
