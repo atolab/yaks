@@ -164,7 +164,7 @@ module SQLBE = struct
       >>= Lwt_list.iter_p (fun (p,v) -> 
           match Value.update v delta with
           | Ok value ->
-              let sub_path = Apero.String.after (Path.to_string p) (String.length storage_info.table_name) in
+              let sub_path = Apero.Astring.after (String.length storage_info.table_name) (Path.to_string p) in
               let v = Value.to_string value in
               let enc = Value.encoding_to_string @@ Value.encoding value in
             Caqti_driver.put C.conx storage_info.table_name ("'"^sub_path^"','"^v^"','"^enc^"'") ()

@@ -1,17 +1,19 @@
-module Property = Apero.KeyValueF.Make (String) (String) [@@deriving show]
+open Apero
+
+module Property = KeyValueF.Make (String) (String) [@@deriving show]
 
 module Str = Re.Str
 
 module EventStream  = struct 
-  include  Apero.EventStream
+  include  EventStream
 end 
 
 
-module SubscriberId = Apero.Id.Make (Int64)
-module PluginId = Apero.Id.Make (Int64)
+module SubscriberId = Id.Make (Int64)
+module PluginId = Id.Make (Int64)
 
 (* This should become parametrized through a functor *)
-module KeyValue =  Apero.KeyValueF.Make (String) (String) [@@deriving show]
+module KeyValue =  KeyValueF.Make (String) (String) [@@deriving show]
 
 type error_info = [`NoMsg | `Msg of string | `Code of int | `Pos of (string * int * int * int) | `Loc of string] [@@deriving show]  
 
@@ -55,7 +57,7 @@ let remove_useless_slashes s =
         filter (i+1)
     in
     let _ =
-      (* Note: add 1 char anyway to preserve the starting // *)
+      (* Note: add 1st char anyway to preserve the starting // *)
       Buffer.add_char buf (String.get s 0);
       filter 1
     in
@@ -71,9 +73,8 @@ module Path = struct
   let is_valid s = Str.string_match path_regex s 0
 
   let of_string_opt ?(is_absolute=true) s =
-    let open Apero.String in
-    if length s > 1 && is_valid s then
-      if is_absolute && not (starts_with s "//") then None
+    if Astring.length s > 1 && is_valid s then
+      if is_absolute && not (Astring.is_prefix ~affix:"//" s) then None
       else Some (remove_useless_slashes s)
     else None
 
@@ -83,7 +84,7 @@ module Path = struct
 
   let to_string s = s
 
-  let is_prefix prefix path = Apero.String.starts_with (to_string path) (to_string prefix)
+  let is_prefix ~affix path = Astring.is_prefix ~affix:(to_string affix) (to_string path)
 
   let compare = String.compare
 
@@ -103,9 +104,8 @@ module Selector = struct
   (* let key s = s.key *)
 
   let of_string_opt ?(is_absolute=true) s =
-    let open Apero.String in
-    if length s > 1 && is_valid s then
-      if is_absolute && not (starts_with s "//") then None
+    if Astring.length s > 1 && is_valid s then
+      if is_absolute && not (Astring.is_prefix ~affix:"//" s) then None
       else 
         let path = remove_useless_slashes @@ Str.matched_group 1 s
         and query = try Some(Str.matched_group 3 s) with Not_found -> None
@@ -133,24 +133,21 @@ module Selector = struct
   let wildcard_regex = regexp "\\(\\*\\*\\)\\|[*]"
 
 
-  let string_remove_prefix s prefix =
-    let prefix_len = String.length prefix in
-    let string_len = String.length s in
-    String.sub s prefix_len (string_len-prefix_len)
-
 
   let string_of_sel sel =
     List.fold_left (fun acc e -> match e with | Text(t) -> acc^"::Text("^t^")" | Delim(d) -> acc^"::Delim("^d^")") "" sel
 
-  let is_unique_path sel = not @@ String.contains sel.path '*'
+  let is_unique_path sel = not @@ Astring.contains '*' sel.path
 
   let as_unique_path sel = if is_unique_path sel then Some (Path.of_string sel.path) else None
 
-  let rec remove_last_slash key =
-    if String.length key == 0 || String.get key (String.length key-1) != '/' then
-      key
-    else 
-      String.sub key 0 (String.length key-1) |> remove_last_slash
+  let remove_last_slash = Astring.drop ~rev:true ~sat:(fun c -> c = '/')
+
+
+  let is_matching_path _ _ =    true
+  
+  let is_prefixing_path _ _ = true
+
 
   let is_matching ?(prefix_matching=false) path selector =
     let sel_path = remove_last_slash selector.path and path = remove_last_slash path in
@@ -158,36 +155,46 @@ module Selector = struct
     let rec check_matching sel path =
       let _ = Logs_lwt.debug (fun m -> m "   - check_match %s %s " (string_of_sel sel) path) in
       match (sel, path) with
-      | ([], "") -> let _ = Logs_lwt.debug (fun m -> m "   - exact match ") in true
-      | (_, "") -> let _ = Logs_lwt.debug (fun m -> m "   - path too short") in prefix_matching  (* path too short: OK if prefix_matching expected, not-OK if full match expected *)
-      | ([], _) -> let _ = Logs_lwt.debug (fun m -> m "   - path too long ") in false                (* path too long *)
+      | ([], "") -> let _ = Logs_lwt.debug (fun m -> m "   - exact match => TRUE") in true
+      | (_, "") -> let _ = Logs_lwt.debug (fun m -> m "   - path too short => prefix_matching=%b" prefix_matching) in prefix_matching  (* path too short: OK if prefix_matching expected, not-OK if full match expected *)
+      | ([], _) -> let _ = Logs_lwt.debug (fun m -> m "   - path too long => FALSE") in false                (* path too long *)
       | (Text(t)::sel, path) ->
         if prefix_matching then
-          if (Apero.String.starts_with t path) then true
-          else false
-        else if (Apero.String.starts_with path t) then
-          check_matching sel (string_remove_prefix path t)
+          if (Astring.is_prefix ~affix:path t) then
+            let _ = Logs_lwt.debug (fun m -> m "   - path is a prefix of Text => TRUE") in true
+          else if (Astring.is_prefix ~affix:t path) then
+            check_matching sel (Astring.with_range ~first:(String.length t) ~len:(String.length path - String.length t) path)
+          else
+            let _ = Logs_lwt.debug (fun m -> m "   - path doesn't match Text => FALSE") in false
+        else if (Astring.is_prefix ~affix:t path) then
+          check_matching sel (Astring.with_range ~first:(String.length t) path)
         else
-          let _ = Logs_lwt.debug (fun m -> m "   - path doesn't start with 1st element of selector ") in false
+          let _ = Logs_lwt.debug (fun m -> m "   - path doesn't start with 1st element of selector => FALSE") in false
       | (Delim("*")::[], path) ->
-        if (String.contains path '/') then false else true
+        if prefix_matching then
+          let _ = Logs_lwt.debug (fun m -> m "   - * at end; path is a prefix of * => TRUE") in true
+        else
+          if (String.contains path '/') then
+            let _ = Logs_lwt.debug (fun m -> m "   - * at end but / remaining => FALSE") in false
+          else
+            let _ = Logs_lwt.debug (fun m -> m "   - * at end no / remaining => TRUE") in true
       | (Delim("*")::Text(t)::sel, path) ->
         let search_limit = match String.index_opt path '/' with | Some(i) -> i | None -> String.length path - 1 in
         (try
            let i = search_forward (regexp_string t) path 0 in
            if (i > search_limit) then
-             let _ = Logs_lwt.debug (fun m -> m "   - text '%s' found in path but after /" t) in false
+             let _ = Logs_lwt.debug (fun m -> m "   - text '%s' found in path but after / => FALSE" t) in false
            else
              check_matching sel (String.sub path (i+String.length t) (String.length path - i - String.length t))
          with
-           Not_found -> let _ = Logs_lwt.debug (fun m -> m "   - text '%s' not found in path" t) in false)
-      | (Delim("**")::[], _) -> let _ = Logs_lwt.debug (fun m -> m "   - ** as end match all! ") in true
+           Not_found -> let _ = Logs_lwt.debug (fun m -> m "   - text '%s' not found in path => FALSE" t) in false)
+      | (Delim("**")::[], _) -> let _ = Logs_lwt.debug (fun m -> m "   - ** at end match all! => TRUE") in true
       | (Delim("**")::Text(t)::sel, key) ->
         (try 
            let i = search_backward (regexp_string t) key (String.length key) in
            check_matching sel (String.sub key (i+String.length t) (String.length key - i - String.length t))
          with
-           Not_found -> let _ = Logs_lwt.debug (fun m -> m "   - text '%s' not found in path" t) in false
+           Not_found -> let _ = Logs_lwt.debug (fun m -> m "   - text '%s' not found in path => FALSE" t) in false
         )
       | (Delim(_)::_, _) -> raise (Invalid_argument "Invalid Selector") (* Shouldn't happen !!!*)
     in
@@ -200,7 +207,7 @@ module Selector = struct
       let open Apero in
       let rec next_char ip is =
         if is >= String.length sel then ""
-        else if ip >= String.length prefix then String.after sel is
+        else if ip >= String.length prefix then Astring.after is sel
         else match String.get sel is with
           | c when c = String.get prefix ip -> next_char (ip+1) (is+1)
           | '*' ->
@@ -212,7 +219,7 @@ module Selector = struct
                 let ip' = String.index_from prefix (ip+1) next_sel_char in
                 next_char ip' (is+1)
 
-          | _ -> String.after sel is
+          | _ -> Astring.after is sel
       in
       next_char 0 0 |> of_string ~is_absolute:false
 

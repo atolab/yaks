@@ -33,7 +33,7 @@ module Storage = struct
 
   let is_covering s sel = Selector.is_matching ~prefix_matching:true s.path sel
 
-  let is_conflicting s path = Path.is_prefix s.path path || Path.is_prefix path s.path
+  let is_conflicting s path = Path.is_prefix ~affix:path s.path || Path.is_prefix ~affix:s.path path
 
   let get t = t.get
   let put t = t.put

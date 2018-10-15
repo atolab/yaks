@@ -16,7 +16,7 @@ module Path : sig
   val of_string_opt : ?is_absolute:bool -> string -> t option
   (** [of_string_opt s] returns [Some p] if [s] is a valid path. Otherwise it raises a [YException] *)
   val to_string : t -> string
-  val is_prefix : t -> t -> bool
+  val is_prefix : affix:t -> t -> bool
   (** [is_prefix prefix path] test if [prefix] is a prefix of [path] *)
   (* val matches : t -> t -> bool *)
   val compare : t -> t-> int
@@ -33,6 +33,8 @@ module Selector : sig
   val fragment : t -> string option
   val is_unique_path : t -> bool
   val as_unique_path : t -> Path.t option
+  val is_matching_path : Path.t -> t -> bool
+  val is_prefixing_path : Path.t -> t -> bool
   val is_matching : ?prefix_matching:bool -> Path.t -> t -> bool
   (** [is_matching p s] tests if the Path [p] matches the Selector [s].
       I [prefix_matching] is true [p] can be only a prefix of [s] to match.
