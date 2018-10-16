@@ -100,6 +100,7 @@ module Api = struct
     else
       let sid = Yaks_core.Property.Map.find "is.yaks.storage.id" rmsg.header.properties in
       let storageid = Apero.Option.get @@ StorageId.of_string sid in
+      let _ =  Logs_lwt.info (fun m -> m "[YAS]: Created storage %s " (StorageId.to_string storageid)) in
       let storage = Storage.create properties path storageid api.driver in
       MVar.return storage {api with storages = StorageMap.add storageid storage api.storages}
 

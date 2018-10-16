@@ -92,7 +92,7 @@ module Message = struct
       (match id with 
        | IdStorage sid ->   
          let properties = Yaks_core.Property.Map.add "is.yaks.storage.id" (StorageId.to_string sid) Yaks_core.Property.Map.empty in
-         make_msg mid [Yaks_fe_sock_codes.ACCESS; Yaks_fe_sock_codes.PROPERTY] properties YEmpty
+         make_msg mid [Yaks_fe_sock_codes.STORAGE; Yaks_fe_sock_codes.PROPERTY] properties YEmpty
        | _ -> Lwt.fail_with "Wrong id"
       )
     | `Resource -> 

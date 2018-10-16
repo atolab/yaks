@@ -8,6 +8,7 @@ let main argv =
   let port = Array.get argv 2 in 
   let locator = Apero.Option.get @@ Apero_net.Locator.of_string @@ Printf.sprintf "tcp/%s:%s" addr port in
   let%lwt api = YApi.connect locator in
+  let%lwt storage = YApi.create_storage (Yaks_core.Path.of_string "//afos/0") api in
   let comp = 
     YApi.create_access (Yaks_core.Path.of_string "//afos/0") api
     >>= fun access -> YAccess.put 
@@ -19,6 +20,7 @@ let main argv =
         ignore @@ Logs_lwt.info (fun m -> m ">>>>>>>>>>>>>>> [APP] K %s - V: %s"  (Yaks_core.Selector.to_string k) (Yaks_core.Value.to_string v))
     ) data; Lwt.return_unit
     >>= fun _ -> YApi.dispose_access access api
+    >>= fun _ -> YApi.dispose_storage storage api
     >>= fun _ -> YApi.close api
     (* >>= fun access -> 
        let%lwt aid = YAccess.get_id access in
