@@ -21,7 +21,7 @@ module Access = struct
 
   let to_string a =a.as_string
 
-  let is_covering a sel = Selector.is_matching ~prefix_matching:true a.path sel
+  let is_covering a sel = Selector.is_prefixed_by_path a.path sel
 
 
 end  [@@deriving show]

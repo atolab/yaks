@@ -30,7 +30,7 @@ module MainMemoryBE = struct
         MVar.read mvar_self 
         >|= (fun self ->
             self
-            |> SMap.filter (fun path _ -> Selector.is_matching path selector)
+            |> SMap.filter (fun path _ -> Selector.is_matching_path path selector)
             |> SMap.bindings)
 
 
@@ -46,7 +46,7 @@ module MainMemoryBE = struct
       | None -> 
         MVar.guarded mvar_self
           (fun self -> 
-             let matches = SMap.filter (fun path _ -> Selector.is_matching path selector) self in 
+             let matches = SMap.filter (fun path _ -> Selector.is_matching_path path selector) self in 
              let self' = SMap.union (fun _ _ _ -> Some value) matches self in
              Lwt.return (Lwt.return_unit, self'))
 
@@ -65,7 +65,7 @@ module MainMemoryBE = struct
       | None -> 
         MVar.guarded mvar_self
         @@ fun self -> 
-        let matches = SMap.filter (fun path _ -> Selector.is_matching path selector) self in
+        let matches = SMap.filter (fun path _ -> Selector.is_matching_path path selector) self in
         let self' = SMap.union (fun _ v _ -> Some (try_update v delta)) matches self in
         Lwt.return (Lwt.return_unit, self')
 
@@ -78,7 +78,7 @@ module MainMemoryBE = struct
       | None -> 
         MVar.guarded mvar_self 
         @@ fun self -> 
-        let matches = SMap.filter (fun path _ -> Selector.is_matching path selector) self in
+        let matches = SMap.filter (fun path _ -> Selector.is_matching_path path selector) self in
         let self' = SMap.union (fun _ _ _ -> None) matches self in
         Lwt.return (Lwt.return_unit, self')              
 

@@ -48,6 +48,10 @@ def main():
     input()
     access.put('//is/test/db/new-table/A/B/G', "GHI")
 
+    print('>> Put //is/test/db/new-table/A/B/H/I/J')
+    input()
+    access.put('//is/test/db/new-table/A/B/H/I/J', "JKL")
+
     print('>> Get //is/test/db/new-table/A/B')
     input()
     print('GET: {}'.format(access.get('//is/test/db/new-table/A/B')))
@@ -59,6 +63,10 @@ def main():
     print('>> Get //is/test/db/new-table/A/**')
     input()
     print('GET: {}'.format(access.get('//is/test/db/new-table/A/**')))
+
+    print('>> Get //is/test/db/new-table/A/**/J')
+    input()
+    print('GET: {}'.format(access.get('//is/test/db/new-table/A/**/J')))
 
     print('>> Remove //is/test/db/new-table/A/D')
     input()
