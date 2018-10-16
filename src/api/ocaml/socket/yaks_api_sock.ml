@@ -30,8 +30,7 @@ module Api = struct
                 ; endpoint = ep
                 ; driver} in
       Message.make_open () 
-      >>= fun m -> sendmsg m driver 
-      >>= fun _ -> recvmsg driver 
+      >>= fun m -> process m driver 
       >>= fun m ->
       (match m.header.mid with
        | OK -> Lwt.return @@ MVar.create api
@@ -51,8 +50,7 @@ module Api = struct
     let open Message in
     let _ = ignore @@ Logs_lwt.info (fun m -> m "[YAS]: Creating access on endpoint %s " (Apero_net.Locator.to_string self.endpoint)) in 
     make_create `Access path cache_size 
-    >>= fun msg -> Yaks_sock_driver.sendmsg msg self.driver 
-    >>= fun _ -> Yaks_sock_driver.recvmsg self.driver 
+    >>= fun msg -> Yaks_sock_driver.process msg self.driver 
     >>= fun rmsg -> 
     if msg.header.corr_id <> rmsg.header.corr_id then
       Lwt.fail_with "Correlation Incorrect"
@@ -69,8 +67,7 @@ module Api = struct
     Access.get_id access >>= fun aid ->
     let _ = ignore @@ Logs_lwt.info (fun m -> m "[YAS]: Dispose access %s on endpoint %s" (AccessId.to_string aid )(Apero_net.Locator.to_string api.endpoint)) in 
     make_delete ~delete_type:`Access (IdAccess aid) 
-    >>= fun msg -> Yaks_sock_driver.sendmsg msg api.driver 
-    >>= fun _ -> Yaks_sock_driver.recvmsg api.driver 
+    >>= fun msg -> Yaks_sock_driver.process msg api.driver 
     >>= fun rmsg -> 
     if msg.header.corr_id <> rmsg.header.corr_id then
       Lwt.fail_with "Correlation Incorrect"
@@ -92,8 +89,7 @@ module Api = struct
     MVar.guarded api @@ fun api ->
     let _ = ignore @@ Logs_lwt.info (fun m -> m "[YAS]: Creating Storage on endpoint %s " (Apero_net.Locator.to_string api.endpoint)) in
     make_create `Storage path 0 
-    >>= fun msg -> Yaks_sock_driver.sendmsg msg api.driver
-    >>= fun _ -> Yaks_sock_driver.recvmsg api.driver 
+    >>= fun msg -> Yaks_sock_driver.process msg api.driver
     >>= fun rmsg -> 
     if msg.header.corr_id <> rmsg.header.corr_id then
       Lwt.fail_with "Correlation Incorrect"
@@ -110,8 +106,7 @@ module Api = struct
     Storage.get_id storage >>= fun sid ->
     let _ = ignore @@ Logs_lwt.info (fun m -> m "[YAS]: Disposing storage %s on endpoint %s" (StorageId.to_string sid) (Apero_net.Locator.to_string api.endpoint)) in 
     make_delete ~delete_type:`Storage (IdStorage sid)
-    >>= fun msg -> Yaks_sock_driver.sendmsg msg api.driver
-    >>= fun _ -> Yaks_sock_driver.recvmsg api.driver
+    >>= fun msg -> Yaks_sock_driver.process msg api.driver
     >>= fun rmsg -> 
     if msg.header.corr_id <> rmsg.header.corr_id then
       Lwt.fail_with "Correlation Incorrect"

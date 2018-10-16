@@ -3,8 +3,7 @@ open Yaks_sock_types
 
 module Access : sig 
   type t
-  type listener = (Yaks_types.Path.t * Yaks_types.Value.t) list -> unit Lwt.t
-  type eval_callback = Yaks_types.Path.t -> Yaks_types.Value.t
+
 
   val create : int -> Yaks_fe_sock_codes.value_encoding -> Yaks_types.Path.t -> AccessId.t -> Yaks_sock_driver.t -> t
   val get : Yaks_types.Selector.t -> t -> ((Yaks_types.Selector.t * Yaks_types.Value.t) list) Lwt.t 

@@ -6,8 +6,7 @@ module MVar = Apero.MVar_lwt
 
 module Access = struct 
 
-  type listener = (Yaks_types.Path.t * Yaks_types.Value.t) list -> unit Lwt.t
-  type eval_callback = Yaks_types.Path.t -> Yaks_types.Value.t
+
 
   module EvalId = Apero.Uuid
   module SubscriberMap =  Map.Make(SubscriberId)
@@ -44,8 +43,7 @@ module Access = struct
     MVar.read access >>= fun access ->
     let _ = ignore @@ Logs_lwt.info (fun m -> m "[YAS]: GET on %s" (Yaks_types.Selector.to_string selector)) in
     Message.make_get (IdAccess access.aid) selector
-    >>= fun msg -> Yaks_sock_driver.sendmsg msg access.driver
-    >>= fun _ -> Yaks_sock_driver.recvmsg access.driver
+    >>= fun msg -> Yaks_sock_driver.process msg access.driver
     >>= fun rmsg ->
     if rmsg.header.corr_id <> msg.header.corr_id then
       Lwt.fail_with "CorrId is different!"
@@ -66,8 +64,7 @@ module Access = struct
     MVar.read access >>= fun access ->
     let _ = ignore @@ Logs_lwt.info (fun m -> m "[YAS]: PUT on %s -> %s" (Yaks_types.Selector.to_string selector) (Yaks_types.Value.to_string value)) in
     Message.make_put (IdAccess access.aid) selector value 
-    >>= fun msg -> Yaks_sock_driver.sendmsg msg access.driver
-    >>= fun _ -> Yaks_sock_driver.recvmsg access.driver
+    >>= fun msg -> Yaks_sock_driver.process msg access.driver
     >>= fun rmsg ->
     if rmsg.header.corr_id <> msg.header.corr_id then
       Lwt.fail_with "CorrId is different!"

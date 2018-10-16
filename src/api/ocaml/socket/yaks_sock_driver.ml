@@ -3,10 +3,13 @@ open Lwt.Infix
 module MVar = Apero.MVar_lwt
 
 
-
+module WorkingMap = Map.Make(Apero.Vle)
+module ListenersMap = Map.Make(Yaks_sock_types.SubscriberId) 
 
 type state = {
   sock : Lwt_unix.file_descr
+; working_set : Yaks_fe_sock_types.message Lwt.u WorkingMap.t
+; subscribers : Yaks_sock_types.listener ListenersMap.t
 }
 
 type t = state MVar.t 
@@ -57,17 +60,17 @@ let decode_message buf =
   >>= fun (body, buf) -> Apero.Result.ok ({header;  body}, buf)
 
 
-let create locator = 
-  let sock = Lwt_unix.socket PF_INET SOCK_STREAM 0 in
-  Apero_net.connect sock locator >>= fun s -> Lwt.return @@ MVar.create {sock = s}
 
-let destroy driver = 
-  MVar.read driver >>= fun d ->
-  Apero_net.safe_close d.sock
+let check_socket sock = 
+  let _ = 
+    match Lwt_unix.state sock with
+    | Opened -> ignore @@ Logs_lwt.info (fun m -> m "Socket is open")
+    | Closed -> ignore @@ Logs_lwt.info (fun m -> m "Socket is closed")
+    | Aborted e -> ignore @@ Logs_lwt.info (fun m -> m "Socket is aborted: %s" (Printexc.to_string e))
+  in ()
 
-let sendmsg msg driver = 
+let send_to_socket msg sock = 
   let open Apero in
-  MVar.read driver >>= fun d ->
   let buf = IOBuf.create max_size in
   let concat bl bd = 
     let open Apero.Result.Infix in
@@ -81,15 +84,10 @@ let sendmsg msg driver =
     (match encode_vle (Vle.of_int @@ IOBuf.limit fbuf) lbuf with
      | Ok lbuf -> 
        let%lwt _ = Logs_lwt.debug (fun m -> m "Sending message to socket") in
-       let _ = 
-         match Lwt_unix.state d.sock with
-         | Opened -> ignore @@ Logs_lwt.info (fun m -> m "Socket is open")
-         | Closed -> ignore @@ Logs_lwt.info (fun m -> m "Socket is closed")
-         | Aborted e -> ignore @@ Logs_lwt.info (fun m -> m "Socket is aborted: %s" (Printexc.to_string e))
-       in
+       let _ = check_socket in
        let lbuf = IOBuf.flip lbuf in
        let data = IOBuf.flip @@ Apero.Result.get @@ concat lbuf fbuf in 
-       Net.write_all d.sock data >>= fun bs ->
+       Net.write_all sock data >>= fun bs ->
        let%lwt _ = Logs_lwt.debug (fun m -> m "Sended %d bytes" bs) in
        Lwt.return_unit
      | Error e -> 
@@ -99,24 +97,47 @@ let sendmsg msg driver =
     let%lwt _ = Logs_lwt.err (fun m -> m "Falied in encoding messge: %s" (Apero.show_error e)) in
     Lwt.fail @@ Exception e 
 
-let recvmsg driver = 
+let receiver_loop (driver:t) = 
   let open Apero in
   MVar.read driver >>= fun self ->
   let lbuf = IOBuf.create 16 in 
   let%lwt len = Net.read_vle self.sock lbuf in    
-
   let%lwt _ = Logs_lwt.debug (fun m -> m "Message lenght : %d" (Vle.to_int len)) in      
   let buf = IOBuf.create (Vle.to_int len) in
   let%lwt n = Net.read_all self.sock buf in
-  let _ = 
-    match Lwt_unix.state self.sock with
-    | Opened -> ignore @@ Logs_lwt.info (fun m -> m "Socket is open")
-    | Closed -> ignore @@ Logs_lwt.info (fun m -> m "Socket is closed")
-    | Aborted e -> ignore @@ Logs_lwt.info (fun m -> m "Socket is aborted: %s" (Printexc.to_string e))
+  let _ = check_socket self.sock
   in      
   let%lwt _ = Logs_lwt.debug (fun m -> m "Read %d bytes out of the socket" n) >>= fun _ -> Lwt.return_unit in      
   match decode_message buf with 
-  | Ok (msg, _) -> Lwt.return msg
+  | Ok (msg, _) -> 
+    MVar.guarded driver 
+    @@ (fun self ->
+        let resolver = Option.get @@ WorkingMap.find_opt msg.header.corr_id self.working_set in
+        let _ = Lwt.wakeup_later resolver msg in
+        MVar.return () {self with working_set = WorkingMap.remove msg.header.corr_id self.working_set})
+
   | Error e -> 
     let%lwt _ = Logs_lwt.err (fun m -> m "Falied in parsing message %s" (Apero.show_error e)) in
     Lwt.fail @@ Exception e
+
+let rec loop driver  () = 
+  receiver_loop driver >>= loop driver
+
+let create locator = 
+  let sock = Lwt_unix.socket PF_INET SOCK_STREAM 0 in
+  Apero_net.connect sock locator >>= fun s -> 
+  let driver = MVar.create {sock = s; working_set = WorkingMap.empty; subscribers = ListenersMap.empty } in
+  let _ = loop driver () in
+  Lwt.return driver
+
+let destroy driver = 
+  MVar.read driver >>= fun d ->
+  Apero_net.safe_close d.sock
+
+let process (msg:Yaks_fe_sock_types.message) driver = 
+  MVar.guarded driver @@
+  fun self -> 
+  let promise, completer = Lwt.wait () in
+  send_to_socket msg self.sock 
+  >>= fun _ ->
+  MVar.return_lwt promise {self with working_set = WorkingMap.add msg.header.corr_id completer self.working_set}
