@@ -157,9 +157,9 @@ module Message = struct
        | _ -> Lwt.fail_with "Wrong id"
       )
     | _ -> Lwt.fail_with "Wrong id"
-  let make_values?(encoding=Yaks_fe_sock_codes.RAW) id values = 
+  let make_values ?(encoding=Yaks_fe_sock_codes.RAW) id values = 
     ignore @@ encoding;
-    let mid = Yaks_fe_sock_codes.VALUES in
+    let mid = Yaks_fe_sock_codes.PVALUES in
     match id with
     | IdAccess id -> 
       let properties = Yaks_core.Property.Map.add "is.yaks.access.id" (AccessId.to_string id) Yaks_core.Property.Map.empty in

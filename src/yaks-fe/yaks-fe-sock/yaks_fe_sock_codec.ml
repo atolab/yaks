@@ -120,7 +120,7 @@ let decode_selector buf =
 
 let encode_path p = encode_string (Yaks_core.Path.to_string p)
 
-let decode_paths buf = 
+let decode_path buf = 
   decode_string buf 
   >>= fun (p, buf) -> 
   match (Yaks_core.Path.of_string_opt p) with 
@@ -161,7 +161,7 @@ let decode_body (mid:message_id) (flags:char) (buf: IOBuf.t) =
   (* These are the messages that the service send but do not expect to receive. 
      If any of this message is received the client is considered malfunctioning or 
      malicious and the connection is immediately closed *)
-  | OK | ERROR | NOTIFY | VALUE | VALUES -> Result.fail `UnexpextedMessage 
+  | OK | ERROR | NOTIFY | PVALUES | SVALUES -> Result.fail `UnexpextedMessage 
 
 
 

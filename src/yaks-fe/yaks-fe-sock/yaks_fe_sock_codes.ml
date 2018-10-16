@@ -11,8 +11,8 @@ type message_id =
 | NOTIFY [@id 0xB2]
 | EVAL [@id 0xB3]
 | OK [@id 0xD0]
-| VALUE [@id 0xD1]
-| VALUES [@id 0xD2]
+| PVALUES [@id 0xD1]
+| SVALUES [@id 0xD2]
 | ERROR [@id 0xE0]
 [@@uint8_t]]
 
