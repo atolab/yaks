@@ -34,7 +34,7 @@ module Processor = struct
       make_message header YEmpty 
 
     let reply_with_values msg vs =     
-      let header = make_header OK [] msg.header.corr_id Property.Map.empty in 
+      let header = make_header VALUES [] msg.header.corr_id Property.Map.empty in 
       make_message header (YPathValueList vs)
 
     let reply_with_error msg code =   

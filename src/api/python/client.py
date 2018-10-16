@@ -5,6 +5,7 @@ import sys
 def obs(kvs):
     print('Called OBSERVER KVS: {}'.format(kvs))
 
+
 def main():
     print('creating api')
     y = api.YAKS(sys.argv[1])
@@ -16,7 +17,6 @@ def main():
     access = y.create_access('//fos')
 
     sid = access.subscribe('//fos/example/*', obs)
-
 
     print('>> Put Tuple')
     input()
@@ -44,7 +44,8 @@ def main():
 
     print('>> Dispose Access')
     input()
-    access.unsubscribe(sid)
+    if sid:
+        access.unsubscribe(sid)
     access.dispose()
 
     print('>> Dispose Storage')

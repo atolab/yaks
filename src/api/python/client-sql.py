@@ -68,7 +68,6 @@ def main():
     input()
     print('GET: {}'.format(access.get('//is/test/db/new-table/A/D')))
 
-
     print('****** SQL storage - legacy table ********')
 
     print('>> Get //is/test/db/leg-table')
@@ -90,7 +89,6 @@ def main():
     print('>> Get //is/test/db/leg-table')
     input()
     print('GET: {}'.format(access.get('//is/test/db/leg-table')))
-
 
     print('****** DISPOSE ALL ********')
 

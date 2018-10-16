@@ -23,7 +23,7 @@ LITTLE ENDIAN
 +-+-+-+-+-+-+-+-+ ----------------------+
 |  MESSAGE CODE |    8bit               |
 +-+-+-+-+-+-+-+-+                       |
-|X|X|E|N|C|A|S|P|    8bit               +--> Header
+|X|X|X|X|X|A|S|P|    8bit               +--> Header
 +-+-+-+-+-+-+-+-+                       |
 ~   Coor. ID    ~  VLE max 64bit        |
 +---------------+                       |
@@ -41,7 +41,7 @@ WIRE MESSAGE:
 +-+-+-+-+-+-+-+-+ ----------------------+
 |  MESSAGE CODE |    8bit               |
 +-+-+-+-+-+-+-+-+                       |
-|X|X|E|N|C|A|S|P|    8bit               +--> Header
+|X|X|X|X|X|A|S|P|    8bit               +--> Header
 +-+-+-+-+-+-+-+-+                       |
 ~    Corr. id   ~  VLE max 64bit        |
 +---------------+                       |
@@ -130,10 +130,12 @@ class Message(object):
         return self.encoder.decode(vle_field), base_p + 1
 
     def __read_encoding(self, data, base_p):
-        _, base_p = self.__read_vle_field(data, base_p)
-        k_len, base_p = self.__read_vle_field(data, base_p)
-        base_p = base_p + k_len
-        return struct.unpack('<B', data[base_p: base_p + 1])[0]
+        l, base_p = self.__read_vle_field(data, base_p)
+        if l > 0:
+            k_len, base_p = self.__read_vle_field(data, base_p)
+            base_p = base_p + k_len
+            return struct.unpack('<B', data[base_p: base_p + 1])[0]
+        return INVALID
 
     def pack(self):
         header = struct.pack('<BB', self.message_code, self.flags)
@@ -582,7 +584,7 @@ class MessageValues(Message):
 
 
 class MessageOk(Message):
-    def __init__(self, id, corr_id):
+    def __init__(self, corr_id):
         super(MessageOk, self).__init__()
         self.message_code = OK
         self.corr_id = corr_id
@@ -590,7 +592,7 @@ class MessageOk(Message):
 
 
 class MessageError(Message):
-    def __init__(self, id, corr_id, errno):
+    def __init__(self, corr_id, errno):
         super(MessageError, self).__init__()
         self.message_code = ERROR
         self.corr_id = corr_id
