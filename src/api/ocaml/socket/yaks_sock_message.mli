@@ -22,7 +22,7 @@ module Message : sig
 
   val make_open : ?username:String.t -> ?password:String.t -> unit -> Yaks_fe_sock_types.message Lwt.t
   val make_create : ?alias:String.t -> ?config:String.t -> ?complete:bool -> entity_type -> Yaks_core.Path.t -> int -> Yaks_fe_sock_types.message Lwt.t
-  val make_delete : ?delete_type:entity_type -> ?path:Yaks_core.Path.t -> id -> Yaks_fe_sock_types.message Lwt.t
+  val make_delete : ?delete_type:entity_type -> ?selector:Yaks_core.Selector.t -> id -> Yaks_fe_sock_types.message Lwt.t
   val make_put : ?encoding: Yaks_fe_sock_codes.value_encoding -> id ->  Yaks_core.Selector.t -> Yaks_core.Value.t -> Yaks_fe_sock_types.message Lwt.t 
   val make_patch : ?encoding: Yaks_fe_sock_codes.value_encoding -> id -> Yaks_core.Selector.t -> Yaks_core.Value.t -> Yaks_fe_sock_types.message Lwt.t 
   val make_get : ?encoding: Yaks_fe_sock_codes.value_encoding -> id -> Yaks_core.Selector.t -> Yaks_fe_sock_types.message Lwt.t

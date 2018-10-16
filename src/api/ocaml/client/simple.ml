@@ -8,37 +8,36 @@ let main argv =
   let port = Array.get argv 2 in 
   let locator = Apero.Option.get @@ Apero_net.Locator.of_string @@ Printf.sprintf "tcp/%s:%s" addr port in
   let%lwt api = YApi.connect locator in
+  ignore @@ Lwt_io.printf "<<<< [APP] Creating storage on %s\n"  "//afos/0";
   let%lwt storage = YApi.create_storage (Yaks_core.Path.of_string "//afos/0") api in
   let comp = 
+    ignore @@ Lwt_io.printf "<<<< [APP] Creating access on %s\n"  "//afos/0";
     YApi.create_access (Yaks_core.Path.of_string "//afos/0") api
-    >>= fun access -> YAccess.put 
+    >>= fun access -> 
+    ignore @@ Lwt_io.printf "<<<< [APP] Put %s -> %s\n" "//afos/0" "hello!";
+    YAccess.put 
       (Yaks_core.Selector.of_string "//afos/0/1")
       (Apero.Result.get (Yaks_core.Value.of_string "hello!" Yaks_core.Value.Raw_Encoding)) access
     >>= fun _ -> YAccess.get (Yaks_core.Selector.of_string "//afos/0/*") access
     >>= fun data -> List.iter (
       fun (k,v) -> 
-        ignore @@ Logs_lwt.info (fun m -> m ">>>>>>>>>>>>>>> [APP] K %s - V: %s"  (Yaks_core.Selector.to_string k) (Yaks_core.Value.to_string v))
+        ignore @@ Lwt_io.printf ">>>> [APP] K %s - V: %s\n"  (Yaks_core.Selector.to_string k) (Yaks_core.Value.to_string v);
     ) data; Lwt.return_unit
-    >>= fun _ -> YApi.dispose_access access api
-    >>= fun _ -> YApi.dispose_storage storage api
-    >>= fun _ -> YApi.close api
-    (* >>= fun access -> 
-       let%lwt aid = YAccess.get_id access in
-       let _ = Logs_lwt.info (fun m -> m ">>>>>>>>>>>>>>> [APP] AccessID:%s " @@ YAccess.Id.to_string aid ) in
-       ignore @@ 
-       YAccess.put 
-       (Apero.Option.get (Yaks_core.Selector.of_string "//afos/0/1"))
-       (Apero.Result.get (Yaks_core.Value.of_string "hello!" Yaks_core.Value.Raw_Encoding));
-       Lwt.return access
-       >>= fun ac -> 
-       Lwt.return (YAccess.get (Apero.Option.get (Yaks_core.Selector.of_string "//afos/0/1")) ac, ac) >>=
-       fun (_,a) -> Lwt.return @@ YApi.dispose_access a >>= fun _ -> *)
+    >>= fun _ -> 
+    ignore @@ Lwt_io.printf "<<<< [APP] Dispose access\n";
+    YApi.dispose_access access api
+    >>= fun _ -> 
+    ignore @@ Lwt_io.printf "<<<< [APP] Dispose storage\n";
+    YApi.dispose_storage storage api
+    >>= fun _ -> 
+    ignore @@ Lwt_io.printf "<<<< [APP] Bye!\n";
+    YApi.close api
   in Lwt.join [comp]
 
 
 let _ =
   let argv = Sys.argv in
-  let level = Apero.Result.get @@ Logs.level_of_string "debug" in
+  let level = Apero.Result.get @@ Logs.level_of_string "error" in
   Logs.set_level level;
   Logs.set_reporter (Logs_fmt.reporter ());
   if Array.length argv < 3 then usage ()

@@ -72,27 +72,57 @@ module Access = struct
       Lwt.return_unit
 
   let delta_put selector value access = 
-    MVar.read access >>= fun _ ->
+    MVar.read access >>= fun access ->
     let _ = ignore @@ Logs_lwt.info (fun m -> m "[YAS]: DELAT_PUT on %s -> %s" (Yaks_types.Selector.to_string selector) (Yaks_types.Value.to_string value)) in
-    Lwt.return_unit
+    Message.make_patch (IdAccess access.aid) selector value 
+    >>= fun msg -> Yaks_sock_driver.process msg access.driver
+    >>= fun rmsg ->
+    if rmsg.header.corr_id <> msg.header.corr_id then
+      Lwt.fail_with "CorrId is different!"
+    else
+      Lwt.return_unit
 
   let remove selector access =
-    MVar.read access >>= fun _ ->
+    MVar.read access >>= fun access ->
     let _ = ignore @@ Logs_lwt.info (fun m -> m "[YAS]: REMOVE on %s" (Yaks_types.Selector.to_string selector)) in
-    Lwt.return_unit
+    Message.make_delete ~delete_type:`Resource  ~selector (IdAccess access.aid)  
+    >>= fun msg -> Yaks_sock_driver.process msg access.driver
+    >>= fun rmsg ->
+    if rmsg.header.corr_id <> msg.header.corr_id then
+      Lwt.fail_with "CorrId is different!"
+    else
+      Lwt.return_unit
 
   let subscribe ?(listener=(fun _ -> Lwt.return_unit)) selector access =
     MVar.guarded access @@ fun access ->
     let _ = ignore @@ Logs_lwt.info (fun m -> m "[YAS]: SUBSCRIBE on %s" (Yaks_types.Selector.to_string selector)) in
-    let subid = SubscriberId.next_id () in 
-    let new_access = {access with subscriptions = SubscriberMap.add subid listener access.subscriptions} in  
-    MVar.return subid new_access
+    Message.make_sub (IdAccess access.aid) selector
+    >>= fun msg -> Yaks_sock_driver.process msg access.driver
+    >>= fun rmsg ->
+    if rmsg.header.corr_id <> msg.header.corr_id then
+      Lwt.fail_with "CorrId is different!"
+    else
+      let subid = SubscriberId.of_string (match rmsg.body with
+          | YSubscription s -> s 
+          | YErrorInfo e -> 
+            let errno = Apero.Vle.to_int e in 
+            failwith @@ Printf.sprintf "[YAS]: GET ErrNo: %d" errno
+          | _  -> failwith "Body is Not valid")
+      in
+      let new_access = {access with subscriptions = SubscriberMap.add subid listener access.subscriptions} in 
+      MVar.return subid new_access
 
   let unsubscribe subscriber_id access= 
     MVar.guarded access @@ fun access ->
     let _ = ignore @@ Logs_lwt.info (fun m -> m "[YAS]: UNSUBSCRIBE ID: %s" (SubscriberId.to_string subscriber_id)) in
-    let new_access = {access with subscriptions = SubscriberMap.remove subscriber_id access.subscriptions} in  
-    MVar.return () new_access
+    Message.make_unsub (IdAccess access.aid) (IdSubscription subscriber_id )
+    >>= fun msg -> Yaks_sock_driver.process msg access.driver
+    >>= fun rmsg ->
+    if rmsg.header.corr_id <> msg.header.corr_id then
+      Lwt.fail_with "CorrId is different!"
+    else
+      let new_access = {access with subscriptions = SubscriberMap.remove subscriber_id access.subscriptions} in  
+      MVar.return () new_access
 
   let get_subscriptions access = 
     MVar.read access >>= fun access ->

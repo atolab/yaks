@@ -77,7 +77,7 @@ module Message = struct
     | _ -> Lwt.fail_with "Entity Create Not supported!!"
 
 
-  let make_delete ?(delete_type=`Resource) ?path id =
+  let make_delete ?(delete_type=`Resource) ?selector id =
     let mid = Yaks_fe_sock_codes.DELETE in
     match delete_type with 
     | `Access -> 
@@ -99,7 +99,7 @@ module Message = struct
       (match id with 
        | IdAccess aid ->   
          let properties = Yaks_core.Property.Map.add "is.yaks.access.id" (AccessId.to_string aid) Yaks_core.Property.Map.empty in
-         let payload = Yaks_fe_sock_types.YPath (Apero.Option.get path) in
+         let payload = Yaks_fe_sock_types.YSelector (Apero.Option.get selector) in
          make_msg mid [Yaks_fe_sock_codes.PROPERTY] properties payload
        | _ -> Lwt.fail_with "Wrong id"
       )
