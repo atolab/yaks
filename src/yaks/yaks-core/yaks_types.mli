@@ -28,17 +28,22 @@ module Selector : sig
   val of_string_opt : ?is_absolute:bool -> string -> t option
   val to_string : t -> string
   val path : t -> string
-  (* val key : t -> string option *)
+  (** [path s] returns the path part of the Selector [s]. I.e. the part before any '?' character. *)
   val query : t -> string option
+  (** [query s] returns the query part of the Selector [s].
+      I.e. the part after the first '?' character and before the fist '#' character, or an empty string if no '?' is found. *)
   val fragment : t -> string option
+  (** [fragment s] returns the fragment part of the Selector [s].
+      I.e. the part after the first '#', or an empty string if no '#' is found. *)
   val is_unique_path : t -> bool
+  (** [is_unique_path s] returns true if the path part of Selector [s] doesn't contains any wildcard ('*') *)
   val as_unique_path : t -> Path.t option
+  (** [as_unique_path s] returns Some [path s] if [is_unique_path s] returns true, None otherwise *)
   val is_matching_path : Path.t -> t -> bool
-  val is_prefixing_path : Path.t -> t -> bool
-  val is_matching : ?prefix_matching:bool -> Path.t -> t -> bool
-  (** [is_matching p s] tests if the Path [p] matches the Selector [s].
-      I [prefix_matching] is true [p] can be only a prefix of [s] to match.
-      By default [prefix_matching] is set to false. *)
+    (** [is_matching_path p s] returns true if the Selector [s] matches the Path [p] *)
+  val is_prefixed_by_path : Path.t -> t -> bool
+    (** [is_prefixed_by_path p s] returns true if the Path [p] is a prefix of the Selector [s]
+        (i.e. it exists at least 1 sub-path of [p] that matches the Selector [s]) *)
   val remove_prefix : Path.t -> t -> t
 (** [remove_prefix p s] returns the remaining part of [s] when the prefix [p] has been removed
     (assuming [p] is a matching prefix of [s]). *)

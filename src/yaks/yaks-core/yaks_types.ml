@@ -2,8 +2,6 @@ open Apero
 
 module Property = KeyValueF.Make (String) (String) [@@deriving show]
 
-module Str = Re.Str
-
 module EventStream  = struct 
   include  EventStream
 end 
@@ -40,9 +38,6 @@ type yerror = [
 exception YException of yerror [@@deriving show]
 
 let () = Printexc.register_printer @@ function | YException(e) -> Some ("YException: "^(show_yerror e)) | _ -> None
-
-
-open Str
 
 
 let remove_useless_slashes s =
@@ -130,75 +125,130 @@ module Selector = struct
 
   let fragment s = s.fragment
 
-  let wildcard_regex = regexp "\\(\\*\\*\\)\\|[*]"
-
-
-
-  let string_of_sel sel =
-    List.fold_left (fun acc e -> match e with | Text(t) -> acc^"::Text("^t^")" | Delim(d) -> acc^"::Delim("^d^")") "" sel
-
   let is_unique_path sel = not @@ Astring.contains '*' sel.path
 
   let as_unique_path sel = if is_unique_path sel then Some (Path.of_string sel.path) else None
 
   let remove_last_slash = Astring.drop ~rev:true ~sat:(fun c -> c = '/')
 
+  let simple_wildcard = Astring.Sub.v "*"
+  let double_wildcard = Astring.Sub.v "**"
 
-  let is_matching_path _ _ =    true
+  let non_wildcard c = c != '*'
+  let is_slash c = c = '/'
+
+  let get_prefix_before_wildcard s = Astring.Sub.take ~sat:non_wildcard s
+
+  let get_prefix_before_wildcard_until_slash s = 
+    let open Astring.Sub in 
+    let prefix = take ~sat:non_wildcard s in
+    match find is_slash prefix with
+    | Some slash -> with_index_range ~first:(start_pos prefix) ~last:(start_pos slash) @@ base prefix
+    | None -> prefix
+
+let get_prefix_until_slash s =
+    let open Astring.Sub in 
+    match find is_slash s with
+    | Some slash -> with_index_range ~first:(start_pos s) ~last:(start_pos slash) @@ base s
+    | None -> s
+
+  let is_matching_path path selector =
+    let open Astring.Sub in
+    let sel_path = v @@ remove_last_slash selector.path in
+    let path = v @@ remove_last_slash path in
+    let _ = Logs_lwt.debug (fun m -> m "---- is_matching_path %a %a " pp path pp sel_path) in
+    let rec check_matching pat sel =
+      let _ = Logs_lwt.debug (fun m -> m "   - check_match %a %a " pp pat pp sel) in
+      (* if selector is empty *)
+      if is_empty sel then
+        if is_empty pat then let _ = Logs_lwt.debug (fun m -> m "     - selector is empty and path too => TRUE") in true
+        else let _ = Logs_lwt.debug (fun m -> m "     - path is too long (remaining: %a) => FALSE" pp pat) in false
+      (* if selector starts with '**' *)
+      else if is_prefix ~affix:double_wildcard sel then
+        if length sel <= 2 then
+          let _ = Logs_lwt.debug (fun m -> m "     - ** at end match all! => TRUE") in true
+        else (
+          let sub = with_range ~first:2 sel |> get_prefix_before_wildcard in
+          match find_sub ~rev:true ~sub pat with
+          | None -> let _ = Logs_lwt.debug (fun m -> m "     - %a substring not found in %a => FALSE" pp sub pp pat) in false
+          | Some sub' ->
+            let _ = Logs_lwt.debug (fun m -> m "     - %a substring found at %d => go on..." pp sub (start_pos sub')) in
+            let pat_tail = with_range ~first:(stop_pos sub') path in
+            let sel_tail = with_range ~first:(2+(length sub)) sel in
+            check_matching pat_tail sel_tail)
+      (* if selector starts with '*' *)
+      else if is_prefix ~affix:simple_wildcard sel then
+        if length sel <= 1 then (
+          if exists is_slash pat then
+            let _ = Logs_lwt.debug (fun m -> m "     - * at end but remaining / in %a => FALSE" pp pat) in false
+          else
+            let _ = Logs_lwt.debug (fun m -> m "     - * at end and no / in %a => TRUE" pp pat) in true)
+        else (
+          let sub_sel = with_range ~first:1 sel |> get_prefix_before_wildcard_until_slash in
+          let sub_pat = get_prefix_until_slash pat in
+          match find_sub ~sub:sub_sel sub_pat with
+          | None -> let _ = Logs_lwt.debug (fun m -> m "     - %a substring not found in %a => FALSE" pp sub_sel pp sub_pat) in false
+          | Some sub' ->
+            let _ = Logs_lwt.debug (fun m -> m "     - %a substring found at %d => go on..." pp sub_sel (start_pos sub')) in
+            let pat_tail = with_range ~first:(stop_pos sub') path in
+            let sel_tail = with_range ~first:(1+(length sub_sel)) sel in
+            check_matching pat_tail sel_tail)
+      (* selector doesn't start with wildcard *)
+      else
+        let sub = get_prefix_before_wildcard sel in
+        if is_prefix ~affix:sub pat then
+          let _ = Logs_lwt.debug (fun m -> m "     - %a substring is a prefix of %a => go on..." pp sub pp pat) in
+          let first = length sub in
+          check_matching (with_range ~first pat) (with_range ~first sel)
+        else 
+          let _ = Logs_lwt.debug (fun m -> m "     - %a substring is not a prefix of %a => FALSE" pp sub pp pat) in false
+    in check_matching path sel_path
+
   
-  let is_prefixing_path _ _ = true
-
-
-  let is_matching ?(prefix_matching=false) path selector =
-    let sel_path = remove_last_slash selector.path and path = remove_last_slash path in
-    let _ = Logs_lwt.debug (fun m -> m "---- is_matching %b %s %s " prefix_matching path sel_path) in
-    let rec check_matching sel path =
-      let _ = Logs_lwt.debug (fun m -> m "   - check_match %s %s " (string_of_sel sel) path) in
-      match (sel, path) with
-      | ([], "") -> let _ = Logs_lwt.debug (fun m -> m "   - exact match => TRUE") in true
-      | (_, "") -> let _ = Logs_lwt.debug (fun m -> m "   - path too short => prefix_matching=%b" prefix_matching) in prefix_matching  (* path too short: OK if prefix_matching expected, not-OK if full match expected *)
-      | ([], _) -> let _ = Logs_lwt.debug (fun m -> m "   - path too long => FALSE") in false                (* path too long *)
-      | (Text(t)::sel, path) ->
-        if prefix_matching then
-          if (Astring.is_prefix ~affix:path t) then
-            let _ = Logs_lwt.debug (fun m -> m "   - path is a prefix of Text => TRUE") in true
-          else if (Astring.is_prefix ~affix:t path) then
-            check_matching sel (Astring.with_range ~first:(String.length t) ~len:(String.length path - String.length t) path)
-          else
-            let _ = Logs_lwt.debug (fun m -> m "   - path doesn't match Text => FALSE") in false
-        else if (Astring.is_prefix ~affix:t path) then
-          check_matching sel (Astring.with_range ~first:(String.length t) path)
+  let is_prefixed_by_path path selector =
+    let open Astring.Sub in
+    let sel_path = v @@ remove_last_slash selector.path in
+    let path = v @@ remove_last_slash path in
+    let _ = Logs_lwt.debug (fun m -> m "---- is_prefixed_by_path %a %a " pp path pp sel_path) in
+    let rec check_is_prefixed pat sel =
+      let _ = Logs_lwt.debug (fun m -> m "   - check_is_prefixed %a %a " pp pat pp sel) in
+      (* if path is empty *)
+      if is_empty pat then
+        let _ = Logs_lwt.debug (fun m -> m "     - path is empty, it's indeed a prefix of anything => TRUE") in true
+      (* if selector is empty *)
+      else if is_empty sel then
+        let _ = Logs_lwt.debug (fun m -> m "     - path is too long (remaining: %a) => FALSE" pp pat) in false
+      (* if selector starts with '**' *)
+      else if is_prefix ~affix:double_wildcard sel then
+          let _ = Logs_lwt.debug (fun m -> m "     - ** found: %a is indeed prefix of %a => TRUE" pp pat pp sel) in true
+      (* if selector starts with '*' *)
+      else if is_prefix ~affix:simple_wildcard sel then
+        if not @@ exists is_slash pat then
+          let _ = Logs_lwt.debug (fun m -> m "     - * and %a has no / it's a prefix of %a => TRUE" pp pat pp sel) in true
+        else if length sel <= 1 then
+          let _ = Logs_lwt.debug (fun m -> m "     - * at end but remaining / in %a => FALSE" pp pat) in false
+        else (
+          let sub_sel = with_range ~first:1 sel |> get_prefix_before_wildcard_until_slash in
+          let sub_pat = get_prefix_until_slash pat in
+          match find_sub ~sub:sub_sel sub_pat with
+          | None -> let _ = Logs_lwt.debug (fun m -> m "     - %a substring not found in %a => FALSE" pp sub_sel pp sub_pat) in false
+          | Some sub' ->
+            let _ = Logs_lwt.debug (fun m -> m "     - %a substring found at %d => go on..." pp sub_sel (start_pos sub')) in
+            let pat_tail = with_range ~first:(stop_pos sub') path in
+            let sel_tail = with_range ~first:(1+(length sub_sel)) sel in
+            check_is_prefixed pat_tail sel_tail)
+      (* selector doesn't start with wildcard *)
+      else
+        let sub = get_prefix_before_wildcard sel in
+        if is_prefix ~affix:pat sub then
+          let _ = Logs_lwt.debug (fun m -> m "     - %a substring is a prefix of %a => TRUE" pp pat pp sub) in true
+        else if is_prefix ~affix:sub pat then
+          let _ = Logs_lwt.debug (fun m -> m "     - %a substring is a prefix of %a => go on..." pp sub pp pat) in
+          let first = length sub in
+          check_is_prefixed (with_range ~first pat) (with_range ~first sel)
         else
-          let _ = Logs_lwt.debug (fun m -> m "   - path doesn't start with 1st element of selector => FALSE") in false
-      | (Delim("*")::[], path) ->
-        if prefix_matching then
-          let _ = Logs_lwt.debug (fun m -> m "   - * at end; path is a prefix of * => TRUE") in true
-        else
-          if (String.contains path '/') then
-            let _ = Logs_lwt.debug (fun m -> m "   - * at end but / remaining => FALSE") in false
-          else
-            let _ = Logs_lwt.debug (fun m -> m "   - * at end no / remaining => TRUE") in true
-      | (Delim("*")::Text(t)::sel, path) ->
-        let search_limit = match String.index_opt path '/' with | Some(i) -> i | None -> String.length path - 1 in
-        (try
-           let i = search_forward (regexp_string t) path 0 in
-           if (i > search_limit) then
-             let _ = Logs_lwt.debug (fun m -> m "   - text '%s' found in path but after / => FALSE" t) in false
-           else
-             check_matching sel (String.sub path (i+String.length t) (String.length path - i - String.length t))
-         with
-           Not_found -> let _ = Logs_lwt.debug (fun m -> m "   - text '%s' not found in path => FALSE" t) in false)
-      | (Delim("**")::[], _) -> let _ = Logs_lwt.debug (fun m -> m "   - ** at end match all! => TRUE") in true
-      | (Delim("**")::Text(t)::sel, key) ->
-        (try 
-           let i = search_backward (regexp_string t) key (String.length key) in
-           check_matching sel (String.sub key (i+String.length t) (String.length key - i - String.length t))
-         with
-           Not_found -> let _ = Logs_lwt.debug (fun m -> m "   - text '%s' not found in path => FALSE" t) in false
-        )
-      | (Delim(_)::_, _) -> raise (Invalid_argument "Invalid Selector") (* Shouldn't happen !!!*)
-    in
-    check_matching (full_split wildcard_regex sel_path) path
+          let _ = Logs_lwt.debug (fun m -> m "     - %a substring is not a prefix of %a => FALSE" pp sub pp pat) in false
+    in check_is_prefixed path sel_path
 
 
     let remove_prefix prefix selector =
@@ -222,7 +272,6 @@ module Selector = struct
           | _ -> Astring.after is sel
       in
       next_char 0 0 |> of_string ~is_absolute:false
-
 end
 
 module Value = struct 

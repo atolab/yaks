@@ -30,7 +30,7 @@ module SQLBE = struct
     (*   Operations on structured (legacy) tables   *)
     (************************************************)
     let get_sql_table storage_info (selector:Selector.t) =
-      if Selector.is_matching storage_info.path selector then
+      if Selector.is_matching_path storage_info.path selector then
         let%lwt _ = Logs_lwt.debug (fun m -> m "[SQL]: get(%s) from legacy table %s"
                       (Selector.to_string selector) (storage_info.table_name)) in
         let open Lwt.Infix in
@@ -43,7 +43,7 @@ module SQLBE = struct
         in Lwt.return []
 
     let put_sql_table storage_info (selector:Selector.t) (value:Value.t) =
-      if Selector.is_matching storage_info.path selector then
+      if Selector.is_matching_path storage_info.path selector then
         let%lwt _ = Logs_lwt.debug (fun m -> m "[SQL]: put(%s) into legacy table %s"
                       (Selector.to_string selector) (storage_info.table_name)) in
         let open Value in 
@@ -58,7 +58,7 @@ module SQLBE = struct
 
     let put_delta_sql_table storage_info selector delta =
       let open Apero.LwtM.InfixM in
-      if Selector.is_matching storage_info.path selector then
+      if Selector.is_matching_path storage_info.path selector then
         let%lwt _ = Logs_lwt.debug (fun m -> m "[SQL]: put_delta(%s) into legacy table %s"
                       (Selector.to_string selector) (storage_info.table_name)) in
         get_sql_table storage_info selector
@@ -76,7 +76,7 @@ module SQLBE = struct
         in Lwt.return_unit
 
     let remove_sql_table storage_info selector = 
-      if Selector.is_matching storage_info.path selector then
+      if Selector.is_matching_path storage_info.path selector then
         let%lwt _ = Logs_lwt.debug (fun m -> m "[SQL]: remove(%s) from legacy table %s"
                       (Selector.to_string selector) (storage_info.table_name)) in
         match Selector.query selector with
@@ -98,7 +98,7 @@ module SQLBE = struct
     let get_matching_keys storage_info sub_selector =
       let open Apero.LwtM.InfixM in
       Caqti_driver.get_keys_kv_table C.conx storage_info.table_name
-          >|= List.filter (fun k -> Selector.is_matching (Path.of_string ~is_absolute:false k) sub_selector)
+          >|= List.filter (fun k -> Selector.is_matching_path (Path.of_string ~is_absolute:false k) sub_selector)
           >|= fun l -> let _ = Logs_lwt.debug (fun m -> m "[SQL]: in %s found matching keys of %s : %s"
                     (storage_info.table_name) (Selector.to_string sub_selector) (String.concat " " l)) in l
 
