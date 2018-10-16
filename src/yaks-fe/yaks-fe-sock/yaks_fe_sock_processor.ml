@@ -33,9 +33,13 @@ module Processor = struct
       let header = make_header OK [] msg.header.corr_id ps in 
       make_message header YEmpty 
 
-    let reply_with_values msg vs =     
-      let header = make_header VALUES [] msg.header.corr_id Property.Map.empty in 
+    let reply_with_p_values msg vs =     
+      let header = make_header PVALUES [] msg.header.corr_id Property.Map.empty in 
       make_message header (YPathValueList vs)
+
+    (* let reply_with_s_values msg vs =     
+      let header = make_header SVALUES [] msg.header.corr_id Property.Map.empty in 
+      make_message header (YSelectorValueList vs) *)
 
     let reply_with_error msg code =   
       let header = make_header ERROR [] msg.header.corr_id Property.Map.empty in 
@@ -156,7 +160,7 @@ module Processor = struct
       match params with 
       | Some (aid, s) -> 
         YEngine.get engine aid s 
-        >>= fun pvs -> Lwt.return @@ reply_with_values msg pvs
+        >>= fun pvs -> Lwt.return @@ reply_with_p_values msg pvs
       | None -> Lwt.return @@ reply_with_error msg BAD_REQUEST
 
     let process_sub engine msg = let _ = engine in Lwt.return @@ reply_with_ok msg Property.Map.empty

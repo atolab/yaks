@@ -28,15 +28,21 @@ let decode_body (mid:Yaks_fe_sock_codes.message_id) (_:char) (buf: Apero.IOBuf.t
   | OK -> 
     ignore @@ Logs_lwt.debug (fun m -> m "[YAS] Received Ok");
     Result.ok (YEmpty, buf)
-  | VALUES -> 
+  | SVALUES -> 
     ignore @@ Logs_lwt.debug (fun m -> m "[YAS] Received Values");
     let decode_sv = decode_pair decode_selector decode_value in 
     let decode_svs = decode_seq decode_sv in 
     decode_svs buf
     >>= fun (svs, buf) -> Result.ok (YSelectorValueList svs, buf)
+  | PVALUES -> 
+    ignore @@ Logs_lwt.debug (fun m -> m "[YAS] Received Values");
+    let decode_pv = decode_pair decode_path decode_value in 
+    let decode_svs = decode_seq decode_pv in 
+    decode_svs buf
+    >>= fun (svs, buf) -> Result.ok (YPathValueList svs, buf)
   | NOTIFY ->
     ignore @@ Logs_lwt.debug (fun m -> m "[YAS] Received Notify");
-    let decode_sv = decode_pair decode_paths decode_value in 
+    let decode_sv = decode_pair decode_path decode_value in 
     let decode_svs = decode_seq decode_sv in
     decode_string buf >>= fun (sid, buf) -> decode_svs buf
     >>= fun (svs, buf) ->
@@ -47,7 +53,7 @@ let decode_body (mid:Yaks_fe_sock_codes.message_id) (_:char) (buf: Apero.IOBuf.t
   (* These are the messages that the client send but do not expect to receive. 
      If any of this message is received the server is considered malfunctioning or 
      malicious and the connection is immediately closed *)
-  | OPEN | VALUE | DELETE | PUT | PATCH | GET | SUB | UNSUB | EVAL | CREATE -> 
+  | OPEN  | DELETE | PUT | PATCH | GET | SUB | UNSUB | EVAL | CREATE -> 
     let _ = Logs_lwt.warn (fun m -> m "[FES] Unexpexted Message") in
     Result.fail `UnexpextedMessage 
 
