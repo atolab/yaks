@@ -95,13 +95,21 @@ module SQLBE = struct
     (*   Operations on key/value  tables   *)
     (***************************************)
 
+    let get_kv_condition sub_selector = 
+      let sql_selector = Selector.path sub_selector
+        |> Apero.Astring.replace '*' '%'
+      in
+        match Selector.query sub_selector with
+        | Some q -> "k like '"^sql_selector^"' AND "^q
+        | None   -> "k like '"^sql_selector^"'"
+
     let get_matching_keys storage_info sub_selector =
       let open Apero.LwtM.InfixM in
-      Caqti_driver.get_keys_kv_table C.conx storage_info.table_name
+      let condition = get_kv_condition sub_selector in
+      Caqti_driver.get_keys_kv_table C.conx storage_info.table_name ~condition
           >|= List.filter (fun k -> Selector.is_matching_path (Path.of_string ~is_absolute:false k) sub_selector)
           >|= fun l -> let _ = Logs_lwt.debug (fun m -> m "[SQL]: in %s found matching keys of %s : %s"
                     (storage_info.table_name) (Selector.to_string sub_selector) (String.concat " " l)) in l
-
 
     let get_kv_table storage_info (selector:Selector.t) =
       let%lwt _ = Logs_lwt.debug (fun m -> m "[SQL]: get(%s) from kv table %s"
@@ -109,23 +117,13 @@ module SQLBE = struct
       let open Apero.LwtM.InfixM in
       let (_, typ) = storage_info.schema in
       let sub_sel = Selector.remove_prefix storage_info.path selector in
-      let condition_suffix = match Selector.query selector with
-        | Some q -> "' AND "^q
-        | None -> "'"
-      in
-      let get_result =
-        if Selector.is_unique_path sub_sel then 
-          let condition = "k='"^(Selector.to_string sub_sel)^condition_suffix in
-          Caqti_driver.get C.conx storage_info.table_name typ ~condition ()
-        else
-          get_matching_keys storage_info sub_sel
-          >|= List.map (fun k -> 
-                let condition = "k='"^k^condition_suffix in
-                Caqti_driver.get C.conx storage_info.table_name typ ~condition ())
-          >>= Apero.LwtM.flatten
-          >|= List.flatten
-      in
-        get_result
+      let condition = get_kv_condition sub_sel in
+        Caqti_driver.get C.conx storage_info.table_name typ ~condition ()
+        (* NOTE: replacing '*' with '%' in LIKE clause gives more keys than we want (as % is similar to %%). We need to filter: *)
+        >|= List.filter (fun row -> match row with
+          | k::_::_::[] -> Selector.is_matching_path (Path.of_string ~is_absolute:false k) sub_sel
+          | _ -> let _ = Logs_lwt.warn (fun m -> m "[SQL]: get in KV table %s returned non k+v+e value: %s" storage_info.table_name (String.concat "," row)) in false
+          )
         >|= List.map (fun row -> match row with
           | k::v::e::[] ->
             let encoding = Value.encoding_of_string e in
@@ -155,7 +153,7 @@ module SQLBE = struct
         >|= List.map (fun k -> 
           Caqti_driver.put C.conx storage_info.table_name ("'"^k^insert_suffix) ())
         >>= Lwt.join
-          
+
     let put_delta_kv_table storage_info selector delta =
       let%lwt _ = Logs_lwt.debug (fun m -> m "[SQL]: put_delta(%s) into kv table %s"
                     (Selector.to_string selector) (storage_info.table_name)) in
@@ -183,7 +181,6 @@ module SQLBE = struct
         >|= List.map (fun k -> 
           Caqti_driver.remove C.conx storage_info.table_name ("k='"^k^"'") ())
         >>= Lwt.join
-
 
 
 

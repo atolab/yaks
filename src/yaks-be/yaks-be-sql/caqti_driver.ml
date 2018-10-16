@@ -142,8 +142,11 @@ let create_kv_table conx table_name props =
   let open Apero.LwtM.InfixM in
   exec_query conx query >> Lwt.return kv_table_schema
 
-let get_keys_kv_table conx table_name =
-  let query = "SELECT k FROM "^table_name in
+let get_keys_kv_table conx ?condition table_name =
+  let query = match condition with 
+    | Some cond -> "SELECT k FROM "^table_name^" WHERE "^cond
+    | None -> "SELECT k FROM "^table_name
+  in
   collect_query conx query Caqti_type.string
 
 
@@ -165,7 +168,11 @@ let get conx table_name ?condition (Dyntype.Pack (typ, typ_to_s)) =
 
 
 let put conx table_name content =
-  let query = "INSERT INTO "^table_name^" VALUES ("^content^")" in   (* TODO: content from JSON *)
+  let query = match conx.db_type with
+    | MARIADB | SQLITE3 -> "REPLACE INTO "^table_name^" VALUES ("^content^")"
+    | POSTGRESQL -> "INSERT INTO "^table_name^" VALUES ("^content^")"
+      (* TODO: implement UPSERT for POSTGRESQL. See https://www.postgresql.org/docs/current/static/plpgsql-control-structures.html#PLPGSQL-UPSERT-EXAMPLE *)
+  in
   fun () -> exec_query conx query
 
 let remove conx table_name condition =

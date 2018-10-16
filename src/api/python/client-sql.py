@@ -68,6 +68,18 @@ def main():
     input()
     print('GET: {}'.format(access.get('//is/test/db/new-table/A/**/J')))
 
+    print('>> Put //is/test/db/new-table/A/B/**')
+    input()
+    access.put('//is/test/db/new-table/A/B/**', "XXXX")
+
+    print('>> Get //is/test/db/new-table/A/**')
+    input()
+    print('GET: {}'.format(access.get('//is/test/db/new-table/A/**')))
+
+    print('>> Get //is/test/db/new-table/A/**?v=\'XXXX\'')
+    input()
+    print('GET: {}'.format(access.get('//is/test/db/new-table/A/**?v=\'XXXX\'')))
+
     print('>> Remove //is/test/db/new-table/A/D')
     input()
     access.remove('//is/test/db/new-table/A/D')
@@ -75,6 +87,15 @@ def main():
     print('>> Get //is/test/db/new-table/A/D')
     input()
     print('GET: {}'.format(access.get('//is/test/db/new-table/A/D')))
+
+    print('>> Remove //is/test/db/new-table/A/B/**')
+    input()
+    access.remove('//is/test/db/new-table/A/B/**')
+
+    print('>> Get //is/test/db/new-table/A/B/**')
+    input()
+    print('GET: {}'.format(access.get('//is/test/db/new-table/A/B/**')))
+
 
     print('****** SQL storage - legacy table ********')
 
