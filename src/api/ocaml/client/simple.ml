@@ -21,7 +21,7 @@ let main argv =
     >>= fun _ -> YAccess.get (Yaks_core.Selector.of_string "//afos/0/*") access
     >>= fun data -> List.iter (
       fun (k,v) -> 
-        ignore @@ Lwt_io.printf ">>>> [APP] K %s - V: %s\n"  (Yaks_core.Selector.to_string k) (Yaks_core.Value.to_string v);
+        ignore @@ Lwt_io.printf ">>>> [APP] K %s - V: %s\n"  (Yaks_core.Path.to_string k) (Yaks_core.Value.to_string v);
     ) data; Lwt.return_unit
     >>= fun _ -> 
     ignore @@ Lwt_io.printf "<<<< [APP] Dispose access\n";

@@ -1,5 +1,6 @@
 open Lwt.Infix
-
+open Yaks_sock_types.Message
+open Yaks_sock_types
 module MVar = Apero.MVar_lwt
 
 
@@ -9,14 +10,12 @@ module ListenersMap = Map.Make(Yaks_sock_types.SubscriberId)
 type state = {
   sock : Lwt_unix.file_descr
 ; working_set : Yaks_fe_sock_types.message Lwt.u WorkingMap.t
-; subscribers : Yaks_sock_types.listener ListenersMap.t
+; subscribers : Yaks_sock_types.listener_t ListenersMap.t
 }
 
 type t = state MVar.t 
 
 let max_size = 64 * 1024
-
-
 
 let decode_body (mid:Yaks_fe_sock_codes.message_id) (_:char) (buf: Apero.IOBuf.t) = 
   let open Apero in
@@ -29,13 +28,13 @@ let decode_body (mid:Yaks_fe_sock_codes.message_id) (_:char) (buf: Apero.IOBuf.t
     ignore @@ Logs_lwt.debug (fun m -> m "[YAS] Received Ok");
     Result.ok (YEmpty, buf)
   | SVALUES -> 
-    ignore @@ Logs_lwt.debug (fun m -> m "[YAS] Received Values");
+    ignore @@ Logs_lwt.debug (fun m -> m "[YAS] Received SValues");
     let decode_sv = decode_pair decode_selector decode_value in 
     let decode_svs = decode_seq decode_sv in 
     decode_svs buf
     >>= fun (svs, buf) -> Result.ok (YSelectorValueList svs, buf)
   | PVALUES -> 
-    ignore @@ Logs_lwt.debug (fun m -> m "[YAS] Received Values");
+    ignore @@ Logs_lwt.debug (fun m -> m "[YAS] Received PValues");
     let decode_pv = decode_pair decode_path decode_value in 
     let decode_svs = decode_seq decode_pv in 
     decode_svs buf
@@ -147,3 +146,91 @@ let process (msg:Yaks_fe_sock_types.message) driver =
   send_to_socket msg self.sock 
   >>= fun _ ->
   MVar.return_lwt promise {self with working_set = WorkingMap.add msg.header.corr_id completer self.working_set}
+
+
+let process_get selector accessid (driver:t) = 
+  let _ = Logs_lwt.info (fun m -> m "[YASD]: GET on %s" (Yaks_types.Selector.to_string selector)) in
+  make_get (IdAccess accessid) selector 
+  >>= fun msg -> process msg driver
+  >>= fun rmsg -> 
+  if rmsg.header.corr_id <> msg.header.corr_id then
+    Lwt.fail_with "Correlation Id is different!"
+  else
+    match rmsg.body with
+    | YPathValueList l -> Lwt.return l
+    | YErrorInfo e ->
+      let errno = Apero.Vle.to_int e in 
+      Lwt.fail_with @@ Printf.sprintf "[YAS]: GET ErrNo: %d" errno
+    | _ -> Lwt.fail_with "Message body is wrong"
+
+let process_put selector accessid value (driver:t) = 
+  let _ = Logs_lwt.info (fun m -> m "[YASD]: PUT on %s -> %s" (Yaks_types.Selector.to_string selector) (Yaks_types.Value.to_string value)) in
+  make_put (IdAccess accessid) selector value 
+  >>= fun msg -> process msg driver
+  >>= fun rmsg -> 
+  if rmsg.header.corr_id <> msg.header.corr_id then
+    Lwt.fail_with "Correlation Id is different!"
+  else
+    Lwt.return_unit
+
+
+let process_patch selector accessid value (driver:t) = 
+  let _ = Logs_lwt.info (fun m -> m "[YASD]: PUT on %s -> %s" (Yaks_types.Selector.to_string selector) (Yaks_types.Value.to_string value)) in
+  make_put (IdAccess accessid) selector value 
+  >>= fun msg -> process msg driver
+  >>= fun rmsg -> 
+  if rmsg.header.corr_id <> msg.header.corr_id then
+    Lwt.fail_with "Correlation Id is different!"
+  else
+    Lwt.return_unit
+
+let process_remove ?(delete_type=`Resource) ?(selector) deleteid (driver:t) = 
+  let _ = Logs_lwt.info (fun m -> m "[YASD]: REMOVE") in
+  (match selector with
+   | Some s -> 
+     let _ = Logs_lwt.info (fun m -> m "[YASD]: REMOVE %s" (Yaks_core.Selector.to_string s)) in
+     make_delete ~delete_type ~selector:s deleteid
+   | None ->  make_delete ~delete_type deleteid)
+  >>= fun msg -> process msg driver
+  >>= fun rmsg -> 
+  if rmsg.header.corr_id <> msg.header.corr_id then
+    Lwt.fail_with "Correlation Id is different!"
+  else
+    Lwt.return_unit
+
+let process_subscribe ?(listener=fun _ -> Lwt.return_unit) selector accessid (driver:t) =
+  let _ = Logs_lwt.info (fun m -> m "[YASD]: SUB on %s" (Yaks_core.Selector.to_string selector) ) in
+  make_sub (IdAccess accessid) selector
+  >>= fun msg ->  process msg driver
+  >>= fun rmsg -> 
+  if rmsg.header.corr_id <> msg.header.corr_id then
+    Lwt.fail_with "Correlation Id is different!"
+  else
+    let subid = (match rmsg.body with
+        | YSubscription s -> SubscriberId.of_string s 
+        | YErrorInfo e -> 
+          let errno = Apero.Vle.to_int e in 
+          failwith @@ Printf.sprintf "[YAS]: GET ErrNo: %d" errno
+        | _  ->  failwith "Body is Not valid")
+    in
+    MVar.guarded driver @@ fun self -> 
+    MVar.return subid {self with subscribers = ListenersMap.add subid listener self.subscribers}
+
+
+let process_unsubscribe subid accessid (driver:t) = 
+  let _ = Logs_lwt.info (fun m -> m "[YASD]: UNSUB on %s" (SubscriberId.to_string subid) ) in
+  make_unsub (IdAccess accessid) (IdSubscription subid)
+  >>= fun msg ->  process msg driver
+  >>= fun rmsg -> 
+  if rmsg.header.corr_id <> msg.header.corr_id then
+    Lwt.fail_with "Correlation Id is different!"
+  else
+    MVar.guarded driver @@ fun self -> 
+    MVar.return () {self with subscribers = ListenersMap.remove subid self.subscribers}
+
+let process_eval selector eval_callback accessid (driver:t) =
+  ignore selector;
+  ignore eval_callback;
+  ignore accessid;
+  ignore driver;
+  Lwt.return_unit
