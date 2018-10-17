@@ -9,6 +9,7 @@ module SEngine : sig
 
   module type S = sig 
     type t 
+    type subscription_pusher = Yaks_types.SubscriberId.t -> (Yaks_types.Path.t * Yaks_types.Value.t) list -> unit Lwt.t
 
     val make : unit -> t 
 
@@ -27,7 +28,8 @@ module SEngine : sig
     val put_delta : t -> Access.Id.t -> Selector.t -> Value.t -> unit Lwt.t
     val remove : t -> Access.Id.t -> Selector.t -> unit Lwt.t
 
-    val create_subscriber : t -> Path.t -> Selector.t -> bool -> SubscriberId.t Lwt.t  
+    val create_subscriber : t -> Access.Id.t -> Selector.t -> bool -> subscription_pusher -> SubscriberId.t Lwt.t  
+    val remove_subscriber : t -> Access.Id.t -> SubscriberId.t -> unit Lwt.t  
   end
 
   module Make (MVar: Apero.MVar) : S 

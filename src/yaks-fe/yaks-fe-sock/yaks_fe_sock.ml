@@ -7,23 +7,41 @@ open Yaks_fe_sock_codec
 open Yaks_fe_sock_processor
 
 module Make (YEngine : Yaks_engine.SEngine.S) = struct 
-    
+
+
+  module Config = NetServiceTcp.TcpConfig
+
   module P = Processor.Make(YEngine) 
 
-  module SocketFE = TcpService.Make (MVar_lwt)
+  module TcpSocketFE = NetServiceTcp.Make (MVar_lwt)  
 
-  module Config = Apero_net.TcpService.Config
+  module MVar = MVar_lwt 
 
-  type t = SocketFE.t * SocketFE.io_service
+  type t = 
+    { tcp_fe: TcpSocketFE.t
+    ; io_svc: TcpSocketFE.io_service }
 
-  let reader sock  = 
+
+  let reader sock  =     
     let lbuf = IOBuf.create 16 in 
-    let%lwt len = Net.read_vle sock lbuf in          
-    let buf = IOBuf.create (Vle.to_int len) in 
-    let%lwt _ = Net.read sock buf in     
+    let%lwt len = Net.read_vle sock lbuf in    
+
+    let%lwt _ = Logs_lwt.debug (fun m -> m "Message lenght : %d" (Vle.to_int len)) in      
+    let buf = IOBuf.create (Vle.to_int len) in     
+    let%lwt n = Net.read sock buf in
+    let _ = 
+      match Lwt_unix.state sock with
+      | Opened -> ignore @@ Logs_lwt.info (fun m -> m "Socket is open")
+      | Closed -> ignore @@ Logs_lwt.info (fun m -> m "Socket is closed")
+      | Aborted e -> ignore @@ Logs_lwt.info (fun m -> m "Socket is aborted: %s" (Printexc.to_string e))
+    in      
+    let%lwt _ = Logs_lwt.debug (fun m -> m "Read %d bytes our of the socket" n) >>= fun _ -> Lwt.return_unit in      
+
     match decode_message buf with 
     | Ok (msg, _) -> Lwt.return msg
-    | Error e -> Lwt.fail @@ Exception e
+    | Error e -> 
+      let%lwt _ = Logs_lwt.err (fun m -> m "Falied in parsing message %s" (Apero.show_error e)) in
+      Lwt.fail @@ Exception e
 
   let writer buf sock msg = 
     match encode_message msg buf with 
@@ -32,42 +50,61 @@ module Make (YEngine : Yaks_engine.SEngine.S) = struct
       let fbuf = (IOBuf.flip buf) in       
       (match encode_vle (Vle.of_int @@ IOBuf.limit fbuf) lbuf with 
        | Ok lbuf -> 
+         let%lwt _ = Logs_lwt.debug (fun m -> m "Sending message to socket") in
+         let _ = 
+           match Lwt_unix.state sock with
+           | Opened -> ignore @@ Logs_lwt.info (fun m -> m "Socket is open")
+           | Closed -> ignore @@ Logs_lwt.info (fun m -> m "Socket is closed")
+           | Aborted e -> ignore @@ Logs_lwt.info (fun m -> m "Socket is aborted: %s" (Printexc.to_string e))
+         in
          Net.send_vec sock [IOBuf.flip lbuf; fbuf]
-       | Error e -> Lwt.fail @@ Exception e )     
-    | Error e -> Lwt.fail @@ Exception e 
+       | Error e -> 
+         let%lwt _ = Logs_lwt.err (fun m -> m "Falied in writing message: %s" (Apero.show_error e)) in
+         Lwt.fail @@ Exception e )     
+    | Error e -> 
+      let%lwt _ = Logs_lwt.err (fun m -> m "Falied in encoding messge: %s" (Apero.show_error e)) in
+      Lwt.fail @@ Exception e 
 
-  
-  let dispatch_message engine msg = 
+
+  let dispatch_message engine tx_sex  msg = 
     match msg.header.mid with 
     | OPEN -> P.process_open engine msg 
     | CREATE -> P.process_create engine msg
     | DELETE -> P.process_delete engine msg
     | PUT -> P.process_put engine msg
     | GET -> P.process_get engine msg 
-    | SUB -> P.process_sub engine msg 
+    | SUB -> 
+      let sock = TxSession.socket tx_sex in 
+      let buf = IOBuf.create Yaks_fe_sock_types.max_msg_size in 
+      let push_sub buf sid pvs = 
+        let body = YNotification (Yaks_core.SubscriberId.to_string sid, pvs)  in                 
+        let h = make_header NOTIFY [] Vle.zero Yaks_core.Property.Map.empty in         
+        let msg = make_message h body in 
+        writer buf sock msg >|= fun _ -> () 
+      in  P.process_sub engine msg (push_sub buf)
     | UNSUB -> P.process_unsub engine msg
     | EVAL -> P.process_eval engine msg    
     | _ ->  P.process_error msg BAD_REQUEST
 
 
-  let fe_service config  dispatcher sock = 
+  let fe_service config  dispatcher tx_sex = 
     let buf = IOBuf.create (Config.buf_size config) in 
+    let sock = TxSession.socket tx_sex in 
     let mwriter = writer buf sock in 
     fun () -> 
-      reader sock >>= dispatcher >>= mwriter >>= fun _ -> Lwt.return_unit
+      reader sock >>= (dispatcher tx_sex)  >>= mwriter >>= fun _ -> Lwt.return_unit
 
   let create (conf : Config.t) (engine: YEngine.t) = 
-    let svc = SocketFE.create conf in 
+    let tcp_fe = TcpSocketFE.make conf in 
     let dispatcher = dispatch_message engine in 
-    let io_svc = fe_service conf dispatcher in 
-    (svc, io_svc)
+    let io_svc = fe_service conf dispatcher in (* TxSession.t -> unit -> unit Lwt.t*)
+    {tcp_fe; io_svc}
 
-  let start (svc, iosvc) = 
-
+  let start svc = 
     let _ = Logs_lwt.debug (fun m -> m "[FES] Sock-FE starting TCP/IP server") in
-    SocketFE.start svc iosvc    
+    TcpSocketFE.start svc.tcp_fe svc.io_svc
 
-  let stop (svc, _) = SocketFE.stop svc
+  let stop svc = TcpSocketFE.stop svc.tcp_fe
 
 end
 

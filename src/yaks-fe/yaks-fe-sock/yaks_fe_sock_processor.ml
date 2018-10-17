@@ -19,7 +19,7 @@ module Processor = struct
     val process_delete : YEngine.t -> message -> message Lwt.t
     val process_put : YEngine.t -> message -> message Lwt.t
     val process_get : YEngine.t -> message -> message Lwt.t
-    val process_sub : YEngine.t -> message -> message Lwt.t
+    val process_sub : YEngine.t -> message -> YEngine.subscription_pusher ->  message Lwt.t
     val process_unsub : YEngine.t -> message -> message Lwt.t
     val process_eval : YEngine.t -> message -> message Lwt.t
     val process_error :  message -> error_code -> message Lwt.t
@@ -30,18 +30,20 @@ module Processor = struct
     module YEngine = Engine  
 
     let reply_with_ok msg ps =     
+      let _ = Logs.debug (fun m -> m "Replying with OK to msg with coor-id %Ld" (msg.header.corr_id)) in
       let header = make_header OK [] msg.header.corr_id ps in 
       make_message header YEmpty 
 
     let reply_with_p_values msg vs =     
       let header = make_header PVALUES [] msg.header.corr_id Property.Map.empty in 
       make_message header (YPathValueList vs)
-
+    
     (* let reply_with_s_values msg vs =     
       let header = make_header SVALUES [] msg.header.corr_id Property.Map.empty in 
       make_message header (YSelectorValueList vs) *)
 
     let reply_with_error msg code =   
+      let _ = Logs.warn (fun m -> m "Replying with ERROR to msg with coor-id %Ld" (msg.header.corr_id)) in
       let header = make_header ERROR [] msg.header.corr_id Property.Map.empty in 
       make_message header  @@ YErrorInfo (Vle.of_int @@ error_code_to_int code)
 
@@ -163,8 +165,43 @@ module Processor = struct
         >>= fun pvs -> Lwt.return @@ reply_with_p_values msg pvs
       | None -> Lwt.return @@ reply_with_error msg BAD_REQUEST
 
-    let process_sub engine msg = let _ = engine in Lwt.return @@ reply_with_ok msg Property.Map.empty
-    let process_unsub engine msg = let _ = engine in Lwt.return @@ reply_with_ok msg Property.Map.empty
+    let process_sub engine msg pusher  = 
+      let%lwt _ = Logs_lwt.debug (fun m -> m "FES: processing SUB") in
+      let open Apero.Infix in 
+      let is_push = true in      
+      let ps = msg.header.properties in 
+      let params = Option.bind (decode_property_value (Option.get <.> Access.Id.of_string) Property.Access.Key.id ps) 
+        @@ fun aid -> 
+        Option.bind (get_selector_payload msg)
+        @@ fun s -> Some (aid, s) 
+      in     
+      match params with 
+      | Some (aid, s) ->
+        let%lwt subid = YEngine.create_subscriber engine aid s is_push pusher  in 
+        let props = Property.Map.singleton Property.Access.Key.subscription_id (SubscriberId.to_string subid) in 
+        Lwt.return @@ reply_with_ok msg props         
+      | None -> Lwt.return @@ reply_with_error msg BAD_REQUEST
+
+
+
+      
+    let process_unsub engine msg = 
+      let%lwt _ = Logs_lwt.debug (fun m -> m "FES: processing UNSUB") in
+      let open Apero.Infix in 
+      let ps = msg.header.properties in 
+      let params = 
+        let open Apero.Option.Infix in
+        let oaid = (decode_property_value (Option.get <.> Access.Id.of_string) Property.Access.Key.id ps) in
+        oaid >>= fun aid -> 
+          (get_subscription_payload msg) 
+          >>= fun s -> (SubscriberId.of_string_opt s) >>= fun sid -> Some  (aid, sid)
+      in
+      match params with 
+      | Some (aid, sid) ->  
+        let%lwt () = YEngine.remove_subscriber engine aid  sid in 
+        Lwt.return @@ reply_with_ok msg Property.Map.empty 
+      | None -> Lwt.return @@ reply_with_ok msg Property.Map.empty 
+
     let process_eval engine msg = let _ = engine in Lwt.return @@ reply_with_ok msg Property.Map.empty
 
     let process_error msg code = Lwt.return @@ reply_with_error msg code 

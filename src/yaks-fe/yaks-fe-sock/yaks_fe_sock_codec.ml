@@ -178,7 +178,8 @@ let encode_body body buf =
     Result.fold_m (fun (p, v) buf -> encode_path p buf >>= encode_value v) pvs 
   | YSubscription s -> encode_string s buf
   | YNotification (sid, kvs) -> 
-    encode_string sid buf 
+    encode_string sid buf >>=
+    encode_vle (Vle.of_int @@ List.length kvs)
     >>= Result.fold_m (fun (k, v) buf -> encode_path k buf >>= encode_value v) kvs 
   | YErrorInfo (code) -> encode_vle code buf
 

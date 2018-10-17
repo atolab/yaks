@@ -29,6 +29,7 @@ module Property : sig
       val id : string 
       val alias : string
       val cache_size : string 
+      val subscription_id : string
     end
   end
   module Storage : sig 

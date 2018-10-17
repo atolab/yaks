@@ -15,5 +15,9 @@ module Access : sig
 
   val is_covering : t -> Selector.t -> bool
   (** [is_covering a sel] tests if [a] covers the Selector [sel] (i.e. if [sel] might match some path accessible by [a]) *)
+  
+  val register_subscriber : t -> Yaks_types.SubscriberId.t -> t 
+  val unregister_subscriber : t -> Yaks_types.SubscriberId.t -> t 
+  val subscribers : t -> Yaks_types.SubscriberId.t list 
 
 end  [@@deriving show]

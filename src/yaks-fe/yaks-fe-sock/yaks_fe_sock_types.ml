@@ -8,7 +8,7 @@ open Yaks_fe_sock_codes
     +-+-+-+-+-+-+-+-+  ---+
     |  MESSAGE CODE |     |
     +-+-+-+-+-+-+-+-+     |
-    |X|X|X|X|X|A|S|P|     +--> Header
+    |X|X|E|N|C|A|S|P|     +--> Header
     +-+-+-+-+-+-+-+-+     | 
     ~   Coor. ID    ~     |
     +---------------+     |
@@ -27,6 +27,8 @@ type header = {
   properties : Yaks_core.properties;
 }
 
+let max_msg_size  = 1024 * 64 
+
 let make_header mid (mflags: message_flags list) corr_id properties = 
   let base_flags = List.fold_left (fun a f -> a lor (message_flags_to_int f)) 0 mflags in 
   let flags = char_of_int @@ match Property.Map.is_empty properties with 
@@ -38,6 +40,10 @@ let make_header mid (mflags: message_flags list) corr_id properties =
 let has_property_flag flags = (int_of_char flags) land 0x01 <> 0
 let has_storage_flag flags = (int_of_char flags) land 0x02 <> 0
 let has_access_flag flags = (int_of_char flags) land 0x04 <> 0
+let get_encoding flags = 
+  match int_to_value_encoding @@ (int_of_char flags) land 0x18 with 
+  | Some e -> e 
+  | None -> ENCODING_INVALID
 
 type payload = 
   | YEmpty
@@ -46,13 +52,13 @@ type payload =
   | YSelectorValueList of (Yaks_core.Selector.t * Yaks_core.Value.t) list
   | YPathValueList of (Yaks_core.Path.t * Yaks_core.Value.t) list
   | YSubscription of string
-  | YNotification of string * ((Yaks_core.Path.t * Yaks_core.Value.t) list)
+  | YNotification of string * (Yaks_core.Path.t * Yaks_core.Value.t) list
   | YErrorInfo of Vle.t
 
 
 type message = {
   header: header;  
-  body : payload (* This could be a variant*)
+  body : payload 
 }
 
 let make_message header body = {header; body} 
