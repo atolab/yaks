@@ -1,7 +1,6 @@
 open Lwt.Infix
 open Yaks_sock_types
 
-module MVar = Apero.MVar_lwt
 module Storage = struct
 
 

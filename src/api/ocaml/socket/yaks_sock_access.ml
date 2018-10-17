@@ -1,11 +1,7 @@
 open Lwt.Infix
 open Yaks_sock_types
 
-module MVar = Apero.MVar_lwt
-
 module Access = struct 
-
-
 
   module EvalId = Apero.Uuid
   module SubscriberMap =  Map.Make(SubscriberId)
