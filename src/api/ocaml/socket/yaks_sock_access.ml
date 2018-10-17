@@ -1,5 +1,4 @@
 open Lwt.Infix
-open Yaks_sock_message
 open Yaks_sock_types
 
 module MVar = Apero.MVar_lwt
@@ -13,11 +12,11 @@ module Access = struct
   module EvalMap = Map.Make(EvalId)
 
   type state = {
-    subscriptions : (listener) SubscriberMap.t
+    subscriptions : (listener_t) SubscriberMap.t
   ; encoding : Yaks_fe_sock_codes.value_encoding
   ; path : Yaks_types.Path.t
   ; cache_size : int
-  ; evals : (eval_callback) EvalMap.t
+  ; evals : (eval_callback_t) EvalMap.t
   ; aid : AccessId.t
   ; driver : Yaks_sock_driver.t
   }
@@ -41,88 +40,35 @@ module Access = struct
 
   let get selector access = 
     MVar.read access >>= fun access ->
-    let _ = ignore @@ Logs_lwt.info (fun m -> m "[YAS]: GET on %s" (Yaks_types.Selector.to_string selector)) in
-    Message.make_get (IdAccess access.aid) selector
-    >>= fun msg -> Yaks_sock_driver.process msg access.driver
-    >>= fun rmsg ->
-    if rmsg.header.corr_id <> msg.header.corr_id then
-      Lwt.fail_with "CorrId is different!"
-    else
-      match rmsg.body with
-      | YPathValueList _ -> Lwt.fail_with "Body is YPathValueList"
-      | YEmpty -> Lwt.fail_with "Body is YEmpty"
-      | YPath _ -> Lwt.fail_with "Body is YPath"
-      | YSelector _ -> Lwt.fail_with "Body is YSelector"
-      | YSelectorValueList l -> Lwt.return l
-      | YSubscription _ -> Lwt.fail_with "Body is YSubscription"
-      | YNotification _ -> Lwt.fail_with "Body is YNotification"
-      | YErrorInfo e -> 
-        let errno = Apero.Vle.to_int e in 
-        Lwt.fail_with @@ Printf.sprintf "[YAS]: GET ErrNo: %d" errno
+    let _ = Logs_lwt.info (fun m -> m "[YA]: GET on %s" (Yaks_types.Selector.to_string selector)) in
+    Yaks_sock_driver.process_get selector access.aid access.driver
 
   let put selector value access =
     MVar.read access >>= fun access ->
-    let _ = ignore @@ Logs_lwt.info (fun m -> m "[YAS]: PUT on %s -> %s" (Yaks_types.Selector.to_string selector) (Yaks_types.Value.to_string value)) in
-    Message.make_put (IdAccess access.aid) selector value 
-    >>= fun msg -> Yaks_sock_driver.process msg access.driver
-    >>= fun rmsg ->
-    if rmsg.header.corr_id <> msg.header.corr_id then
-      Lwt.fail_with "CorrId is different!"
-    else
-      Lwt.return_unit
+    let _ = ignore @@ Logs_lwt.info (fun m -> m "[YA]: PUT on %s -> %s" (Yaks_types.Selector.to_string selector) (Yaks_types.Value.to_string value)) in
+    Yaks_sock_driver.process_put selector access.aid value access.driver
 
   let delta_put selector value access = 
     MVar.read access >>= fun access ->
-    let _ = ignore @@ Logs_lwt.info (fun m -> m "[YAS]: DELAT_PUT on %s -> %s" (Yaks_types.Selector.to_string selector) (Yaks_types.Value.to_string value)) in
-    Message.make_patch (IdAccess access.aid) selector value 
-    >>= fun msg -> Yaks_sock_driver.process msg access.driver
-    >>= fun rmsg ->
-    if rmsg.header.corr_id <> msg.header.corr_id then
-      Lwt.fail_with "CorrId is different!"
-    else
-      Lwt.return_unit
+    let _ = Logs_lwt.info (fun m -> m "[YA]: DELAT_PUT on %s -> %s" (Yaks_types.Selector.to_string selector) (Yaks_types.Value.to_string value)) in
+    Yaks_sock_driver.process_patch selector access.aid value access.driver
 
   let remove selector access =
     MVar.read access >>= fun access ->
-    let _ = ignore @@ Logs_lwt.info (fun m -> m "[YAS]: REMOVE on %s" (Yaks_types.Selector.to_string selector)) in
-    Message.make_delete ~delete_type:`Resource  ~selector (IdAccess access.aid)  
-    >>= fun msg -> Yaks_sock_driver.process msg access.driver
-    >>= fun rmsg ->
-    if rmsg.header.corr_id <> msg.header.corr_id then
-      Lwt.fail_with "CorrId is different!"
-    else
-      Lwt.return_unit
+    let _ = Logs_lwt.info (fun m -> m "[YA]: REMOVE on %s" (Yaks_types.Selector.to_string selector)) in
+    Yaks_sock_driver.process_remove ~delete_type:`Resource  ~selector (IdAccess access.aid)  access.driver
+
 
   let subscribe ?(listener=(fun _ -> Lwt.return_unit)) selector access =
-    MVar.guarded access @@ fun access ->
-    let _ = ignore @@ Logs_lwt.info (fun m -> m "[YAS]: SUBSCRIBE on %s" (Yaks_types.Selector.to_string selector)) in
-    Message.make_sub (IdAccess access.aid) selector
-    >>= fun msg -> Yaks_sock_driver.process msg access.driver
-    >>= fun rmsg ->
-    if rmsg.header.corr_id <> msg.header.corr_id then
-      Lwt.fail_with "CorrId is different!"
-    else
-      let subid = SubscriberId.of_string (match rmsg.body with
-          | YSubscription s -> s 
-          | YErrorInfo e -> 
-            let errno = Apero.Vle.to_int e in 
-            failwith @@ Printf.sprintf "[YAS]: GET ErrNo: %d" errno
-          | _  -> failwith "Body is Not valid")
-      in
-      let new_access = {access with subscriptions = SubscriberMap.add subid listener access.subscriptions} in 
-      MVar.return subid new_access
+    MVar.read access >>= fun access ->
+    let _ = Logs_lwt.info (fun m -> m "[YA]: SUBSCRIBE on %s" (Yaks_types.Selector.to_string selector)) in
+    Yaks_sock_driver.process_subscribe ~listener selector access.aid access.driver
+
 
   let unsubscribe subscriber_id access= 
-    MVar.guarded access @@ fun access ->
-    let _ = ignore @@ Logs_lwt.info (fun m -> m "[YAS]: UNSUBSCRIBE ID: %s" (SubscriberId.to_string subscriber_id)) in
-    Message.make_unsub (IdAccess access.aid) (IdSubscription subscriber_id )
-    >>= fun msg -> Yaks_sock_driver.process msg access.driver
-    >>= fun rmsg ->
-    if rmsg.header.corr_id <> msg.header.corr_id then
-      Lwt.fail_with "CorrId is different!"
-    else
-      let new_access = {access with subscriptions = SubscriberMap.remove subscriber_id access.subscriptions} in  
-      MVar.return () new_access
+    MVar.read access >>= fun access ->
+    let _ = Logs_lwt.info (fun m -> m "[YA]: UNSUBSCRIBE ID: %s" (SubscriberId.to_string subscriber_id)) in
+    Yaks_sock_driver.process_unsubscribe subscriber_id access.aid access.driver
 
   let get_subscriptions access = 
     MVar.read access >>= fun access ->

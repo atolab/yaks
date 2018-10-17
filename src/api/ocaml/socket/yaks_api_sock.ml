@@ -2,7 +2,6 @@ open Apero
 open Lwt.Infix
 open Atypes
 open Yaks_sock_types
-open Yaks_sock_message
 open Yaks_sock_access
 open Yaks_sock_storage
 
