@@ -9,12 +9,15 @@ import com.sun.jersey.api.client.Client;
 import com.sun.jersey.api.client.config.DefaultClientConfig;
 import com.sun.jersey.client.urlconnection.URLConnectionClientHandler;
 
+import is.yaks.socketfe.EntityType;
+
 public class YaksConfiguration {
 
     private String yaksUrl;
     private ExecutorService executorService = Executors.newFixedThreadPool(5);
     private Client client;
     private Gson gson;
+    private MessageImpl msg;
 
     // first load at the call of YaksConfiguration.getInstance()
     // work in multithread env
@@ -31,9 +34,15 @@ public class YaksConfiguration {
         configClient.getProperties().put(URLConnectionClientHandler.PROPERTY_HTTP_URL_CONNECTION_SET_METHOD_WORKAROUND,
                 true);
         client = Client.create(configClient);
-        GsonBuilder gsonBuilder = new GsonBuilder();
-        gson = gsonBuilder.create();
+        msg = MessageImpl.getInstance().MessageCreate(EntityType.ACCESS, "\"/yaks/access\"", "localhost-1", 1024, "", true);
+        		
+  //      GsonBuilder gsonBuilder = new GsonBuilder();
+  //      gson = gsonBuilder.create();
+        
     }
+    
+    
+    
 
     public Client getClient() {
         return client;
@@ -49,6 +58,10 @@ public class YaksConfiguration {
 
     public ExecutorService getExecutorService() {
         return executorService;
+    }
+    
+    public MessageImpl getMessage() {
+    	return msg;
     }
 
     public Gson getGson() {

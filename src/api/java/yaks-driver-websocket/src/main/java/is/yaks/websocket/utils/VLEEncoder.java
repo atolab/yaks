@@ -1,10 +1,8 @@
-package is.yaks.message;
+package is.yaks.websocket.utils;
 
 import java.math.BigInteger;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
-import java.util.ArrayList;
-import java.util.List;
 
 public class VLEEncoder 
 
@@ -29,11 +27,13 @@ public class VLEEncoder
 
 	public int length = 0x0;
 	
-	public VLEEncoder()	{}
+	// private constructor
+	private VLEEncoder(){}
 	
 	public static synchronized VLEEncoder getInstance() 
 	{
-		if(instance ==null) {
+		if( instance == null ) 
+		{
 			instance = new VLEEncoder();
 		}
 		return instance;

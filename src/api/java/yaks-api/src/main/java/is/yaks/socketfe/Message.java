@@ -1,11 +1,11 @@
-package is.yaks.message;
+package is.yaks.socketfe;
 
 import java.nio.ByteBuffer;
-import java.util.List;
+import java.util.Map;
 
 public interface Message 
 {
-	public ByteBuffer write(MessageImpl msg);	
+	public ByteBuffer write(Message msg);	
 
 	public Message read(byte[] raw_msg);
 	
@@ -31,14 +31,14 @@ public interface Message
      * 
      * @return all message properties
      */
-    public List<Property> read_all_properties();
+    public Map<String, String> read_all_properties();
     
     /**
      * Return a single property indexed by key. 
      * 
      * @return a property
      */
-    public Property read_property_by_key(List<Property> properties, String key);
+    public is.yaks.socketfe.Property read_property_by_key(Map<String, String> properties, String key);
 	
     /**
      * Reads the value of Message Code set in the header 

@@ -1,13 +1,21 @@
-package is.yaks.message;
+package is.yaks.websocket.utils;
 
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 import org.json.simple.JSONObject;
 import org.json.simple.JSONValue;
+
+import is.yaks.socketfe.Encoding;
+import is.yaks.socketfe.EntityType;
+import is.yaks.socketfe.Message;
+import is.yaks.socketfe.MessageCode;
+import is.yaks.socketfe.Property;
 
 /**
 
@@ -82,6 +90,9 @@ INVALID  = 0x00;
 
 public class MessageImpl implements Message
 {
+	
+	private static MessageImpl instance = null;
+	
 	byte[] body = { 0x00 };
 	
 	ByteBuffer data;
@@ -114,13 +125,11 @@ public class MessageImpl implements Message
 
 	int message_code;
 
-	List<Data> dataList;	
+	Map<String, String> dataList;	
 	
-	List<Property> propertiesList;
+	Map<String, String> propertiesList;
 	
-	
-	
-	public MessageImpl() {
+	MessageImpl() {
 
 		// VLE encoder
 		this.encoder = VLEEncoder.getInstance();
@@ -144,9 +153,9 @@ public class MessageImpl implements Message
 		this.flag_p = 0;
 
 		
-		dataList = new ArrayList<Data>();
+		dataList = new HashMap<String, String>();
 
-		propertiesList = new ArrayList<Property>();
+		propertiesList = new HashMap<String, String>();
 		
 		// 8bit (1byte)
 		this.encoding = 0x0;
@@ -158,27 +167,40 @@ public class MessageImpl implements Message
 			this.length = ByteBuffer.wrap(this.raw_msg).capacity();
 		}
 	}
+	
+	/**
+	 * Get instance of the Message implementation
+	 * @return MessageImpl
+	 */
+	public static MessageImpl getInstance() {
+		if( instance == null ) 
+		{
+			instance = new MessageImpl();
+		}
+		return instance;
+	}
 
 	@Override
-	public ByteBuffer write(MessageImpl msg) 
+	public ByteBuffer write(Message msg) 
 	{
-		ByteBuffer buff = ByteBuffer.allocate(msg.getVLEEncoder().getLength()); 
-				
-		buff.put(String.valueOf(msg.getLength()).getBytes());
+		ByteBuffer buff = ByteBuffer.allocate(msg.read_encoding(raw_msg, 0)); 
 		
-		buff.put(String.valueOf(msg.getFlags()).getBytes());
 		
-		buff.put(String.valueOf(msg.getCorrection_id()).getBytes());
+		buff.put(String.valueOf(msg.read_vle_field(raw_msg, 0)).getBytes());
 		
-		int flag_p = msg.getFlag_p(); 
+		buff.put(String.valueOf(msg.read_flags()).getBytes());
+		
+		buff.put(String.valueOf(msg.read_correction_id()).getBytes());
+		
+		int flag_p = msg.read_flag_p(); 
 		
 		if(flag_p != 0) 
 		{
-			List<Property> properties = msg.getPropertiesList();
+			Map<String, String> properties = msg.read_all_properties();
 			
-			for(int i = 0; i< properties.size(); i++) 
+			for(Map.Entry<String, String> entry : properties.entrySet()) 
 			{				
-				buff.put(("'key':"+properties.get(i).getKey()+",'value':"+properties.get(i).getValue()).getBytes());	
+				buff.put(("'key':"+entry.getKey()+",'value':"+entry.getValue()).getBytes());	
 			}
 		}
 		
@@ -200,7 +222,7 @@ public class MessageImpl implements Message
 		
 		if(msg.getFlag_p() != 0) 
 		{
-			msg.setPropertiesList(read_all_properties());	
+			this.propertiesList = read_all_properties();	
 		}	
 		return msg;
 	}
@@ -332,7 +354,7 @@ public class MessageImpl implements Message
 	public void add_property(String key, String value) 
 	{
         setFlag_p();
-        this.propertiesList.add(new Property(key,value));
+        this.propertiesList.put(key, value);
 	}
 	
 	public void add_path(String path) 
@@ -340,9 +362,9 @@ public class MessageImpl implements Message
        this.data.put(path.getBytes());
 	}
 	
-	public void add_values(Data data) 
+	public void add_values(String key, String value) 
 	{
-		this.dataList.add(data);
+		this.dataList.put(key, value);
 	}
 	
 	public void add_vle(int number) 
@@ -352,228 +374,210 @@ public class MessageImpl implements Message
     
 	
 	/** Implementation of MessageOpen */
-	class MessageOpen
+	public MessageImpl MessageOpen(ByteBuffer raw_message, String username, String password)
 	{
-		public MessageOpen(MessageImpl msg, ByteBuffer raw_message, String username, String password)
+		MessageImpl msg = MessageImpl.getInstance();
+		msg.generate_correction_id();
+		msg.message_code = MessageCode.OPEN.getValue();
+		if(username.equals("None") && password.equals("None")) 
 		{
-			msg.generate_correction_id();
-			msg.message_code = MessageCode.OPEN.getValue();
-			if(username.equals("None") && password.equals("None")) 
-			{
-				msg.add_property("yaks.login", "'"+username+":"+password+"'");
-			}
+			msg.add_property("yaks.login", "'"+username+":"+password+"'");
 		}
+		return msg;
 	}
 
 	/** Implementation of MessageCreate */
-	class MessageCreate 
+	public MessageImpl MessageCreate(EntityType type, String path, String id, int cache_size, String config, boolean complete)
 	{
-		public MessageCreate(MessageImpl msg, EntityType type, String path, String id, int cache_size, String config, boolean complete)
+		JSONObject json = new JSONObject();
+		MessageImpl msg = MessageImpl.getInstance();
+		msg.message_code = MessageCode.CREATE.getValue();
+		msg.generate_correction_id();
+		msg.add_path(path);
+		if(type.equals(EntityType.ACCESS)) 
 		{
-			JSONObject json = new JSONObject();
-			
-			msg.message_code = MessageCode.CREATE.getValue();
-			msg.generate_correction_id();
-			msg.add_path(path);
-			if(type.equals(EntityType.ACCESS)) 
+			msg.setFlag_a();
+			if(!id.equals("None"))
 			{
-				msg.setFlag_a();
-				if(!id.equals("None"))
-				{
-					msg.add_property("'is.yaks.access.alias'", id);
-				}
-				if(cache_size != 0)
-				{
-					msg.add_property("'is.yaks.access.cachesize'", String.valueOf(cache_size));
-				} 
+				msg.add_property("'is.yaks.access.alias'", id);
+			}
+			if(cache_size != 0)
+			{
+				msg.add_property("'is.yaks.access.cachesize'", String.valueOf(cache_size));
 			} 
-			else if (type.equals(EntityType.STORAGE)) 
+		} 
+		else if (type.equals(EntityType.STORAGE)) 
+		{
+			msg.setFlag_s();
+			if(!id.equals("None")) 
 			{
-				msg.setFlag_s();
-				if(!id.equals("None")) 
-				{
-					msg.add_property("'is.yaks.access.alias'", id);
-				}
-				if(!config.equals("None")) 
-				{
-					json = (JSONObject) JSONValue.parse(config);
-					msg.add_property("'is.yaks.storage.config'", json.toString());
-				}
-				if(complete) {
-					msg.add_property("'is.yaks.storage.complete'", "'true'");
-				}
+				msg.add_property("'is.yaks.access.alias'", id);
+			}
+			if(!config.equals("None")) 
+			{
+				json = (JSONObject) JSONValue.parse(config);
+				msg.add_property("'is.yaks.storage.config'", json.toString());
+			}
+			if(complete) {
+				msg.add_property("'is.yaks.storage.complete'", "'true'");
 			}
 		}
+		return msg;
 	}
 
 	/** Implementation of MessageDelete */
-	class MessageDelete 
+	public MessageImpl MessageDelete(String id, EntityType type, String path) 
 	{
-		public MessageDelete(MessageImpl msg, String id, EntityType type, String path) 
+		MessageImpl msg = MessageImpl.getInstance();
+		msg.message_code = MessageCode.DELETE.getValue();
+		msg.generate_correction_id();
+		if(type.equals(EntityType.ACCESS)) 
 		{
-			
-			msg.message_code = MessageCode.DELETE.getValue();
-			msg.generate_correction_id();
-			if(type.equals(EntityType.ACCESS)) 
-			{
-				msg.setFlag_a();
-				msg.add_property("'is.yaks.access.id'", id);
-			} 
-			else if (type.equals(EntityType.STORAGE)) 
-			{
-				msg.setFlag_s();
-				msg.add_property("'is.yaks.storage.id'", id);
-			} 
-			else if (!path.equals("None")) 
-			{
-				msg.add_path(path);
-				msg.add_property("'is.yaks.access.id'", id);
-			}
+			msg.setFlag_a();
+			msg.add_property("'is.yaks.access.id'", id);
+		} 
+		else if (type.equals(EntityType.STORAGE)) 
+		{
+			msg.setFlag_s();
+			msg.add_property("'is.yaks.storage.id'", id);
+		} 
+		else if (!path.equals("None")) 
+		{
+			msg.add_path(path);
+			msg.add_property("'is.yaks.access.id'", id);
 		}
+		return msg;
 	}
 
 	/** Implementation of MessagePut */
-	class MessagePut
+	public MessageImpl MessagePut(String id, String key, String value) 
 	{
-		public MessagePut(MessageImpl msg, String id, String key, String value) 
-		{
-			
-			msg.message_code = MessageCode.PUT.getValue();
-			try {
-				msg.set_encoding(Encoding.RAW.getValue());
-			} catch (Exception e) {
-				System.out.println(e.getMessage());
-			}
-			msg.generate_correction_id();
-			msg.add_property("is.yaks.access.id", id);
-			msg.add_values(new Data(key,value));
+		MessageImpl msg = MessageImpl.getInstance();
+		msg.message_code = MessageCode.PUT.getValue();
+		try {
+			msg.set_encoding(Encoding.RAW.getValue());
+		} catch (Exception e) {
+			System.out.println(e.getMessage());
 		}
+		msg.generate_correction_id();
+		msg.add_property("is.yaks.access.id", id);
+		msg.add_values(key,value);
+		return msg;
 	}
 
 	/** Implementation of MessagePatch */
-	class MessagePatch 
+	public MessageImpl MessagePatch(String id, String key, String value) 
 	{
-		public MessagePatch(MessageImpl msg, String id, String key, String value) 
-		{
-			
-			msg.message_code = MessageCode.PATCH.getValue();
-			try {
-				msg.set_encoding(Encoding.RAW.getValue());
-			} catch (Exception e) {
-				System.out.println(e.getMessage());
-			}
-			msg.generate_correction_id();
-			msg.add_property("'is.yaks.access.id'", id);
-			msg.add_values(new Data(key, value));
+		MessageImpl msg = MessageImpl.getInstance();
+		msg.message_code = MessageCode.PATCH.getValue();
+		try {
+			msg.set_encoding(Encoding.RAW.getValue());
+		} catch (Exception e) {
+			System.out.println(e.getMessage());
 		}
+		msg.generate_correction_id();
+		msg.add_property("'is.yaks.access.id'", id);
+		msg.add_values(key, value);
+		return msg;
 	}
 
 	/** Implementation of MessageGet */
-	class MessageGet
+	public MessageImpl MessageGet(String id, String key) 
 	{
-		public MessageGet(MessageImpl msg, String id, String key) 
-		{
-			
-			msg.message_code = MessageCode.GET.getValue();
-			try {
-				msg.set_encoding(Encoding.RAW.getValue());
-			} catch (Exception e) {
-				System.out.println(e.getMessage());
-			}
-			msg.generate_correction_id();
-			msg.add_property("'is.yaks.access.id'", id);
-			msg.add_selector(key);
-			
+		MessageImpl msg = MessageImpl.getInstance();
+		msg.message_code = MessageCode.GET.getValue();
+		try {
+			msg.set_encoding(Encoding.RAW.getValue());
+		} catch (Exception e) {
+			System.out.println(e.getMessage());
 		}
+		msg.generate_correction_id();
+		msg.add_property("'is.yaks.access.id'", id);
+		msg.add_selector(key);
+		return msg;
 	}
 
 	/** Implementation of MessageSub */
-	class MessageSub
+	public MessageImpl MessageSub(String id, String key) 
 	{
-		public MessageSub(MessageImpl msg, String id, String key) 
-		{
-			msg.message_code = MessageCode.SUB.getValue();
-			try {
-				msg.set_encoding(Encoding.RAW.getValue());
-			} catch (Exception e) {
-				System.out.println(e.getMessage());
-			}
-			msg.generate_correction_id();
-			msg.add_property("'is.yaks.access.id'", id);
-			msg.add_subscription(key);
+		MessageImpl msg = MessageImpl.getInstance();
+		msg.message_code = MessageCode.SUB.getValue();
+		try {
+			msg.set_encoding(Encoding.RAW.getValue());
+		} catch (Exception e) {
+			System.out.println(e.getMessage());
 		}
+		msg.generate_correction_id();
+		msg.add_property("'is.yaks.access.id'", id);
+		msg.add_subscription(key);
+		return msg;	
 	}
-	
+
 	/** Implementation of MessageUnsub */
-	class MessageUnsub 
+	public MessageImpl MessageUnsub(String id, String subscription_id) 
 	{
-		public MessageUnsub(MessageImpl msg, String id, String subscription_id) 
-		{
-			msg.message_code = MessageCode.UNSUB.getValue();
-			msg.generate_correction_id();
-			msg.add_property("'is.yaks.access.id'", id);
-			msg.add_subscription(subscription_id); 
-		}
+		MessageImpl msg = MessageImpl.getInstance();
+		msg.message_code = MessageCode.UNSUB.getValue();
+		msg.generate_correction_id();
+		msg.add_property("'is.yaks.access.id'", id);
+		msg.add_subscription(subscription_id); 
+		return msg;	
 	}
 
 	/** Implementation of MessageEval */
-	class MessageEval
+	public MessageImpl MessageEval(String id, String computation) 
 	{
-		public MessageEval(MessageImpl msg, String id, String computation) 
-		{
-			msg.message_code = MessageCode.EVAL.getValue();
-			msg.generate_correction_id();
-			msg.add_property("'is.yaks.access.id'", id);
-		}
+		MessageImpl msg = MessageImpl.getInstance();
+		msg.message_code = MessageCode.EVAL.getValue();
+		msg.generate_correction_id();
+		msg.add_property("'is.yaks.access.id'", id);
+		return msg;	
 	} 
-	
+
 	/** Implementation of MessageValues */
-	class MessageValues
-	{
-		public MessageValues(MessageImpl msg, String id, Data kvs) 
-		{
-			msg.message_code = MessageCode.VALUES.getValue();
-			msg.generate_correction_id();
-			msg.add_property("'is.yaks.access.id'", id);
-	        try {
-	        	msg.set_encoding(Encoding.RAW.getValue());
-			} catch (Exception e) {
-				e.printStackTrace();
-			}
-	        msg.add_values(kvs);
+	public MessageImpl MessageValues(String id, Data kvs){
+
+		MessageImpl msg = MessageImpl.getInstance();
+		msg.message_code = MessageCode.VALUES.getValue();
+		msg.generate_correction_id();
+		msg.add_property("'is.yaks.access.id'", id);
+		try {
+			msg.set_encoding(Encoding.RAW.getValue());
+		} catch (Exception e) {
+			e.printStackTrace();
 		}
+		msg.add_values(kvs.getKey(), kvs.getValue());
+		return msg;
 	}
 
 	/** Implementation of MessageOK */
-	class MessageOK 
+	public MessageImpl MessageOK(int corr_id) 
 	{
-		public MessageOK(MessageImpl msg, int corr_id) 
-		{
-			msg.message_code = MessageCode.OK.getValue();
-			msg.correction_id = corr_id;
-		}
+		MessageImpl msg = MessageImpl.getInstance();
+		msg.message_code = MessageCode.OK.getValue();
+		msg.correction_id = corr_id;
+		return msg;
 	}
 	
 	/** Implementation of MessageError */
-	class MessageError 
-	{
-		public MessageError(MessageImpl msg, int corr_id, int errno) 
-		{
-			msg.message_code = MessageCode.ERROR.getValue();
-			msg.correction_id = corr_id;
-			msg.add_error(errno);
-		}
+	public MessageImpl MessageError(int corr_id, int errno) 
+	{	
+		MessageImpl msg = MessageImpl.getInstance();
+		msg.message_code = MessageCode.ERROR.getValue();
+		msg.correction_id = corr_id;
+		msg.add_error(errno);
+		return msg;
 	}
 
 
 	@Override
-	public List<Property> read_all_properties() 
+	public Map<String, String> read_all_properties() 
 	{
 		return null;
 	}
 
 	@Override
-	public Property read_property_by_key(List<Property> properties, String key) 
+	public Property read_property_by_key(Map<String, String> properties, String key) 
 	{
 		return null;
 	}
@@ -622,11 +626,11 @@ public class MessageImpl implements Message
         if (this.flag_p==1) {
             pretty = pretty + "\n# HAS PROPERTIES\n# NUMBER OF PROPERTIES: "+ this.propertiesList.size();
 
-            for(int p = 0; p < this.propertiesList.size(); p++) 
+            for(Map.Entry<String, String> entry : propertiesList.entrySet()) 
             {
                 pretty = pretty + "\n#========\n# "
-                		+ " KEY: "+propertiesList.get(p).getKey()  
-                		+ " VALUE: "+propertiesList.get(p).getValue();
+                		+ " KEY: "+entry.getKey()  
+                		+ " VALUE: "+entry.getValue();
                     
             }
         }
@@ -699,22 +703,6 @@ public class MessageImpl implements Message
 	public void set_message_code() 
 	{
 		this.message_code = ByteBuffer.wrap(this.raw_msg).get(1);
-	}
-
-	public List<Data> getDataList() {
-		return dataList;
-	}
-
-	public void setDataList(List<Data> dataList) {
-		this.dataList = dataList;
-	}
-
-	public List<Property> getPropertiesList() {
-		return propertiesList;
-	}
-
-	public void setPropertiesList(List<Property> propertiesList) {
-		this.propertiesList = propertiesList;
 	}
 
 	public VLEEncoder getEncoder() 

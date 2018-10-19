@@ -1,4 +1,4 @@
-package is.yaks.message;
+package is.yaks.websocket.utils;
 
 public class Data 
 {	

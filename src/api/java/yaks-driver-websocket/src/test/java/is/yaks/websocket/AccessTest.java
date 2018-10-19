@@ -16,6 +16,7 @@ import is.yaks.Selector;
 import is.yaks.Yaks;
 import is.yaks.websocket.foo.Foo;
 import is.yaks.websocket.utils.GsonTypeToken;
+import is.yaks.websocket.utils.MessageImpl;
 import is.yaks.websocket.utils.YaksConfiguration;
 import junit.framework.Assert;
 
@@ -23,11 +24,11 @@ public class AccessTest {
 
     Yaks yaks;
     public static final Logger LOG = LoggerFactory.getLogger(AccessTest.class);
-    private GsonTypeToken gsonTypes = GsonTypeToken.getInstance();
+    private MessageImpl msgType = MessageImpl.getInstance();
 
     @Before
     public void init() {
-        String[] args = { "http://localhost:8000" };
+        String[] args = { "http://localhost:7887" };
         yaks = Yaks.getInstance("is.yaks.websocket.YaksImpl", AccessTest.class.getClassLoader(), args);
         Assert.assertTrue(yaks instanceof YaksImpl);
     }
@@ -36,12 +37,14 @@ public class AccessTest {
     public void debugTest() {
         YaksConfiguration config = YaksConfiguration.getInstance();
         Map<Path, String> m = new HashMap<>();
-        m.put(Path.ofString("//is.yaks.tests/a"), "ABC");
-        m.put(Path.ofString("//is.yaks.tests/x"), "XYZ");
-        String json = config.getGson().toJson(m);
+        m.put(Path.ofString("//is.yaks.websocket.tests/a"), "ABC");
+        m.put(Path.ofString("//is.yaks.websocket.tests/x"), "XYZ");
+       
+        String msg = config.getMessage().toString();
+        String json = config.getGson().toJson(msg);
 
         Map<Path, String> result = new HashMap<>();
-        result = config.getGson().fromJson(json, gsonTypes.<Path, String> getMapTypeToken());
+        result = config.getGson().fromJson(json, msgType.<Path, String> getMapTypeToken());
         Assert.assertNotNull(result);
         Assert.assertTrue(result.size() > 0);
         Assert.assertTrue(result.get(Path.ofString("//is.yaks.tests/a")).equals("ABC"));
