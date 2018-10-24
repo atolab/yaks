@@ -23,7 +23,7 @@ LITTLE ENDIAN
 +-+-+-+-+-+-+-+-+ ----------------------+
 |  MESSAGE CODE |    8bit               |
 +-+-+-+-+-+-+-+-+                       |
-|X|X|X|X|X|A|S|P|    8bit               +--> Header
+|X|X|E|N|C|A|S|P|    8bit               +--> Header
 +-+-+-+-+-+-+-+-+                       |
 ~   Coor. ID    ~  VLE max 64bit        |
 +---------------+                       |

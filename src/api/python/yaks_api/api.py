@@ -353,7 +353,7 @@ class YAKS(object):
         return self.accesses.get(access_id)
 
     def create_storage(self, path, properties=None):
-        create_msg = MessageCreate(self, EntityType.STORAGE, path)
+        create_msg = MessageCreate(EntityType.STORAGE, path)
         if properties:
             for k in properties:
                 v = properties.get(k)
