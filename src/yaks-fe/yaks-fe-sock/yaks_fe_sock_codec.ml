@@ -66,7 +66,7 @@ let decode_header buf =
 let encode_value v buf =
   let open Value in
   let encode_value_encoding e = IOBuf.put_char (char_of_int @@ value_encoding_to_int e) buf in
-  (* TEMPORARY transcode to JSON *) let v = Value.transcode v Value.Json_Encoding |> Apero.Result.get in
+  
   match v with
   | RawValue b -> encode_value_encoding RAW
     >>= fun buf -> Apero.encode_bytes (IOBuf.from_bytes b) buf

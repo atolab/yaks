@@ -8,7 +8,7 @@ open Yaks_fe_sock_codes
     +-+-+-+-+-+-+-+-+  ---+
     |  MESSAGE CODE |     |
     +-+-+-+-+-+-+-+-+     |
-    |X|X|E|N|C|A|S|P|     +--> Header
+    |X|X|X|X|X|A|S|P|     +--> Header
     +-+-+-+-+-+-+-+-+     | 
     ~   Coor. ID    ~     |
     +---------------+     |
@@ -18,7 +18,19 @@ open Yaks_fe_sock_codes
     +---------------+   
 
    For transports that do not preserve message boundaries, the framing is done by prepending
-   the lenght encoded using VLE.  *)
+   the lenght encoded using VLE.  
+   
+   Values are encoded as follows:
+
+    +-+-+-+-+-+-+-+-+
+    |    Encoding   |
+    +-+-+-+-+-+-+-+-+
+    ~    Length     ~
+    +-+-+-+-+-+-+-+-+
+    ~      Data     ~
+    +---------------+
+
+   *)
 
 type header = { 
   mid : message_id;
