@@ -9,7 +9,7 @@ module SEngine = struct
 
   module type S = sig 
     type t 
-    type subscription_pusher = Yaks_types.SubscriberId.t -> (Yaks_types.Path.t * Yaks_types.Value.t) list -> unit Lwt.t
+    type subscription_pusher =  Yaks_types.SubscriberId.t -> cleanup:(Yaks_types.SubscriberId.t -> unit Lwt.t) -> (Yaks_types.Path.t * Yaks_types.Value.t) list -> unit Lwt.t
 
     val make : unit -> t 
 
@@ -38,7 +38,7 @@ module SEngine = struct
     module AccessMap = Map.Make (Access.Id)
     module SubscriberMap = Map.Make (SubscriberId)
 
-    type subscription_pusher = Yaks_types.SubscriberId.t -> (Yaks_types.Path.t * Yaks_types.Value.t) list -> unit Lwt.t
+    type subscription_pusher =  Yaks_types.SubscriberId.t -> cleanup:(Yaks_types.SubscriberId.t -> unit Lwt.t) -> (Yaks_types.Path.t * Yaks_types.Value.t) list -> unit Lwt.t
     
     type subscription = 
       { selector : Selector.t 
@@ -85,6 +85,11 @@ module SEngine = struct
         let subs' = SubscriberMap.remove sid self.subs in 
         MVar.return () {self with subs = subs'} )
 
+    let remove_subscriber_no_acc engine sid = 
+      (MVar.guarded engine 
+      @@ fun self ->         
+        let subs' = SubscriberMap.remove sid self.subs in 
+        MVar.return () {self with subs = subs'} )
 
     (**************************)
     (*   Backends management  *)
@@ -196,10 +201,10 @@ module SEngine = struct
        there might be duplicate keys from different Storages in this result.
        Shall we remove duplicates?? *)
 
-     let notify_subscriber subs path value = 
+     let notify_subscriber engine subs path value = 
       SubscriberMap.iter 
         (fun sid sub -> 
-          if Selector.is_matching_path path sub.selector then Lwt.ignore_result (sub.pusher sid [(path, value)]) 
+          if Selector.is_matching_path path sub.selector then Lwt.ignore_result (sub.pusher sid ~cleanup:(remove_subscriber_no_acc engine) [(path, value)]) 
           else ()) subs
           
     let put (engine: t) access_id (selector:Selector.t) (value:Value.t) =
@@ -212,7 +217,7 @@ module SEngine = struct
       when there is a put of a selector I do notify based on matching on the Path that
       prefixes the selector. This is far from being pefect, but at least a starting point *)
       let _ = match Selector.as_unique_path selector with 
-      | Some p -> Lwt.return @@ notify_subscriber self.subs p value 
+      | Some p -> Lwt.return @@ notify_subscriber engine self.subs p value 
       | _ -> Logs_lwt.warn (fun m -> m "Unable to extract path from seletor to notify subscribers") 
       in
       get_matching_stores self selector

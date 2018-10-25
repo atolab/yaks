@@ -29,12 +29,6 @@ module Make (YEngine : Yaks_engine.SEngine.S) = struct
     let%lwt _ = Logs_lwt.debug (fun m -> m "Message lenght : %d" (Vle.to_int len)) in      
     let buf = IOBuf.create (Vle.to_int len) in     
     let%lwt n = Net.read sock buf in
-    let _ = 
-      match Lwt_unix.state sock with
-      | Opened -> ignore @@ Logs_lwt.info (fun m -> m "Socket is open")
-      | Closed -> ignore @@ Logs_lwt.info (fun m -> m "Socket is closed")
-      | Aborted e -> ignore @@ Logs_lwt.info (fun m -> m "Socket is aborted: %s" (Printexc.to_string e))
-    in      
     let%lwt _ = Logs_lwt.debug (fun m -> m "Read %d bytes our of the socket" n) >>= fun _ -> Lwt.return_unit in      
 
     match decode_message buf with 
@@ -51,12 +45,6 @@ module Make (YEngine : Yaks_engine.SEngine.S) = struct
       (match encode_vle (Vle.of_int @@ IOBuf.limit fbuf) lbuf with 
        | Ok lbuf -> 
          let%lwt _ = Logs_lwt.debug (fun m -> m "Sending message to socket") in
-         let _ = 
-           match Lwt_unix.state sock with
-           | Opened -> ignore @@ Logs_lwt.info (fun m -> m "Socket is open")
-           | Closed -> ignore @@ Logs_lwt.info (fun m -> m "Socket is closed")
-           | Aborted e -> ignore @@ Logs_lwt.info (fun m -> m "Socket is aborted: %s" (Printexc.to_string e))
-         in
          Net.send_vec sock [IOBuf.flip lbuf; fbuf]
        | Error e -> 
          let%lwt _ = Logs_lwt.err (fun m -> m "Falied in writing message: %s" (Apero.show_error e)) in
@@ -76,11 +64,11 @@ module Make (YEngine : Yaks_engine.SEngine.S) = struct
     | SUB -> 
       let sock = TxSession.socket tx_sex in 
       let buf = IOBuf.create Yaks_fe_sock_types.max_msg_size in 
-      let push_sub buf sid pvs = 
+      let push_sub buf  sid ~cleanup pvs = 
         let body = YNotification (Yaks_core.SubscriberId.to_string sid, pvs)  in                 
         let h = make_header NOTIFY [] Vle.zero Yaks_core.Property.Map.empty in         
-        let msg = make_message h body in 
-        writer buf sock msg >|= fun _ -> () 
+        let msg = make_message h body in         
+        Lwt.catch (fun () -> writer buf sock msg >|= fun _ -> ()) (fun _ -> cleanup sid)
       in  P.process_sub engine msg (push_sub buf)
     | UNSUB -> P.process_unsub engine msg
     | EVAL -> P.process_eval engine msg    

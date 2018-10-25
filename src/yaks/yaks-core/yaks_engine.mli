@@ -9,7 +9,7 @@ module SEngine : sig
 
   module type S = sig 
     type t 
-    type subscription_pusher = Yaks_types.SubscriberId.t -> (Yaks_types.Path.t * Yaks_types.Value.t) list -> unit Lwt.t
+    type subscription_pusher =  Yaks_types.SubscriberId.t -> cleanup:(Yaks_types.SubscriberId.t -> unit Lwt.t) -> (Yaks_types.Path.t * Yaks_types.Value.t) list -> unit Lwt.t
 
     val make : unit -> t 
 
