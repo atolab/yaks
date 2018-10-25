@@ -43,33 +43,33 @@ class SendingThread(threading.Thread):
     def run(self):
         self._is_running = True
         while self._is_running and self.__yaks.is_connected:
-                msg_s, var = self.send_q.get()
-                logger.info('SendingThread', 'Message from queue')
-                logger.debug('SendingThread', 'Message {}'.
-                             format(msg_s.pprint()))
-                self.lock.acquire()
-                self.waiting_msgs.update({msg_s.corr_id: (msg_s, var)})
-                try:
-                    self.sock.sendall(msg_s.pack_for_transport())
-                    logger.debug('SendingThread', 'Message Sent on Wire\n{}'.
-                                 format(msg_s.dump_net()))
-                except OSError as e:
-                    if e.errno == 9:
-                        logger.error('SendingThread', 'Bad FD')
-                    self.send_error_to_all()
-                    self.__yaks.is_connected = False
-                except ConnectionResetError as cre:
-                    logger.error('SendingThread',
-                                 'Server Closed connection {}'.format(cre))
-                    self.send_error_to_all()
-                    self.__yaks.is_connected = False
-                except struct.error as se:
-                    logger.error('SendingThread', 'Pack Error {}'.format(se))
-                    err = MessageError(msg_s.corr_id, 400)
-                    self.waiting_msgs.pop(msg_s.corr_id)
-                    var.put(err)
-                finally:
-                    self.lock.release()
+            msg_s, var = self.send_q.get()
+            logger.info('SendingThread', 'Message from queue')
+            logger.debug('SendingThread', 'Message {}'.
+                         format(msg_s.pprint()))
+            self.lock.acquire()
+            self.waiting_msgs.update({msg_s.corr_id: (msg_s, var)})
+            try:
+                self.sock.sendall(msg_s.pack_for_transport())
+                logger.debug('SendingThread', 'Message Sent on Wire\n{}'.
+                             format(msg_s.dump_net()))
+            except OSError as e:
+                if e.errno == 9:
+                    logger.error('SendingThread', 'Bad FD')
+                self.send_error_to_all()
+                self.__yaks.is_connected = False
+            except ConnectionResetError as cre:
+                logger.error('SendingThread',
+                             'Server Closed connection {}'.format(cre))
+                self.send_error_to_all()
+                self.__yaks.is_connected = False
+            except struct.error as se:
+                logger.error('SendingThread', 'Pack Error {}'.format(se))
+                err = MessageError(msg_s.corr_id, 400)
+                self.waiting_msgs.pop(msg_s.corr_id)
+                var.put(err)
+            finally:
+                self.lock.release()
 
 
 class ReceivingThread(threading.Thread):
@@ -223,7 +223,7 @@ class Access(object):
         var = MVar()
         self.__send_queue.put((msg_sub, var))
         r = var.get()
-        if YAKS.check_msg(r, msg_sub.corr_id, expected=OK):
+        if YAKS.check_msg(r, msg_sub.corr_id):
             subid = r.get_property('is.yaks.subscription.id')
             self.__subscriptions.update({subid: callback})
             return subid
@@ -239,7 +239,7 @@ class Access(object):
         var = MVar()
         self.__send_queue.put((msg_unsub, var))
         r = var.get()
-        if YAKS.check_msg(r, msg_unsub.corr_id, expected=OK):
+        if YAKS.check_msg(r, msg_unsub.corr_id):
             self.__subscriptions.pop(subscription_id)
             return True
         return False
@@ -250,8 +250,8 @@ class Access(object):
         var = MVar()
         self.__send_queue.put((msg_get, var))
         r = var.get()
-        if YAKS.check_msg(r, msg_get.corr_id, expected=VALUES):
-                return r.get_values()
+        if YAKS.check_msg(r, msg_get.corr_id, expected=[PVALUES, SVALUES]):
+            return r.get_values()
         return None
 
     def eval(self, key, computation):
@@ -320,8 +320,8 @@ class YAKS(object):
             raise RuntimeError('Server response is wrong')
 
     @staticmethod
-    def check_msg(msg, corr_id, expected=OK):
-        return msg.message_code == expected or corr_id == msg.corr_id
+    def check_msg(msg, corr_id, expected=[OK]):
+        return msg.message_code in expected or corr_id == msg.corr_id
 
     def check_connection(self):
         if not self.is_connected:

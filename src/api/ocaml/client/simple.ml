@@ -29,9 +29,12 @@ let main argv =
     >>= fun subid ->
     ignore @@ Lwt_io.printf "<<<< [APP] Put %s -> %s\n" "//afos/0" "hello!";
     let%lwt _ = Lwt_io.read_line Lwt_io.stdin in
-    YAccess.put 
-      (Yaks_core.Selector.of_string "//afos/0/1")
-      (Apero.Result.get (Yaks_core.Value.of_string "hello!" Yaks_core.Value.Raw_Encoding)) access
+    let t0 = Unix.gettimeofday () in 
+    let _ = YAccess.put 
+        (Yaks_core.Selector.of_string "//afos/0/1")
+        (Apero.Result.get (Yaks_core.Value.of_string "hello!" Yaks_core.Value.Raw_Encoding)) access in
+    let t1 = Float.sub (Unix.gettimeofday ()) t0 in
+    Lwt_io.printf "<<<< [APP] Put took %f\n"  t1
     >>= fun _ -> 
     ignore @@ Lwt_io.printf "<<<< [APP] Getting %s \n" "//afos/0";
     let%lwt _ = Lwt_io.read_line Lwt_io.stdin in

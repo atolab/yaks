@@ -37,7 +37,11 @@ module Access = struct
   let get selector access = 
     MVar.read access >>= fun access ->
     let _ = Logs_lwt.info (fun m -> m "[YA]: GET on %s" (Yaks_types.Selector.to_string selector)) in
-    Yaks_sock_driver.process_get selector access.aid access.driver
+    Yaks_sock_driver.process_get selector access.aid access.driver 
+    >>= fun d -> 
+    let enc = ( Yaks_core.Value.encoding_of_string (Yaks_fe_sock_codes.value_encoding_to_string access.encoding)) in
+    Lwt.return d
+    >>= Lwt_list.map_p (fun (p,v) ->  Lwt.return @@ (p,Apero.Result.get @@ Yaks_core.Value.transcode v enc)) 
 
   let put selector value access =
     MVar.read access >>= fun access ->
@@ -46,7 +50,7 @@ module Access = struct
 
   let delta_put selector value access = 
     MVar.read access >>= fun access ->
-    let _ = Logs_lwt.info (fun m -> m "[YA]: DELAT_PUT on %s -> %s" (Yaks_types.Selector.to_string selector) (Yaks_types.Value.to_string value)) in
+    let _ = Logs_lwt.info (fun m -> m "[YA]: DELTA_PUT on %s -> %s" (Yaks_types.Selector.to_string selector) (Yaks_types.Value.to_string value)) in
     Yaks_sock_driver.process_patch selector access.aid value access.driver
 
   let remove selector access =

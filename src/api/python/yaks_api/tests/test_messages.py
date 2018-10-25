@@ -40,7 +40,7 @@ class MessagesTests(unittest.TestCase):
             {'key': 'another', 'value': 'longvalue'}
         ]
         msg1.set_encoding(messages.RAW)
-        msg1.message_code = messages.VALUES
+        msg1.message_code = messages.PVALUES
         msg1.add_values(v1)
         packed = msg1.pack()
         msg2 = messages.Message(packed)
@@ -53,7 +53,7 @@ class MessagesTests(unittest.TestCase):
             {'key': 'another', 'value': 'longvalue'}
         ]
         msg1 = messages.Message()
-        msg1.message_code = messages.VALUES
+        msg1.message_code = messages.PVALUES
         msg1.set_encoding(messages.JSON)
         msg1.add_values(v1)
         packed = msg1.pack()
@@ -68,7 +68,7 @@ class MessagesTests(unittest.TestCase):
             {'key': 'another', 'value': 'longvalue'}
         ]
         msg1 = messages.Message()
-        msg1.message_code = messages.VALUES
+        msg1.message_code = messages.PVALUES
         msg1.set_encoding(messages.RAW)
         msg1.add_values(v1)
         packed = msg1.pack()
@@ -83,7 +83,7 @@ class MessagesTests(unittest.TestCase):
             {'key': 'another', 'value': 'longvalue'}
         ]
         msg1 = messages.Message()
-        msg1.message_code = messages.VALUES
+        msg1.message_code = messages.PVALUES
         msg1.set_encoding(messages.STRING)
         msg1.add_values(v1)
         packed = msg1.pack()
@@ -97,7 +97,7 @@ class MessagesTests(unittest.TestCase):
             {'key': 'hello', 'value': (['val1', 'val2'], ['col1', 'col2'])}
         ]
         msg1 = messages.Message()
-        msg1.message_code = messages.VALUES
+        msg1.message_code = messages.PVALUES
         msg1.set_encoding(messages.SQL)
         msg1.add_values(v1)
         packed = msg1.pack()
@@ -111,21 +111,21 @@ class MessagesTests(unittest.TestCase):
             {'key': 'hello', 'value': (['val1', 'val2'], ['col1', 'col2'])}
         ]
         msg1 = messages.Message()
-        msg1.message_code = messages.VALUES
+        msg1.message_code = messages.PVALUES
         msg1.set_encoding(messages.PROTOBUF)
         self.assertRaises(NotImplementedError, msg1.add_values, v1)
 
     def test_set_encoding_exception(self):
         msg1 = messages.Message()
-        msg1.message_code = messages.VALUES
+        msg1.message_code = messages.PVALUES
         self.assertRaises(ValueError, msg1.set_encoding, 0x100)
 
     def test_ok_message(self):
-        msg1 = messages.MessageOk('1', '123')
+        msg1 = messages.MessageOk('123')
         self.assertEqual(msg1.message_code, 0xD0)
 
     def test_error_message(self):
-        msg1 = messages.MessageError('1', '123', 1234)
+        msg1 = messages.MessageError('123', 1234)
 
         self.assertEqual(msg1.message_code, 0xE0)
         self.assertEqual(1234, msg1.get_error())
@@ -201,7 +201,7 @@ class MessagesTests(unittest.TestCase):
             {'key': 'hello', 'value': 'world'},
         ]
         msg1 = messages.MessageValues('321', v1)
-        self.assertEqual(msg1.message_code, 0xD2)
+        self.assertEqual(msg1.message_code, 0xD1)
         self.assertEqual(msg1.flag_p, 1)
         self.assertEqual(msg1.flag_a, 0)
         self.assertEqual(msg1.flag_s, 0)

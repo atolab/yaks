@@ -1,5 +1,6 @@
 from yaks_api import api
 import sys
+import json
 
 
 def obs(kvs):
@@ -11,7 +12,7 @@ def main():
     y = api.YAKS(sys.argv[1])
     print('>> Create storage')
     input()
-    storage = y.create_storage('//fos')
+    #storage = y.create_storage('//fos')
     print('>> Create access and subscription')
     input()
     access = y.create_access('//fos')
@@ -29,6 +30,11 @@ def main():
     print('>> Put Tuple')
     input()
     access.put('//fos/example/three', 'hello3!')
+
+    print('>> Put Tuple JSON as RAW')
+    input()
+    d = json.dumps({'this': 'is', 'a': 'json'})
+    access.put('//fos/example/four', d)
 
     print('>> Get Tuple')
     input()
@@ -50,7 +56,7 @@ def main():
 
     print('>> Dispose Storage')
     input()
-    storage.dispose()
+    #storage.dispose()
 
     y.close()
     print('bye!')
