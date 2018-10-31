@@ -10,6 +10,7 @@ import com.sun.jersey.api.client.config.DefaultClientConfig;
 import com.sun.jersey.client.urlconnection.URLConnectionClientHandler;
 
 import is.yaks.socketfe.EntityType;
+import is.yaks.websocket.messages.MessageImpl;
 
 public class YaksConfiguration {
 
@@ -34,11 +35,9 @@ public class YaksConfiguration {
         configClient.getProperties().put(URLConnectionClientHandler.PROPERTY_HTTP_URL_CONNECTION_SET_METHOD_WORKAROUND,
                 true);
         client = Client.create(configClient);
-        msg = MessageImpl.getInstance().MessageCreate(EntityType.ACCESS, "\"/yaks/access\"", "localhost-1", 1024, "", true);
-        		
-  //      GsonBuilder gsonBuilder = new GsonBuilder();
-  //      gson = gsonBuilder.create();
-        
+  
+        GsonBuilder gsonBuilder = new GsonBuilder();
+        gson = gsonBuilder.create();
     }
     
     

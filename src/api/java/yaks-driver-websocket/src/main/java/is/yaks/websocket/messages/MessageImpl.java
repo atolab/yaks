@@ -1,7 +1,8 @@
-package is.yaks.websocket.utils;
+package is.yaks.websocket.messages;
 
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
+import java.nio.channels.SocketChannel;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
@@ -16,6 +17,8 @@ import is.yaks.socketfe.EntityType;
 import is.yaks.socketfe.Message;
 import is.yaks.socketfe.MessageCode;
 import is.yaks.socketfe.Property;
+import is.yaks.websocket.utils.Data;
+import is.yaks.websocket.utils.VLEEncoder;
 
 /**
 
@@ -181,22 +184,23 @@ public class MessageImpl implements Message
 	}
 
 	@Override
-	public ByteBuffer write(Message msg) 
+	public ByteBuffer write() 
 	{
-		ByteBuffer buff = ByteBuffer.allocate(msg.read_encoding(raw_msg, 0)); 
+	//	ByteBuffer buff = ByteBuffer.allocate(read_encoding(raw_msg, 0)); 
 		
+		ByteBuffer buff = ByteBuffer.allocate(48);
 		
-		buff.put(String.valueOf(msg.read_vle_field(raw_msg, 0)).getBytes());
+		buff.put(String.valueOf(read_vle_field(raw_msg, 0)).getBytes());
 		
-		buff.put(String.valueOf(msg.read_flags()).getBytes());
+		buff.put(String.valueOf(read_flags()).getBytes());
 		
-		buff.put(String.valueOf(msg.read_correction_id()).getBytes());
+		buff.put(String.valueOf(read_correction_id()).getBytes());
 		
-		int flag_p = msg.read_flag_p(); 
+		int flag_p = read_flag_p(); 
 		
 		if(flag_p != 0) 
 		{
-			Map<String, String> properties = msg.read_all_properties();
+			Map<String, String> properties = read_all_properties();
 			
 			for(Map.Entry<String, String> entry : properties.entrySet()) 
 			{				
@@ -208,7 +212,7 @@ public class MessageImpl implements Message
 	}
 
 	@Override
-	public MessageImpl read(byte[] raw_msg) 
+	public Message read(ByteBuffer bytes) 
 	{
 
 		int base_p = 0;		
@@ -224,10 +228,10 @@ public class MessageImpl implements Message
 		{
 			this.propertiesList = read_all_properties();	
 		}	
-		return msg;
+		return null;
 	}
 	
-	@Override
+	//@Override
 	public int read_vle_field(byte[] raw_msg, int base_position) 
 	{
 		byte[] vle_field = new byte[] {};
@@ -250,7 +254,7 @@ public class MessageImpl implements Message
 
 
 
-	@Override
+	//@Override
 	public int read_encoding(byte[] raw_msg, int base_position) 
 	{
 		  
@@ -276,7 +280,7 @@ public class MessageImpl implements Message
 		this.encoding = encoding;
 	}
 
-	@Override
+//	@Override
 	public int read_flags() 
 	{
 		flags = ByteBuffer.wrap(this.raw_msg).get(2);
@@ -325,9 +329,10 @@ public class MessageImpl implements Message
 	}
 	
 	// getrandbits(k) -> x. Generates an int with k random bits
-	public void generate_correction_id()
+	public int generate_correction_id()
 	{
 		this.length = (int)Math.random();
+		return this.length;
 	}
 	
 	public void add_selector(String selector) 
@@ -371,218 +376,20 @@ public class MessageImpl implements Message
 	{
 		body = encoder.encode(number).toString().getBytes();
 	}
-    
-	
-	/** Implementation of MessageOpen */
-	public MessageImpl MessageOpen(ByteBuffer raw_message, String username, String password)
-	{
-		MessageImpl msg = MessageImpl.getInstance();
-		msg.generate_correction_id();
-		msg.message_code = MessageCode.OPEN.getValue();
-		if(username.equals("None") && password.equals("None")) 
-		{
-			msg.add_property("yaks.login", "'"+username+":"+password+"'");
-		}
-		return msg;
-	}
 
-	/** Implementation of MessageCreate */
-	public MessageImpl MessageCreate(EntityType type, String path, String id, int cache_size, String config, boolean complete)
-	{
-		JSONObject json = new JSONObject();
-		MessageImpl msg = MessageImpl.getInstance();
-		msg.message_code = MessageCode.CREATE.getValue();
-		msg.generate_correction_id();
-		msg.add_path(path);
-		if(type.equals(EntityType.ACCESS)) 
-		{
-			msg.setFlag_a();
-			if(!id.equals("None"))
-			{
-				msg.add_property("'is.yaks.access.alias'", id);
-			}
-			if(cache_size != 0)
-			{
-				msg.add_property("'is.yaks.access.cachesize'", String.valueOf(cache_size));
-			} 
-		} 
-		else if (type.equals(EntityType.STORAGE)) 
-		{
-			msg.setFlag_s();
-			if(!id.equals("None")) 
-			{
-				msg.add_property("'is.yaks.access.alias'", id);
-			}
-			if(!config.equals("None")) 
-			{
-				json = (JSONObject) JSONValue.parse(config);
-				msg.add_property("'is.yaks.storage.config'", json.toString());
-			}
-			if(complete) {
-				msg.add_property("'is.yaks.storage.complete'", "'true'");
-			}
-		}
-		return msg;
-	}
-
-	/** Implementation of MessageDelete */
-	public MessageImpl MessageDelete(String id, EntityType type, String path) 
-	{
-		MessageImpl msg = MessageImpl.getInstance();
-		msg.message_code = MessageCode.DELETE.getValue();
-		msg.generate_correction_id();
-		if(type.equals(EntityType.ACCESS)) 
-		{
-			msg.setFlag_a();
-			msg.add_property("'is.yaks.access.id'", id);
-		} 
-		else if (type.equals(EntityType.STORAGE)) 
-		{
-			msg.setFlag_s();
-			msg.add_property("'is.yaks.storage.id'", id);
-		} 
-		else if (!path.equals("None")) 
-		{
-			msg.add_path(path);
-			msg.add_property("'is.yaks.access.id'", id);
-		}
-		return msg;
-	}
-
-	/** Implementation of MessagePut */
-	public MessageImpl MessagePut(String id, String key, String value) 
-	{
-		MessageImpl msg = MessageImpl.getInstance();
-		msg.message_code = MessageCode.PUT.getValue();
-		try {
-			msg.set_encoding(Encoding.RAW.getValue());
-		} catch (Exception e) {
-			System.out.println(e.getMessage());
-		}
-		msg.generate_correction_id();
-		msg.add_property("is.yaks.access.id", id);
-		msg.add_values(key,value);
-		return msg;
-	}
-
-	/** Implementation of MessagePatch */
-	public MessageImpl MessagePatch(String id, String key, String value) 
-	{
-		MessageImpl msg = MessageImpl.getInstance();
-		msg.message_code = MessageCode.PATCH.getValue();
-		try {
-			msg.set_encoding(Encoding.RAW.getValue());
-		} catch (Exception e) {
-			System.out.println(e.getMessage());
-		}
-		msg.generate_correction_id();
-		msg.add_property("'is.yaks.access.id'", id);
-		msg.add_values(key, value);
-		return msg;
-	}
-
-	/** Implementation of MessageGet */
-	public MessageImpl MessageGet(String id, String key) 
-	{
-		MessageImpl msg = MessageImpl.getInstance();
-		msg.message_code = MessageCode.GET.getValue();
-		try {
-			msg.set_encoding(Encoding.RAW.getValue());
-		} catch (Exception e) {
-			System.out.println(e.getMessage());
-		}
-		msg.generate_correction_id();
-		msg.add_property("'is.yaks.access.id'", id);
-		msg.add_selector(key);
-		return msg;
-	}
-
-	/** Implementation of MessageSub */
-	public MessageImpl MessageSub(String id, String key) 
-	{
-		MessageImpl msg = MessageImpl.getInstance();
-		msg.message_code = MessageCode.SUB.getValue();
-		try {
-			msg.set_encoding(Encoding.RAW.getValue());
-		} catch (Exception e) {
-			System.out.println(e.getMessage());
-		}
-		msg.generate_correction_id();
-		msg.add_property("'is.yaks.access.id'", id);
-		msg.add_subscription(key);
-		return msg;	
-	}
-
-	/** Implementation of MessageUnsub */
-	public MessageImpl MessageUnsub(String id, String subscription_id) 
-	{
-		MessageImpl msg = MessageImpl.getInstance();
-		msg.message_code = MessageCode.UNSUB.getValue();
-		msg.generate_correction_id();
-		msg.add_property("'is.yaks.access.id'", id);
-		msg.add_subscription(subscription_id); 
-		return msg;	
-	}
-
-	/** Implementation of MessageEval */
-	public MessageImpl MessageEval(String id, String computation) 
-	{
-		MessageImpl msg = MessageImpl.getInstance();
-		msg.message_code = MessageCode.EVAL.getValue();
-		msg.generate_correction_id();
-		msg.add_property("'is.yaks.access.id'", id);
-		return msg;	
-	} 
-
-	/** Implementation of MessageValues */
-	public MessageImpl MessageValues(String id, Data kvs){
-
-		MessageImpl msg = MessageImpl.getInstance();
-		msg.message_code = MessageCode.VALUES.getValue();
-		msg.generate_correction_id();
-		msg.add_property("'is.yaks.access.id'", id);
-		try {
-			msg.set_encoding(Encoding.RAW.getValue());
-		} catch (Exception e) {
-			e.printStackTrace();
-		}
-		msg.add_values(kvs.getKey(), kvs.getValue());
-		return msg;
-	}
-
-	/** Implementation of MessageOK */
-	public MessageImpl MessageOK(int corr_id) 
-	{
-		MessageImpl msg = MessageImpl.getInstance();
-		msg.message_code = MessageCode.OK.getValue();
-		msg.correction_id = corr_id;
-		return msg;
-	}
-	
-	/** Implementation of MessageError */
-	public MessageImpl MessageError(int corr_id, int errno) 
-	{	
-		MessageImpl msg = MessageImpl.getInstance();
-		msg.message_code = MessageCode.ERROR.getValue();
-		msg.correction_id = corr_id;
-		msg.add_error(errno);
-		return msg;
-	}
-
-
-	@Override
+//	@Override
 	public Map<String, String> read_all_properties() 
 	{
 		return null;
 	}
 
-	@Override
+//	@Override
 	public Property read_property_by_key(Map<String, String> properties, String key) 
 	{
 		return null;
 	}
 
-	@Override
+//	@Override
 	public int read_message_code() 
 	{
 
@@ -590,25 +397,25 @@ public class MessageImpl implements Message
 	}
 
 
-	@Override
+//	@Override
 	public int read_flag_a() 
 	{
 		return this.flag_a;
 	}
 
-	@Override
+//	@Override
 	public int read_flag_s() 
 	{
 		return 0;
 	}
 
-	@Override
+//	@Override
 	public int read_flag_p() 
 	{
 		return 0;
 	}
 
-	@Override
+//	@Override
 	public int read_correction_id() {
 		return this.correction_id;
 	}
