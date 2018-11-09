@@ -48,7 +48,7 @@ module SQLBE = struct
                       (Selector.to_string selector) (storage_info.table_name)) in
         let open Value in 
         match transcode value Sql_Encoding with 
-        | Ok SqlValue (row, _) -> Caqti_driver.put C.conx storage_info.table_name (String.concat "," row) ()
+        | Ok SqlValue (row, _) -> Caqti_driver.put C.conx storage_info.table_name storage_info.schema row ()
         | Ok _ -> Lwt.fail @@ YException (`UnsupportedTranscoding (`Msg "Transcoding to SQL didn't return an SqlValue"))
         | Error e -> Lwt.fail @@ YException e
       else
@@ -65,7 +65,7 @@ module SQLBE = struct
         >>= Lwt_list.iter_p (fun (_,v) -> 
             match Value.update v delta with
             | Ok SqlValue (row, _) ->
-              Caqti_driver.put C.conx storage_info.table_name (String.concat "," row) ()
+              Caqti_driver.put C.conx storage_info.table_name storage_info.schema row ()
             | Ok _ -> Logs_lwt.warn (
               fun m -> m "[SQL]: put_delta on value %s failed: update of SqlValue didn't return a SqlValue" (Value.to_string v))
             | Error e -> Logs_lwt.warn (
@@ -94,6 +94,7 @@ module SQLBE = struct
     (***************************************)
     (*   Operations on key/value  tables   *)
     (***************************************)
+    let to_sql_string s = "'"^s^"'"
 
     let get_kv_condition sub_selector = 
       let sql_selector = Selector.path sub_selector
@@ -143,15 +144,15 @@ module SQLBE = struct
                     (Selector.to_string selector) (storage_info.table_name)) in
       let open Apero.LwtM.InfixM in
       let sub_sel = Selector.remove_prefix storage_info.path selector in
-      let v = Value.to_string value in
-      let enc = Value.encoding_to_string @@ Value.encoding value in
+      let v = Value.to_string value |> to_sql_string in
+      let enc = Value.encoding_to_string @@ Value.encoding value |> to_sql_string in
       if Selector.is_unique_path sub_sel then
-        Caqti_driver.put C.conx storage_info.table_name ("'"^(Selector.to_string sub_sel)^"','"^v^"','"^enc^"'") ()
+        Caqti_driver.put C.conx storage_info.table_name storage_info.schema ((Selector.to_string sub_sel |> to_sql_string)::v::enc::[]) ()
       else
-        let insert_suffix = "','"^v^"','"^enc^"'" in
+        let value_enc = v::enc::[] in
         get_matching_keys storage_info sub_sel
         >|= List.map (fun k -> 
-          Caqti_driver.put C.conx storage_info.table_name ("'"^k^insert_suffix) ())
+          Caqti_driver.put C.conx storage_info.table_name storage_info.schema ((to_sql_string k)::value_enc) ())
         >>= Lwt.join
 
     let put_delta_kv_table storage_info selector delta =
@@ -162,10 +163,10 @@ module SQLBE = struct
       >>= Lwt_list.iter_p (fun (p,v) -> 
           match Value.update v delta with
           | Ok value ->
-              let sub_path = Apero.Astring.after (String.length storage_info.table_name) (Path.to_string p) in
-              let v = Value.to_string value in
-              let enc = Value.encoding_to_string @@ Value.encoding value in
-            Caqti_driver.put C.conx storage_info.table_name ("'"^sub_path^"','"^v^"','"^enc^"'") ()
+              let sub_path = Apero.Astring.after (String.length storage_info.table_name) (Path.to_string p) |> to_sql_string in
+              let v = Value.to_string value |> to_sql_string in
+              let enc = Value.encoding_to_string @@ Value.encoding value |> to_sql_string in
+            Caqti_driver.put C.conx storage_info.table_name storage_info.schema (sub_path::v::enc::[]) ()
           | Error e -> Logs_lwt.warn (
             fun m -> m "[SQL]: put_delta on value %s failed: %s" (Value.to_string v) (show_yerror e)))
 

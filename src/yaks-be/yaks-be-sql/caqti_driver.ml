@@ -167,11 +167,15 @@ let get conx table_name ?condition (Dyntype.Pack (typ, typ_to_s)) =
   fun () -> collect_query conx query typ >|= (fun rows -> List.map (fun row -> typ_to_s row) rows)
 
 
-let put conx table_name content =
+let put conx table_name (col_names, _) values =
   let query = match conx.db_type with
-    | MARIADB | SQLITE3 -> "REPLACE INTO "^table_name^" VALUES ("^content^")"
-    | POSTGRESQL -> "INSERT INTO "^table_name^" VALUES ("^content^")"
-      (* TODO: implement UPSERT for POSTGRESQL. See https://www.postgresql.org/docs/current/static/plpgsql-control-structures.html#PLPGSQL-UPSERT-EXAMPLE *)
+    | MARIADB | SQLITE3 -> 
+      Printf.sprintf "REPLACE INTO %s VALUES (%s)" table_name (String.concat "," values)
+    | POSTGRESQL -> 
+      let open List in
+      let kv_list = combine col_names values |> map (fun (c,v) -> c^"="^v) |> String.concat "," in
+      Printf.sprintf "INSERT INTO %s VALUES (%s) ON CONFLICT ON CONSTRAINT %s_pkey DO UPDATE SET %s"
+      table_name (String.concat "," values) table_name kv_list
   in
   fun () -> exec_query conx query
 

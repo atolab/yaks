@@ -310,7 +310,7 @@ module Value = struct
     else if s = "SQL" then Sql_Encoding
     else Raw_Encoding
 
-  let sql_val_sep = Char.chr 31 (* US - unit separator *)
+  let sql_val_sep = ',' (* Char.chr 31 *) (* US - unit separator *)
   let sql_val_sep_str = String.make 1 sql_val_sep
   let sql_row_sep = Char.chr 30 (* RS - record separator *)
   let sql_row_sep_str = String.make 1 sql_row_sep
@@ -321,9 +321,10 @@ module Value = struct
     | (row, Some col) -> (String.concat sql_val_sep_str row)^sql_row_sep_str^(String.concat sql_val_sep_str col)
 
   let sql_of_string s = 
+    let string_to_list s = String.split_on_char sql_val_sep s |> List.map String.trim in
     match String.split_on_char sql_row_sep s with
-    | row::[] -> String.split_on_char sql_val_sep row , None
-    | row::col::[] -> String.split_on_char sql_val_sep row , Some (String.split_on_char sql_val_sep col)
+    | row::[] -> string_to_list row , None
+    | row::col::[] -> string_to_list row , Some (String.split_on_char sql_val_sep col)
     | _ -> raise @@ YException (`UnsupportedTranscoding (`Msg ("String to SQL of  "^s)))
 
   let to_raw_encoding = function
