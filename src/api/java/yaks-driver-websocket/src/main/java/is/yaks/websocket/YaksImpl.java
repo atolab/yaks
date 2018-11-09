@@ -60,7 +60,9 @@ public class YaksImpl implements Yaks {
         switch (encoding) {
         case JSON:
         default:
-            ClientResponse response = webResource.path("/yaks/access").queryParam("path", scopePath.toString())
+         
+        	
+        	ClientResponse response = webResource.path("/yaks/access").queryParam("path", scopePath.toString())
                     .queryParam("cacheSize", cacheSize + "").accept(MediaType.APPLICATION_JSON_TYPE)
                     .post(ClientResponse.class);
 
