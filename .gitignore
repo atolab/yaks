@@ -39,3 +39,5 @@ target
 
 # pyhton cache file
 __pycache__/
+
+.vscode
