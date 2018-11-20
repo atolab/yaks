@@ -1,6 +1,0 @@
-(executables
- (names simple)
-  (flags         (-thread))
-  (libraries apero-core apero-net yaks-core yaks-api logs logs.fmt logs.cli fmt fmt.cli fmt.tty cmdliner)
-(preprocess
-    (pps ppx_deriving.show ppx_deriving.ord lwt_ppx ppx_cstruct)))

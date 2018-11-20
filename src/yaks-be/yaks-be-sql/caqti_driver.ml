@@ -1,3 +1,6 @@
+open Apero
+open Yaks_core
+
 type database_type = | POSTGRESQL | MARIADB | SQLITE3
 
 type connection = {
@@ -10,7 +13,7 @@ let fail_on_error res = match%lwt res with
   | Ok r -> Lwt.return r
   | Error e -> 
     let%lwt _ = Logs_lwt.err (fun m -> m "[SQL]: %s" (Caqti_error.show e)) in
-    Lwt.fail @@ Yaks_types.YException (`StoreError (`Msg (Caqti_error.show e)))
+    Lwt.fail @@ YException (`StoreError (`Msg (Caqti_error.show e)))
 
 let exec_query conx query =
   let exec_query' (module C : Caqti_lwt.CONNECTION) =
@@ -135,9 +138,8 @@ let default_val_size = 1024*1024
 let kv_table_schema = "k"::"v"::"e"::[], Dyntype.(add string (add string string))
 
 let create_kv_table conx table_name props =
-  let open Yaks_property in
   let open Apero.Option.Infix in
-  let key_size = get_property Be_sql_property.Key.key_size props >>= int_of_string_opt >?= default_key_size in
+  let key_size = Properties.get Be_sql_property.Key.key_size props >>= int_of_string_opt >?= default_key_size in
   let query = "CREATE TABLE "^table_name^" (k VARCHAR("^(string_of_int key_size)^") NOT NULL PRIMARY KEY, v TEXT, e VARCHAR(10))" in
   let open Apero.LwtM.InfixM in
   exec_query conx query >> Lwt.return kv_table_schema

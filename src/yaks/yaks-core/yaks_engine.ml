@@ -1,5 +1,6 @@
+open Apero
+open Yaks_common_errors
 open Yaks_types
-open Yaks_property
 open Yaks_access
 open Yaks_storage
 open Yaks_be 
@@ -24,9 +25,9 @@ module SEngine = struct
     val dispose_storage : t -> Storage.Id.t -> unit Lwt.t
 
     val get : t -> Access.Id.t -> Selector.t -> (Path.t * Value.t) list  Lwt.t
-    val put : t -> Access.Id.t -> Selector.t -> Value.t -> unit Lwt.t
-    val put_delta : t -> Access.Id.t -> Selector.t -> Value.t -> unit Lwt.t
-    val remove : t -> Access.Id.t -> Selector.t -> unit Lwt.t
+    val put : t -> Access.Id.t -> Path.t -> Value.t -> unit Lwt.t
+    val put_delta : t -> Access.Id.t -> Path.t -> Value.t -> unit Lwt.t
+    val remove : t -> Access.Id.t -> Path.t -> unit Lwt.t
 
     val create_subscriber : t -> Access.Id.t -> Selector.t -> bool -> subscription_pusher -> SubscriberId.t Lwt.t  
     val remove_subscriber : t -> Access.Id.t -> SubscriberId.t -> unit Lwt.t  
@@ -139,7 +140,7 @@ module SEngine = struct
       List.find_opt (fun be ->
           let module BE = (val be: Backend) in
           let _ = Logs_lwt.debug (fun m -> m "[YE]:    try Backend %s" BE.to_string) in
-          Yaks_property.not_conflicting properties BE.properties) self.backends
+          Properties.not_conflicting properties BE.properties) self.backends
 
     let create_storage engine ?alias path properties =
       MVar.guarded engine
@@ -148,12 +149,12 @@ module SEngine = struct
         match find_compatible_backend self properties with
         | Some be ->
           let module BE = (val be : Backend) in
-          let%lwt _ = Logs_lwt.debug (fun m -> m "[YE]: create_storage %s {%s} using Backend %s" (Path.to_string path) (string_of_properties properties) (BE.to_string)) in
+          let%lwt _ = Logs_lwt.debug (fun m -> m "[YE]: create_storage %s {%s} using Backend %s" (Path.to_string path) (Properties.to_string properties) (BE.to_string)) in
           let%lwt store = BE.create_storage ?alias path properties in
           MVar.return (store) {self with stores = (StorageMap.add (Storage.id store) store self.stores)}
         | None ->
-          let%lwt _ = Logs_lwt.err (fun m -> m "[YE]: create_storage %s {%s} failed: no compatible backend" (Path.to_string path) (string_of_properties properties)) in
-          Lwt.fail @@ YException (`NoCompatibleBackend (`Msg (string_of_properties properties)))
+          let%lwt _ = Logs_lwt.err (fun m -> m "[YE]: create_storage %s {%s} failed: no compatible backend" (Path.to_string path) (Properties.to_string properties)) in
+          Lwt.fail @@ YException (`NoCompatibleBackend (`Msg (Properties.to_string properties)))
       else
         Lwt.fail @@ YException (`ConflictingStorage (`Msg (Path.to_string path)))
 
@@ -173,18 +174,33 @@ module SEngine = struct
     (*****************************)
     (*   Key/Value operations    *)
     (*****************************)
-    let check_access (self:state) access_id selector =
+    let check_access_for_path (self:state) access_id path =
       match AccessMap.find_opt access_id self.accs with
       | Some access ->
-        if Access.is_covering access selector then
+        if Access.is_covering_path access path then
           Lwt.return access
         else 
-          Lwt.fail @@ YException (`Forbidden (`Msg  (Printf.sprintf "%s cannot access %s" (Access.to_string access) (Selector.to_string selector))))
+          Lwt.fail @@ YException (`Forbidden (`Msg  (Printf.sprintf "%s cannot access Path %s" (Access.to_string access) (Path.to_string path))))
       | None -> Lwt.fail @@ YException (`UnknownAccess (`Msg (Access.Id.to_string access_id)))
 
-    let get_matching_stores (self:state) (selector: Selector.t) =
+    let check_access_for_selector (self:state) access_id selector =
+      match AccessMap.find_opt access_id self.accs with
+      | Some access ->
+        if Access.is_covering_selector access selector then
+          Lwt.return access
+        else 
+          Lwt.fail @@ YException (`Forbidden (`Msg  (Printf.sprintf "%s cannot access Selector %s" (Access.to_string access) (Selector.to_string selector))))
+      | None -> Lwt.fail @@ YException (`UnknownAccess (`Msg (Access.Id.to_string access_id)))
+
+    let get_stores_for_path (self:state) (path: Path.t) =
       StorageMap.filter
-        (fun _ store -> Storage.is_covering store selector)
+        (fun _ store -> Storage.is_covering_path store path)
+        self.stores
+      |> StorageMap.bindings
+
+    let get_stores_for_selector (self:state) (selector: Selector.t) =
+      StorageMap.filter
+        (fun _ store -> Storage.is_covering_selector store selector)
         self.stores
       |> StorageMap.bindings
 
@@ -192,8 +208,8 @@ module SEngine = struct
       let%lwt _ = Logs_lwt.debug (fun m -> m "[YE]: get %s" (Selector.to_string selector)) in
       MVar.read engine 
       >>= fun self ->
-      let%lwt _ = check_access self access_id selector in
-      get_matching_stores self selector
+      let%lwt _ = check_access_for_selector self access_id selector in
+      get_stores_for_selector self selector
       |> List.map (fun (_,store) -> Storage.get store selector)
       |> Apero.LwtM.flatten
       >|= List.concat
@@ -207,39 +223,36 @@ module SEngine = struct
           if Selector.is_matching_path path sub.selector then Lwt.ignore_result (sub.pusher sid ~cleanup:(remove_subscriber_no_acc engine) [(path, value)]) 
           else ()) subs
           
-    let put (engine: t) access_id (selector:Selector.t) (value:Value.t) =
+    let put (engine: t) access_id (path:Path.t) (value:Value.t) =
       let%lwt _ = Logs_lwt.debug (fun m -> m "[YE]: put") in
       MVar.read engine 
       >>= fun self ->      
-      let%lwt _ = check_access self access_id selector in
+      let%lwt _ = check_access_for_path self access_id path in
       (* TODO: Potentially here we need to compare two selectors... That measn 
       that we need to agree when the selectors are equivalent. For the time being
       when there is a put of a selector I do notify based on matching on the Path that
       prefixes the selector. This is far from being pefect, but at least a starting point *)
-      let _ = match Selector.as_unique_path selector with 
-      | Some p -> Lwt.return @@ notify_subscriber engine self.subs p value 
-      | _ -> Logs_lwt.warn (fun m -> m "Unable to extract path from seletor to notify subscribers") 
-      in
-      get_matching_stores self selector
-      |> List.map (fun (_,store) -> Storage.put store selector value)
+      let _ = Lwt.return @@ notify_subscriber engine self.subs path value in
+      get_stores_for_path self path
+      |> List.map (fun (_,store) -> Storage.put store path value)
       |> Lwt.join
 
-    let put_delta engine access_id selector value = 
+    let put_delta engine access_id path value = 
       let%lwt _ = Logs_lwt.debug (fun m -> m "[YE]: put_delta") in
       MVar.read engine 
       >>= fun self ->
-      let%lwt _ = check_access self access_id selector in
-      get_matching_stores self selector
-      |> List.map (fun (_,store) -> Storage.put_delta store selector value)
+      let%lwt _ = check_access_for_path self access_id path in
+      get_stores_for_path self path
+      |> List.map (fun (_,store) -> Storage.put_delta store path value)
       |> Lwt.join
 
-    let remove engine access_id selector = 
+    let remove engine access_id path = 
       let%lwt _ = Logs_lwt.debug (fun m -> m "[YE]: remove") in
       MVar.read engine 
       >>= fun self ->
-      let%lwt _ = check_access self access_id selector in
-      get_matching_stores self selector
-      |> List.map (fun (_,store) -> Storage.remove store selector) 
+      let%lwt _ = check_access_for_path self access_id path in
+      get_stores_for_path self path
+      |> List.map (fun (_,store) -> Storage.remove store path) 
       |> Lwt.join
 
   end

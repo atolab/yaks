@@ -13,7 +13,7 @@ module Processor : sig
     val process_create : YEngine.t -> message -> message Lwt.t
     val process_delete_access : YEngine.t -> message -> message Lwt.t
     val process_delete_storage : YEngine.t -> message -> message Lwt.t
-    val process_delete_tuple : YEngine.t -> message -> Yaks_types.Selector.t -> message Lwt.t
+    val process_delete_tuple : YEngine.t -> message -> Yaks_types.Path.t -> message Lwt.t
     val process_delete : YEngine.t -> message -> message Lwt.t
     val process_put : YEngine.t -> message -> message Lwt.t
     val process_get : YEngine.t -> message -> message Lwt.t

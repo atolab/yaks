@@ -1,6 +1,7 @@
+open Apero
+open Apero.LwtM.InfixM
 open Yaks_core
 open Cmdliner
-open Apero.LwtM.InfixM
 
 let listen_address = Unix.inet_addr_any
 let backlog = 10
@@ -26,17 +27,17 @@ let setup_log style_renderer level =
 module YEngine = Yaks_core.SEngine.Make (Apero.MVar_lwt)
 
 let add_mem_be engine =
-  YEngine.add_backend engine (Yaks_be_mm.MainMemoryBEF.make empty_properties)
+  YEngine.add_backend engine (Yaks_be_mm.MainMemoryBEF.make Properties.empty)
 
 let add_sql_be engine sql_url =
   if String.length sql_url > 0 then
-    let sql_props = Property.Map.singleton Be_sql_property.Key.url sql_url in
+    let sql_props = Properties.singleton Be_sql_property.Key.url sql_url in
     YEngine.add_backend engine (Yaks_be_sql.SQLBEF.make sql_props)
   else Lwt.return_unit
 
 
 let add_default_storage engine without_storage =
-  let props = Property.Map.singleton Property.Backend.Key.kind Property.Backend.Value.memory in
+  let props = Properties.singleton Property.Backend.Key.kind Property.Backend.Value.memory in
   if not without_storage then 
     (* Some (YEngine.create_storage engine (Path.of_string "//") props) *)
     YEngine.create_storage engine (Path.of_string "//") props >|= Apero.Option.return

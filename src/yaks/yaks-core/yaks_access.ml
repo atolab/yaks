@@ -22,7 +22,8 @@ module Access = struct
 
   let to_string a =a.as_string
 
-  let is_covering a sel = Selector.is_prefixed_by_path a.path sel
+  let is_covering_path a path = Path.is_prefix ~affix:a.path path
+  let is_covering_selector a sel = Selector.is_prefixed_by_path a.path sel
 
   let register_subscriber a sid = {a with subs = sid::a.subs}
   let unregister_subscriber a sid  = { a with subs = List.filter (fun id -> sid != id) a.subs}
@@ -30,4 +31,3 @@ module Access = struct
 
 
 end  [@@deriving show]
-

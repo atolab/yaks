@@ -1,5 +1,5 @@
+open Apero
 open Yaks_core
-open Yaks_types
 open Caqti_driver
 open Be_sql_property
 
@@ -15,7 +15,7 @@ module SQLBE = struct
 
     let properties = C.properties
 
-    let to_string = "SQLBE#"^(Apero.Uuid.to_string C.id)^"{"^(string_of_properties properties)^"}"
+    let to_string = "SQLBE#"^(Apero.Uuid.to_string C.id)^"{"^(Properties.to_string properties)^"}"
 
     type storage_info =
       {
@@ -35,33 +35,33 @@ module SQLBE = struct
                       (Selector.to_string selector) (storage_info.table_name)) in
         let open Lwt.Infix in
         let (col_names, typ) = storage_info.schema in
-        Caqti_driver.get C.conx storage_info.table_name typ ?condition:(Selector.query selector) ()
+        Caqti_driver.get C.conx storage_info.table_name typ ?condition:(Selector.get_query selector) ()
         >|= List.map (fun row -> storage_info.path, Value.SqlValue (row, Some col_names)) 
       else
         let%lwt _ = Logs_lwt.warn (fun m -> m "[SQL]: Can't get Selector %s in Storage with path %s - the exact Storage path is required"
                       (Selector.to_string selector) (Path.to_string storage_info.path))
         in Lwt.return []
 
-    let put_sql_table storage_info (selector:Selector.t) (value:Value.t) =
-      if Selector.is_matching_path storage_info.path selector then
+    let put_sql_table storage_info (path:Path.t) (value:Value.t) =
+      if Path.is_prefix ~affix:storage_info.path path then
         let%lwt _ = Logs_lwt.debug (fun m -> m "[SQL]: put(%s) into legacy table %s"
-                      (Selector.to_string selector) (storage_info.table_name)) in
+                      (Path.to_string path) (storage_info.table_name)) in
         let open Value in 
         match transcode value Sql_Encoding with 
         | Ok SqlValue (row, _) -> Caqti_driver.put C.conx storage_info.table_name storage_info.schema row ()
         | Ok _ -> Lwt.fail @@ YException (`UnsupportedTranscoding (`Msg "Transcoding to SQL didn't return an SqlValue"))
         | Error e -> Lwt.fail @@ YException e
       else
-        let%lwt _ = Logs_lwt.warn (fun m -> m "[SQL]: Can't put Selector %s in Storage with path %s - the exact Storage path is required"
-                                      (Selector.to_string selector) (Path.to_string storage_info.path))
+        let%lwt _ = Logs_lwt.warn (fun m -> m "[SQL]: Can't put Path %s in Storage with path %s - the exact Storage path is required"
+                                      (Path.to_string path) (Path.to_string storage_info.path))
         in Lwt.return_unit
 
-    let put_delta_sql_table storage_info selector delta =
+    let put_delta_sql_table storage_info path delta =
       let open Apero.LwtM.InfixM in
-      if Selector.is_matching_path storage_info.path selector then
+      if Path.is_prefix ~affix:storage_info.path path then
         let%lwt _ = Logs_lwt.debug (fun m -> m "[SQL]: put_delta(%s) into legacy table %s"
-                      (Selector.to_string selector) (storage_info.table_name)) in
-        get_sql_table storage_info selector
+                      (Path.to_string path) (storage_info.table_name)) in
+        get_sql_table storage_info (Selector.of_path path)
         >>= Lwt_list.iter_p (fun (_,v) -> 
             match Value.update v delta with
             | Ok SqlValue (row, _) ->
@@ -71,22 +71,33 @@ module SQLBE = struct
             | Error e -> Logs_lwt.warn (
               fun m -> m "[SQL]: put_delta on value %s failed: %s" (Value.to_string v) (show_yerror e)))
       else
-        let%lwt _ = Logs_lwt.warn (fun m -> m "[SQL]: Can't put_delta Selector %s in Storage with path %s - the exact Storage path is required"
-                                      (Selector.to_string selector) (Path.to_string storage_info.path))
+        let%lwt _ = Logs_lwt.warn (fun m -> m "[SQL]: Can't put_delta Path %s in Storage with path %s - the exact Storage path is required"
+                                      (Path.to_string path) (Path.to_string storage_info.path))
         in Lwt.return_unit
 
-    let remove_sql_table storage_info selector = 
-      if Selector.is_matching_path storage_info.path selector then
+    let remove_sql_table storage_info path = 
+      if Path.is_prefix ~affix:storage_info.path path then
+        (* TODO:
+           Remove operation used to be on Selectors with a query (see commented code below).
+           But now that a Path is given as argument, there is no longer a query part, and thus
+           we can't decide which ro to remove in the SQL table.
+           What we need is really to expose the SQL keys of the table in the Yaks path (similarly to KV tables below) 
+         *)
+        (*
         let%lwt _ = Logs_lwt.debug (fun m -> m "[SQL]: remove(%s) from legacy table %s"
-                      (Selector.to_string selector) (storage_info.table_name)) in
-        match Selector.query selector with
+                      (Path.to_string path) (storage_info.table_name)) in
+        match Path.get_query path with
         | Some q -> Caqti_driver.remove C.conx storage_info.table_name q ()
         | None -> 
-          let _ = Logs_lwt.debug (fun m -> m "[SQL]: Can't remove selector %s without a query" (Selector.to_string selector)) in
+          let _ = Logs_lwt.debug (fun m -> m "[SQL]: Can't remove path %s without a query" (Path.to_string path)) in
           Lwt.return_unit
+        *)
+        let%lwt _ = Logs_lwt.err (fun m -> m "[SQL]: Can't remove Path %s in Storage with path %s - remove operation for legacy SQL tables is not implemented"
+                                      (Path.to_string path) (Path.to_string storage_info.path))
+        in Lwt.return_unit
       else
-        let%lwt _ = Logs_lwt.warn (fun m -> m "[SQL]: Can't remove Selector %s in Storage with path %s - the exact Storage path is required"
-                                      (Selector.to_string selector) (Path.to_string storage_info.path))
+        let%lwt _ = Logs_lwt.warn (fun m -> m "[SQL]: Can't remove Path %s in Storage with path %s - the exact Storage path is required"
+                                      (Path.to_string path) (Path.to_string storage_info.path))
         in Lwt.return_unit
 
 
@@ -97,10 +108,10 @@ module SQLBE = struct
     let to_sql_string s = "'"^s^"'"
 
     let get_kv_condition sub_selector = 
-      let sql_selector = Selector.path sub_selector
+      let sql_selector = Selector.get_path sub_selector
         |> Apero.Astring.replace '*' '%'
       in
-        match Selector.query sub_selector with
+        match Selector.get_query sub_selector with
         | Some q -> "k like '"^sql_selector^"' AND "^q
         | None   -> "k like '"^sql_selector^"'"
 
@@ -139,27 +150,19 @@ module SQLBE = struct
         >|= List.filter Apero.Option.is_some
         >|= List.map (fun o -> Apero.Option.get o)
 
-    let put_kv_table storage_info (selector:Selector.t) (value:Value.t) =
+    let put_kv_table storage_info (path:Path.t) (value:Value.t) =
       let%lwt _ = Logs_lwt.debug (fun m -> m "[SQL]: put(%s) into kv table %s"
-                    (Selector.to_string selector) (storage_info.table_name)) in
-      let open Apero.LwtM.InfixM in
-      let sub_sel = Selector.remove_prefix storage_info.path selector in
+                    (Path.to_string path) (storage_info.table_name)) in
+      let sub_path = Path.remove_prefix ~prefix:storage_info.path path in
       let v = Value.to_string value |> to_sql_string in
       let enc = Value.encoding_to_string @@ Value.encoding value |> to_sql_string in
-      if Selector.is_unique_path sub_sel then
-        Caqti_driver.put C.conx storage_info.table_name storage_info.schema ((Selector.to_string sub_sel |> to_sql_string)::v::enc::[]) ()
-      else
-        let value_enc = v::enc::[] in
-        get_matching_keys storage_info sub_sel
-        >|= List.map (fun k -> 
-          Caqti_driver.put C.conx storage_info.table_name storage_info.schema ((to_sql_string k)::value_enc) ())
-        >>= Lwt.join
+      Caqti_driver.put C.conx storage_info.table_name storage_info.schema ((Path.to_string sub_path |> to_sql_string)::v::enc::[]) ()
 
-    let put_delta_kv_table storage_info selector delta =
+    let put_delta_kv_table storage_info path delta =
       let%lwt _ = Logs_lwt.debug (fun m -> m "[SQL]: put_delta(%s) into kv table %s"
-                    (Selector.to_string selector) (storage_info.table_name)) in
-      let open Apero.LwtM.InfixM in                                           (* @TODO  DEAL WITH SELECTOR CASE  *)
-      get_kv_table storage_info selector
+                    (Path.to_string path) (storage_info.table_name)) in
+      let open Apero.LwtM.InfixM in
+      get_kv_table storage_info (Selector.of_path path)
       >>= Lwt_list.iter_p (fun (p,v) -> 
           match Value.update v delta with
           | Ok value ->
@@ -170,18 +173,11 @@ module SQLBE = struct
           | Error e -> Logs_lwt.warn (
             fun m -> m "[SQL]: put_delta on value %s failed: %s" (Value.to_string v) (show_yerror e)))
 
-    let remove_kv_table storage_info selector = 
+    let remove_kv_table storage_info path = 
       let%lwt _ = Logs_lwt.debug (fun m -> m "[SQL]: remove(%s) from kv table %s"
-                    (Selector.to_string selector) (storage_info.table_name)) in
-      let open Apero.LwtM.InfixM in
-      let sub_sel = Selector.remove_prefix storage_info.path selector in
-      if Selector.is_unique_path sub_sel then
-        Caqti_driver.remove C.conx storage_info.table_name ("k='"^(Selector.to_string sub_sel)^"'") ()
-      else
-        get_matching_keys storage_info sub_sel
-        >|= List.map (fun k -> 
-          Caqti_driver.remove C.conx storage_info.table_name ("k='"^k^"'") ())
-        >>= Lwt.join
+                    (Path.to_string path) (storage_info.table_name)) in
+      let sub_path = Path.remove_prefix ~prefix:storage_info.path path in
+      Caqti_driver.remove C.conx storage_info.table_name ("k='"^(Path.to_string sub_path)^"'") ()
 
 
 
@@ -206,8 +202,8 @@ module SQLBE = struct
 
     let create_storage ?alias path props =
       let open Apero.LwtM.InfixM in
-      let props = Property.Map.union (fun _ _ v2 -> Some v2) C.properties props in
-      let table_name = match get_property Key.table props with
+      let props = Properties.union (fun _ _ v2 -> Some v2) C.properties props in
+      let table_name = match Properties.get Key.table props with
         | Some name -> name
         | None -> make_kv_table_name ()
       in
@@ -243,7 +239,7 @@ module SQLBE = struct
 end 
 
 let make_sql_be props =
-  let url = match get_property Be_sql_property.Key.url props with
+  let url = match Properties.get Be_sql_property.Key.url props with
     | Some url -> url
     | None -> raise @@ YException (`InvalidBackendProperty (`Msg ("Property "^Be_sql_property.Key.url^" is not specified")))
   in
@@ -251,7 +247,7 @@ let make_sql_be props =
   let module M = SQLBE.Make (
     struct 
       let id = Apero.Uuid.make ()
-      let properties = add_property Property.Backend.Key.kind Property.Backend.Value.dbms props
+      let properties = Properties.add Property.Backend.Key.kind Property.Backend.Value.dbms props
       let conx = connection
     end) (Apero.MVar_lwt)
   in (module M : Backend)

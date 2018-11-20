@@ -1,3 +1,4 @@
+open Apero
 open Yaks_core
 open Yaks_types
 
@@ -16,7 +17,7 @@ module MainMemoryBE = struct
 
     let properties = C.properties
 
-    let to_string = "MainMemoryBE#"^(Apero.Uuid.to_string C.id)^"{"^(string_of_properties properties)^"}"
+    let to_string = "MainMemoryBE#"^(Apero.Uuid.to_string C.id)^"{"^(Properties.to_string properties)^"}"
 
     let get selector =       
       match Selector.as_unique_path selector with 
@@ -35,52 +36,28 @@ module MainMemoryBE = struct
 
 
 
-    let put (selector:Selector.t) (value:Value.t) =        
+    let put (path:Path.t) (value:Value.t) =        
       (* Stores should potentailly convert the encoding for the value. 
              For the main memory, we keep the value in its original format 
              and just convert in the front-end when required *)        
-      match Selector.as_unique_path selector with 
-      | Some path -> 
-        MVar.guarded mvar_self
-          (fun self -> Lwt.return (Lwt.return_unit, SMap.add path value self))        
-      | None -> 
-        MVar.guarded mvar_self
-          (fun self -> 
-             let matches = SMap.filter (fun path _ -> Selector.is_matching_path path selector) self in 
-             let self' = SMap.union (fun _ _ _ -> Some value) matches self in
-             Lwt.return (Lwt.return_unit, self'))
+      MVar.guarded mvar_self
+        (fun self -> Lwt.return (Lwt.return_unit, SMap.add path value self))        
 
     let try_update v d = match Value.update v d with
       | Ok r -> r
       | Error _ -> v 
 
-    let put_delta selector delta =       
-      match Selector.as_unique_path selector with 
-      | Some path -> 
-        MVar.guarded mvar_self
-        @@ fun self -> 
-        (match SMap.find_opt path self with 
-         | Some v -> Lwt.return (Lwt.return_unit, SMap.add path (try_update v delta) self)        
-         | None -> Lwt.return (Lwt.return_unit, SMap.add path delta self))        
-      | None -> 
-        MVar.guarded mvar_self
-        @@ fun self -> 
-        let matches = SMap.filter (fun path _ -> Selector.is_matching_path path selector) self in
-        let self' = SMap.union (fun _ v _ -> Some (try_update v delta)) matches self in
-        Lwt.return (Lwt.return_unit, self')
+    let put_delta path delta =       
+      MVar.guarded mvar_self
+      @@ fun self -> 
+      (match SMap.find_opt path self with 
+        | Some v -> Lwt.return (Lwt.return_unit, SMap.add path (try_update v delta) self)        
+        | None -> Lwt.return (Lwt.return_unit, SMap.add path delta self))        
 
 
-    let remove selector = 
-      match Selector.as_unique_path selector with 
-      | Some path -> 
-        MVar.guarded mvar_self 
-        @@ fun self -> Lwt.return (Lwt.return_unit, SMap.remove path self)
-      | None -> 
-        MVar.guarded mvar_self 
-        @@ fun self -> 
-        let matches = SMap.filter (fun path _ -> Selector.is_matching_path path selector) self in
-        let self' = SMap.union (fun _ _ _ -> None) matches self in
-        Lwt.return (Lwt.return_unit, self')              
+    let remove path = 
+      MVar.guarded mvar_self 
+      @@ fun self -> Lwt.return (Lwt.return_unit, SMap.remove path self)
 
     let dispose () = 
       MVar.guarded mvar_self
@@ -97,7 +74,7 @@ let make_memory_be props =
   let module M = MainMemoryBE.Make (
     struct 
       let id = Apero.Uuid.make ()
-      let properties = add_property Property.Backend.Key.kind Property.Backend.Value.memory props
+      let properties = Properties.add Property.Backend.Key.kind Property.Backend.Value.memory props
     end) (Apero.MVar_lwt) in (module M : Backend)
 
 module MainMemoryBEF = struct 

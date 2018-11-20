@@ -1,7 +1,0 @@
-(library
- (name            yaks_api)
-  (public_name     yaks-api)
-  (wrapped     false)
-  (libraries       apero-core yaks-core apero-net yaks-fe-sock cstruct lwt lwt.unix logs logs.lwt ppx_deriving.show ppx_deriving.ord)
-  (preprocess
-    (pps ppx_deriving.show ppx_deriving.ord lwt_ppx ppx_cstruct)))

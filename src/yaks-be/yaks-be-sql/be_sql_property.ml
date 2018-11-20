@@ -1,3 +1,5 @@
+open Apero
+
 module Key = struct 
   let key = "is.yaks.backend.sql"    
   let url = "is.yaks.backend.sql.url"
@@ -9,7 +11,7 @@ end
 type on_dispose = Drop | Truncate | DoNothing
 
 let get_on_dispose props =
-  match Yaks_property.get_property Key.on_dispose props with
+  match Properties.get Key.on_dispose props with
   | Some text ->
     let t = String.uppercase_ascii text in
     if t = "DROP" then Drop

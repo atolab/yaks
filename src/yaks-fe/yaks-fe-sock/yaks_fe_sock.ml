@@ -34,7 +34,7 @@ module Make (YEngine : Yaks_engine.SEngine.S) = struct
     match decode_message buf with 
     | Ok (msg, _) -> Lwt.return msg
     | Error e -> 
-      let%lwt _ = Logs_lwt.err (fun m -> m "Falied in parsing message %s" (Apero.show_error e)) in
+      let%lwt _ = Logs_lwt.err (fun m -> m "Failed in parsing message %s" (Apero.show_error e)) in
       Lwt.fail @@ Exception e
 
   let writer buf sock msg = 
@@ -66,7 +66,7 @@ module Make (YEngine : Yaks_engine.SEngine.S) = struct
       let buf = IOBuf.create Yaks_fe_sock_types.max_msg_size in 
       let push_sub buf  sid ~cleanup pvs = 
         let body = YNotification (Yaks_core.SubscriberId.to_string sid, pvs)  in                 
-        let h = make_header NOTIFY [] Vle.zero Yaks_core.Property.Map.empty in         
+        let h = make_header NOTIFY [] Vle.zero Properties.empty in         
         let msg = make_message h body in         
         Lwt.catch (fun () -> writer buf sock msg >|= fun _ -> ()) (fun _ -> cleanup sid)
       in  P.process_sub engine msg (push_sub buf)

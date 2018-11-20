@@ -1,5 +1,5 @@
+open Apero
 open Yaks_types
-open Yaks_property
 
 module Storage = struct
 
@@ -11,9 +11,9 @@ module Storage = struct
     ; props : properties
     ; dispose : unit -> unit Lwt.t
     ; get : Selector.t -> (Path.t * Value.t) list Lwt.t
-    ; put : Selector.t -> Value.t -> unit Lwt.t 
-    ; put_delta : Selector.t -> Value.t -> unit Lwt.t 
-    ; remove : Selector.t -> unit Lwt.t
+    ; put : Path.t -> Value.t -> unit Lwt.t 
+    ; put_delta : Path.t -> Value.t -> unit Lwt.t 
+    ; remove : Path.t -> unit Lwt.t
     ; as_string : string
     }
 
@@ -31,7 +31,8 @@ module Storage = struct
 
   let to_string s = s.as_string
 
-  let is_covering s sel = Selector.is_prefixed_by_path s.path sel
+  let is_covering_path s path = Path.is_prefix ~affix:s.path path
+  let is_covering_selector s sel = Selector.is_prefixed_by_path s.path sel
 
   let is_conflicting s path = Path.is_prefix ~affix:path s.path || Path.is_prefix ~affix:s.path path
 

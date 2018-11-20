@@ -1,7 +1,5 @@
 open Apero
 open Yaks_core
-open Yaks_access
-open Yaks_storage
 open Cohttp
 open Cohttp_lwt
 open LwtM.InfixM
@@ -50,7 +48,7 @@ module Make (YEngine : Yaks_engine.SEngine.S) = struct
 
 
   let properties_of_query query =  
-    List.map (fun (k, ps) -> k, String.concat  ","  ps) query |> Yaks_property.properties_of_list
+    List.map (fun (k, ps) -> k, String.concat  ","  ps) query |> Properties.of_list
 
 
   let set_cookie key value =
@@ -243,28 +241,28 @@ let unsubscribe fe access_id sub_id =
     Server.respond_string ~status:`OK ~body:(json_string_of_key_values kvs) ()    
 
 
-  let put fe (access_id:Access.Id.t) (selector: Selector.t) (value: Value.t) =
-    let%lwt _ = Logs_lwt.debug (fun m -> m "[FER]   put %s %s\n%s" (Access.Id.to_string access_id) (Selector.to_string selector) (Value.to_string value)) in
+  let put fe (access_id:Access.Id.t) (path: Path.t) (value: Value.t) =
+    let%lwt _ = Logs_lwt.debug (fun m -> m "[FER]   put %s %s\n%s" (Access.Id.to_string access_id) (Path.to_string path) (Value.to_string value)) in
     Lwt.try_bind 
       (fun () -> 
          let%lwt _ = Logs_lwt.debug (fun m -> m "[FER]   put calling YEngine.put") in
-         YEngine.put fe.engine access_id selector value) 
+         YEngine.put fe.engine access_id path value) 
       (fun () -> Server.respond_string ~status:`No_content ~body:"" ())
-      (fun _ -> no_matching_key (Selector.to_string selector))
+      (fun _ -> no_matching_key (Path.to_string path))
 
 
-  let put_delta  fe (access_id:Access.Id.t) selector delta =  
-    let%lwt _ = Logs_lwt.debug (fun m -> m "[FER]   put_delta %s %s\n%s" (Access.Id.to_string access_id) (Selector.to_string selector) (Value.to_string delta)) in  
+  let put_delta  fe (access_id:Access.Id.t) path delta =  
+    let%lwt _ = Logs_lwt.debug (fun m -> m "[FER]   put_delta %s %s\n%s" (Access.Id.to_string access_id) (Path.to_string path) (Value.to_string delta)) in  
     Lwt.try_bind 
       (fun () -> 
          let%lwt _ = Logs_lwt.debug (fun m -> m "[FER]   put_delta calling YEngine.put_delta") in
-         YEngine.put_delta fe.engine access_id selector delta) 
+         YEngine.put_delta fe.engine access_id path delta) 
       (fun () -> Server.respond_string ~status:`No_content ~body:"" ())
-      (fun _ -> no_matching_key (Selector.to_string selector))
+      (fun _ -> no_matching_key (Path.to_string path))
 
-  let remove fe (access_id:Access.Id.t) (selector: Selector.t) =
-    let%lwt _ = Logs_lwt.debug (fun m -> m "[FER]   remove %s %s" (Access.Id.to_string access_id) (Selector.to_string selector)) in
-    YEngine.remove fe.engine access_id selector
+  let remove fe (access_id:Access.Id.t) (path: Path.t) =
+    let%lwt _ = Logs_lwt.debug (fun m -> m "[FER]   remove %s %s" (Access.Id.to_string access_id) (Path.to_string path)) in
+    YEngine.remove fe.engine access_id path
     >>= fun () -> 
     Server.respond_string ~status:`No_content ~body:"" ()    
 
@@ -335,7 +333,7 @@ let unsubscribe fe access_id sub_id =
         | Some(path) -> 
           (match Path.of_string_opt path with 
            | Some p -> 
-             let properties = query |> properties_of_query |> Property.Map.remove "path"  in      
+             let properties = query |> properties_of_query |> Properties.remove "path"  in      
              create_storage fe p properties
            | None -> invalid_path path)
       )
@@ -351,7 +349,7 @@ let unsubscribe fe access_id sub_id =
         match storage_path with
         | None -> missing_query (["path:string"])
         | Some(path) -> 
-          let properties = query |> properties_of_query |> Property.Map.remove "path"  in      
+          let properties = query |> properties_of_query |> Properties.remove "path"  in      
           (match Path.of_string_opt path with 
            | Some p ->
              create_storage fe ~alias:id p properties 
@@ -391,7 +389,7 @@ let unsubscribe fe access_id sub_id =
   conceptually it should be a selector. It would be good to know if that is the 
   case and make changes accordingly
  *)
-  let execute_data_operation fe meth (selector: Selector.t) headers body =
+  let execute_data_operation fe meth path headers body =
     let open Apero.Option.Infix in
     let access_id : Access.Id.t option = 
       (Cookie.Cookie_hdr.extract headers
@@ -402,16 +400,26 @@ let unsubscribe fe access_id sub_id =
     | (_, None) ->
       missing_cookie cookie_name_access_id
     | (`GET, Some(aid)) ->
-      get fe aid selector
+      (match Selector.of_string_opt path with
+      | Some selector -> get fe aid selector
+      | None -> invalid_path path)
     | (`PUT, Some(aid)) ->
-      let%lwt value = Cohttp_lwt.Body.to_string body in
-      put fe aid selector (Value.JSonValue value)     
-    | (`PATCH, Some(aid)) ->
-      let%lwt value = Cohttp_lwt.Body.to_string body in
-      put_delta fe aid selector (Value.JSonValue value)
+      (match Path.of_string_opt path with
+      | Some path ->
+        let%lwt value = Cohttp_lwt.Body.to_string body in
+        put fe aid path (Value.JSonValue value)
+      | None -> invalid_path path)
+    | ( `PATCH, Some(aid)) ->
+      (match Path.of_string_opt path with
+      | Some path ->
+        let%lwt value = Cohttp_lwt.Body.to_string body in
+        put_delta fe aid path (Value.JSonValue value)
+      | None -> invalid_path path)
     | (`DELETE, Some(aid)) ->
-      remove fe aid selector
-    | _ -> unsupported_operation meth (Selector.to_string selector)
+      (match Path.of_string_opt path with
+      | Some path -> remove fe aid path
+      | None -> invalid_path path)
+    | _ -> unsupported_operation meth path
 
 
   let execute_http_request fe req body =
@@ -434,9 +442,7 @@ let unsubscribe fe access_id sub_id =
         let normalized_path = path |> String.split_on_char '/' |> List.filter (fun s -> String.length s > 0) in
         execute_control_operation fe meth normalized_path query headers body
       else
-        (match Selector.of_string_opt path with 
-         | Some selector -> execute_data_operation fe meth selector headers body
-         | None -> invalid_path path)
+        execute_data_operation fe meth path headers body
     with
     | YException e as exn -> 
       Logs_lwt.err (fun m -> m "Exception %s raised:\n%s" (show_yerror e) (Printexc.get_backtrace ())) >>= fun _ -> raise exn

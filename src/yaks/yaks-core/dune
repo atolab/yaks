@@ -2,6 +2,6 @@
   (name            yaks_core)
   (public_name     yaks-core)
   (wrapped     false)
-  (libraries       uuidm str apero-core apero-net yojson lwt lwt.unix logs logs.lwt ppx_deriving.show ppx_deriving.ord re)
+  (libraries       uuidm str apero-core apero-net yaks-common lwt lwt.unix logs logs.lwt ppx_deriving.show ppx_deriving.ord re)
   (preprocess
     (pps ppx_deriving.show ppx_deriving.ord lwt_ppx)))

@@ -1,7 +1,7 @@
+open Apero
 open Yaks_types
 open Yaks_access
 open Yaks_storage
-open Yaks_property
 open Yaks_be
 
 
@@ -24,9 +24,9 @@ module SEngine : sig
     val dispose_storage : t -> Storage.Id.t -> unit Lwt.t
 
     val get : t -> Access.Id.t -> Selector.t -> (Path.t * Value.t) list  Lwt.t
-    val put : t -> Access.Id.t -> Selector.t -> Value.t -> unit Lwt.t
-    val put_delta : t -> Access.Id.t -> Selector.t -> Value.t -> unit Lwt.t
-    val remove : t -> Access.Id.t -> Selector.t -> unit Lwt.t
+    val put : t -> Access.Id.t -> Path.t -> Value.t -> unit Lwt.t
+    val put_delta : t -> Access.Id.t -> Path.t -> Value.t -> unit Lwt.t
+    val remove : t -> Access.Id.t -> Path.t -> unit Lwt.t
 
     val create_subscriber : t -> Access.Id.t -> Selector.t -> bool -> subscription_pusher -> SubscriberId.t Lwt.t  
     val remove_subscriber : t -> Access.Id.t -> SubscriberId.t -> unit Lwt.t  
