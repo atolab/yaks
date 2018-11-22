@@ -14,6 +14,10 @@ let http_port = Arg.(value & opt int 8000 & info ["h"; "http-port"] ~docv:"PORT"
                        ~doc:"HTTP port used by the REST front-end")
 let sock_port = Arg.(value & opt int 7887 & info ["s"; "sock-port"] ~docv:"PORT"
                        ~doc:"TCP port used by the Socket front-end")
+
+let wsock_port = Arg.(value & opt int 7888 & info ["x"; "wsock-port"] ~docv:"PORT"
+                       ~doc:"Port used by the WebSocket front-end")
+
 let sql_url = Arg.(value & opt string "" & info ["u"; "sql-url"] ~docv:"URL"
                        ~doc:"URL of the database used by the SQL backend")
 
@@ -57,7 +61,14 @@ let add_socket_fe engine sock_port =
   let sockfe = YSockFE.create socket_cfg engine in 
   YSockFE.start sockfe
 
-let run_yaksd without_storage http_port sock_port sql_url = 
+let add_websock_fe engine wsock_port = 
+  let module WSockFE = Yaks_fe_wsock.Make (YEngine) in 
+  let wsock_addr = "ws/0.0.0.0:"^(string_of_int wsock_port) in  
+  let wsock_cfg = WSockFE.Config.make (Apero.Option.get @@ Apero_net.WebSockLocator.of_string wsock_addr) in 
+  let wsfe = WSockFE.create wsock_cfg engine in
+  WSockFE.start wsfe
+
+let run_yaksd without_storage http_port sock_port wsock_port sql_url = 
   try%lwt
     let engine = YEngine.make () in
     let mem_be = add_mem_be engine in
@@ -65,7 +76,8 @@ let run_yaksd without_storage http_port sock_port sql_url =
     let def_store = add_default_storage engine without_storage >>= fun _ -> Lwt.return_unit in
     let rest_fe = add_rest_fe engine http_port in
     let sock_fe = add_socket_fe engine sock_port in
-    Lwt.join [mem_be; sql_be; def_store; rest_fe; sock_fe]
+    let wsock_fe = add_websock_fe engine wsock_port in 
+    Lwt.join [mem_be; sql_be; def_store; rest_fe; sock_fe; wsock_fe]
   with 
   | YException e  -> 
     Logs_lwt.err (fun m -> m "Exception %s raised:\n%s" (show_yerror e) (Printexc.get_backtrace ())) >> Lwt.return_unit
@@ -73,12 +85,12 @@ let run_yaksd without_storage http_port sock_port sql_url =
     Logs_lwt.err (fun m -> m "Exception %s raised:\n%s" (Printexc.to_string exn) (Printexc.get_backtrace ())) >> Lwt.return_unit
 
 
-let run without_storage http_port sock_port sql_url style_renderer level = 
+let run without_storage http_port sock_port wsock_port sql_url style_renderer level = 
   setup_log style_renderer level; 
-  Lwt_main.run @@ run_yaksd without_storage http_port sock_port sql_url
+  Lwt_main.run @@ run_yaksd without_storage http_port sock_port wsock_port sql_url
 
 
 let () =
   Printexc.record_backtrace true;
   let env = Arg.env_var "YAKSD_VERBOSITY" in
-  let _ = Term.(eval (const run $ without_storage $ http_port $ sock_port $ sql_url $ Fmt_cli.style_renderer () $ Logs_cli.level ~env (), Term.info "Yaks daemon")) in  ()
+  let _ = Term.(eval (const run $ without_storage $ http_port $ sock_port $ wsock_port $ sql_url $ Fmt_cli.style_renderer () $ Logs_cli.level ~env (), Term.info "Yaks daemon")) in  ()
