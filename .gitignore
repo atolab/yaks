@@ -12,6 +12,7 @@
 *.iml
 tmp
 *.pyc
+DEPENDENCIES
 
 # ocamlbuild working directory
 _build/

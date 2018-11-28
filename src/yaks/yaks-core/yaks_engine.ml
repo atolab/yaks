@@ -10,7 +10,8 @@ module SEngine = struct
 
   module type S = sig 
     type t 
-    type subscription_pusher =  Yaks_types.SubscriberId.t -> cleanup:(Yaks_types.SubscriberId.t -> unit Lwt.t) -> (Yaks_types.Path.t * Yaks_types.Value.t) list -> unit Lwt.t
+    type subscription_pusher =  Yaks_types.SubscriberId.t -> fallback:(Yaks_types.SubscriberId.t -> unit Lwt.t) -> (Yaks_types.Path.t * Yaks_types.Value.t) list -> unit Lwt.t
+    type eval_getter = Path.t -> Selector.t -> fallback:(Path.t -> Value.t Lwt.t) -> Value.t Lwt.t
 
     val make : unit -> t 
 
@@ -30,7 +31,9 @@ module SEngine = struct
     val remove : t -> Access.Id.t -> Path.t -> unit Lwt.t
 
     val create_subscriber : t -> Access.Id.t -> Selector.t -> bool -> subscription_pusher -> SubscriberId.t Lwt.t  
-    val remove_subscriber : t -> Access.Id.t -> SubscriberId.t -> unit Lwt.t  
+    val remove_subscriber : t -> Access.Id.t -> SubscriberId.t -> unit Lwt.t
+
+    val eval : t -> Access.Id.t -> Path.t -> eval_getter -> unit Lwt.t
   end
 
   module Make (MVar: Apero.MVar) = struct
@@ -38,19 +41,24 @@ module SEngine = struct
     module StorageMap  = Map.Make (Storage.Id)
     module AccessMap = Map.Make (Access.Id)
     module SubscriberMap = Map.Make (SubscriberId)
+    module EvalMap = Map.Make (Path)
 
-    type subscription_pusher =  Yaks_types.SubscriberId.t -> cleanup:(Yaks_types.SubscriberId.t -> unit Lwt.t) -> (Yaks_types.Path.t * Yaks_types.Value.t) list -> unit Lwt.t
+    type subscription_pusher = SubscriberId.t -> fallback:(SubscriberId.t -> unit Lwt.t) -> (Path.t * Value.t) list -> unit Lwt.t
     
     type subscription = 
       { selector : Selector.t 
       ; pusher : subscription_pusher
       ; is_push : bool }
 
+    type eval_getter = Path.t -> Selector.t -> fallback:(Path.t -> Value.t Lwt.t) -> Value.t Lwt.t
+
     type state = 
       { backends : (module Backend) list 
       ; stores : Storage.t StorageMap.t
       ; accs : Access.t AccessMap.t 
-      ; subs : subscription SubscriberMap.t} 
+      ; subs : subscription SubscriberMap.t
+      ; evals : eval_getter EvalMap.t
+      }
 
     type t = state MVar.t
 
@@ -67,30 +75,9 @@ module SEngine = struct
         { backends = []
         ; stores = StorageMap.empty
         ; accs = AccessMap.empty 
-        ; subs = SubscriberMap.empty }
+        ; subs = SubscriberMap.empty
+        ; evals = EvalMap.empty }
 
-    (** Subscribers management *)
-     let create_subscriber engine _ (* access  *) (selector:Selector.t) (is_push: bool) (pusher:subscription_pusher) =       
-      (* @TODO: Should check that we can really subscribe to this.... *)
-      let sid = SubscriberId.next_id () in 
-      let sub = {selector; pusher; is_push} in 
-      (MVar.guarded engine 
-      @@ fun self ->         
-        let subs' = SubscriberMap.add sid sub self.subs in 
-        MVar.return () {self with subs = subs'} )
-      >|= fun () -> sid
-
-    let remove_subscriber engine _ (* access*) sid = 
-      (MVar.guarded engine 
-      @@ fun self ->         
-        let subs' = SubscriberMap.remove sid self.subs in 
-        MVar.return () {self with subs = subs'} )
-
-    let remove_subscriber_no_acc engine sid = 
-      (MVar.guarded engine 
-      @@ fun self ->         
-        let subs' = SubscriberMap.remove sid self.subs in 
-        MVar.return () {self with subs = subs'} )
 
     (**************************)
     (*   Backends management  *)
@@ -171,6 +158,49 @@ module SEngine = struct
       let self' = {self with stores =  StorageMap.remove storage_id self.stores } in
       MVar.return () self'
 
+    (****************************)
+    (*  Subscribers management  *)
+    (****************************)
+     let create_subscriber engine _ (* access  *) (selector:Selector.t) (is_push: bool) (pusher:subscription_pusher) =       
+      (* @TODO: Should check that we can really subscribe to this.... *)
+      let sid = SubscriberId.next_id () in 
+      let sub = {selector; pusher; is_push} in 
+      (MVar.guarded engine 
+      @@ fun self ->         
+        let subs' = SubscriberMap.add sid sub self.subs in 
+        MVar.return () {self with subs = subs'} )
+      >|= fun () -> sid
+
+    let remove_subscriber engine _ (* access*) sid = 
+      (MVar.guarded engine 
+      @@ fun self ->         
+        let subs' = SubscriberMap.remove sid self.subs in 
+        MVar.return () {self with subs = subs'} )
+
+    let remove_subscriber_no_acc engine sid = 
+      (MVar.guarded engine 
+      @@ fun self ->         
+        let subs' = SubscriberMap.remove sid self.subs in 
+        MVar.return () {self with subs = subs'} )
+
+
+    (****************************)
+    (*     Eval management      *)
+    (****************************)
+    let eval engine _ (* access *) path eval_getter =
+      let%lwt _ = Logs_lwt.debug (fun m -> m "[YE]: eval %s" (Path.to_string path)) in
+      (MVar.guarded engine 
+      @@ fun self ->         
+        let evals' = EvalMap.add path eval_getter self.evals in 
+        MVar.return () {self with evals = evals'} )
+
+    let remove_eval engine path =
+      (MVar.guarded engine 
+      @@ fun self ->         
+        let evals' = EvalMap.remove path self.evals in 
+        MVar.return () {self with evals = evals'} )
+
+
     (*****************************)
     (*   Key/Value operations    *)
     (*****************************)
@@ -204,27 +234,45 @@ module SEngine = struct
         self.stores
       |> StorageMap.bindings
 
+    let get_on_evals engine (selector: Selector.t) =
+      let fallback path =
+        remove_eval engine path >>= fun _ ->
+        Lwt.return @@ Value.StringValue
+          (Printf.sprintf "Error calling get(%s) on eval(%s): Access was removed"
+          (Selector.to_string selector) (Path.to_string path))
+      in
+      let call_eval path (eval_getter:eval_getter) = eval_getter path selector ~fallback
+      in
+      MVar.read engine >>= fun self ->
+      let evals = EvalMap.filter (fun path _ -> Selector.is_matching_path path selector) self.evals in
+      EvalMap.mapi call_eval evals |> EvalMap.bindings |> List.map (fun (p,v) -> v >|= (fun v -> (p,v))) |> LwtM.flatten
+
     let get engine access_id selector =
-      let%lwt _ = Logs_lwt.debug (fun m -> m "[YE]: get %s" (Selector.to_string selector)) in
       MVar.read engine 
       >>= fun self ->
-      let%lwt _ = check_access_for_selector self access_id selector in
-      get_stores_for_selector self selector
-      |> List.map (fun (_,store) -> Storage.get store selector)
-      |> Apero.LwtM.flatten
-      >|= List.concat
-    (* TODO? If in the future we accept Storages with conflicting paths,
-       there might be duplicate keys from different Storages in this result.
-       Shall we remove duplicates?? *)
+      match Selector.get_query selector with
+      | Some q when Apero.Astring.get q 0 = '!' ->
+        let%lwt _ = Logs_lwt.debug (fun m -> m "[YE]: get %s from evals" (Selector.to_string selector)) in
+        get_on_evals engine selector
+      | _ ->
+        let%lwt _ = Logs_lwt.debug (fun m -> m "[YE]: get %s from storages" (Selector.to_string selector)) in
+        let%lwt _ = check_access_for_selector self access_id selector in
+        get_stores_for_selector self selector
+        |> List.map (fun (_,store) -> Storage.get store selector)
+        |> Apero.LwtM.flatten
+        >|= List.concat
+      (* TODO? If in the future we accept Storages with conflicting paths,
+        there might be duplicate keys from different Storages in this result.
+        Shall we remove duplicates?? *)
 
      let notify_subscriber engine subs path value = 
       SubscriberMap.iter 
         (fun sid sub -> 
-          if Selector.is_matching_path path sub.selector then Lwt.ignore_result (sub.pusher sid ~cleanup:(remove_subscriber_no_acc engine) [(path, value)]) 
+          if Selector.is_matching_path path sub.selector then Lwt.ignore_result (sub.pusher sid ~fallback:(remove_subscriber_no_acc engine) [(path, value)]) 
           else ()) subs
           
     let put (engine: t) access_id (path:Path.t) (value:Value.t) =
-      let%lwt _ = Logs_lwt.debug (fun m -> m "[YE]: put") in
+      let%lwt _ = Logs_lwt.debug (fun m -> m "[YE]: put %s" (Path.to_string path)) in
       MVar.read engine 
       >>= fun self ->      
       let%lwt _ = check_access_for_path self access_id path in
@@ -238,7 +286,7 @@ module SEngine = struct
       |> Lwt.join
 
     let put_delta engine access_id path value = 
-      let%lwt _ = Logs_lwt.debug (fun m -> m "[YE]: put_delta") in
+      let%lwt _ = Logs_lwt.debug (fun m -> m "[YE]: put_delta %s" (Path.to_string path)) in
       MVar.read engine 
       >>= fun self ->
       let%lwt _ = check_access_for_path self access_id path in
@@ -247,13 +295,21 @@ module SEngine = struct
       |> Lwt.join
 
     let remove engine access_id path = 
-      let%lwt _ = Logs_lwt.debug (fun m -> m "[YE]: remove") in
       MVar.read engine 
       >>= fun self ->
       let%lwt _ = check_access_for_path self access_id path in
-      get_stores_for_path self path
-      |> List.map (fun (_,store) -> Storage.remove store path) 
-      |> Lwt.join
+      match EvalMap.find_opt path self.evals with
+      | Some _ ->
+        let%lwt _ = Logs_lwt.debug (fun m -> m "[YE]: remove %s (eval)" (Path.to_string path)) in
+        (MVar.guarded engine 
+        @@ fun self ->         
+          let evals' = EvalMap.remove path self.evals in 
+          MVar.return () {self with evals = evals'} )
+      | None ->
+        let%lwt _ = Logs_lwt.debug (fun m -> m "[YE]: remove %s" (Path.to_string path)) in
+        get_stores_for_path self path
+        |> List.map (fun (_,store) -> Storage.remove store path) 
+        |> Lwt.join
 
   end
 end

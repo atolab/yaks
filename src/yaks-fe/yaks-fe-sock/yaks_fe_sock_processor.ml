@@ -21,7 +21,8 @@ module Processor = struct
     val process_get : YEngine.t -> message -> message Lwt.t
     val process_sub : YEngine.t -> message -> YEngine.subscription_pusher ->  message Lwt.t
     val process_unsub : YEngine.t -> message -> message Lwt.t
-    val process_eval : YEngine.t -> message -> message Lwt.t
+    val process_eval : YEngine.t -> message -> YEngine.eval_getter -> message Lwt.t
+    val process_values : message -> Value.t Lwt.u -> message Lwt.t
     val process_error :  message -> error_code -> message Lwt.t
   end
 
@@ -152,9 +153,9 @@ module Processor = struct
         @@ fun s -> Some (aid, s) 
       in     
       match params with 
-      | Some (aid, s) -> 
-        YEngine.get engine aid s 
-        >>= fun pvs -> Lwt.return @@ reply_with_values msg pvs
+      | Some (aid, s) ->
+        YEngine.get engine aid s >>= fun pvs ->
+        Lwt.return @@ reply_with_values msg pvs
       | None -> Lwt.return @@ reply_with_error msg BAD_REQUEST
 
     let process_sub engine msg pusher  = 
@@ -174,9 +175,6 @@ module Processor = struct
         Lwt.return @@ reply_with_ok msg props         
       | None -> Lwt.return @@ reply_with_error msg BAD_REQUEST
 
-
-
-      
     let process_unsub engine msg = 
       let%lwt _ = Logs_lwt.debug (fun m -> m "FES: processing UNSUB") in
       let open Apero.Infix in 
@@ -194,10 +192,39 @@ module Processor = struct
         Lwt.return @@ reply_with_ok msg Properties.empty 
       | None -> Lwt.return @@ reply_with_ok msg Properties.empty 
 
-    let process_eval engine msg = let _ = engine in Lwt.return @@ reply_with_ok msg Properties.empty
+    let process_eval engine msg eval_getter =
+      let%lwt _ = Logs_lwt.debug (fun m -> m "FES: processing EVAL") in
+      let open Apero.Infix in
+      let ps = msg.header.properties in
+      let params = Option.bind (Properties.decode_property_value (Option.get <.> Access.Id.of_string) Property.Access.Key.id ps) 
+        @@ fun aid -> 
+        Option.bind (get_path_payload msg)
+        @@ fun p -> Some (aid, p) 
+      in     
+      match params with 
+      | Some (aid, p) ->
+        let%lwt () = YEngine.eval engine aid p eval_getter  in 
+        Lwt.return @@ reply_with_ok msg Properties.empty         
+      | None -> Lwt.return @@ reply_with_error msg BAD_REQUEST
+
+    let process_values msg resolver =
+      let%lwt _ = Logs_lwt.debug (fun m -> m "FES: processing VALUES") in
+      match get_path_value_list_payload msg with
+      | Some ((_,v)::l) ->
+        let%lwt _ = if List.length l > 0 then
+          Logs_lwt.warn (fun m -> m "FES: processing VALUES - received more than 1 Value, ignoring the extras")
+          else Lwt.return_unit
+        in
+        let _ = Lwt.wakeup_later resolver v in
+        Lwt.return @@ reply_with_ok msg Properties.empty
+      | Some [] ->
+        let%lwt _ = Logs_lwt.debug (fun m -> m "FES: processing VALUES - received an empty list") in
+        Lwt.return @@ reply_with_error msg BAD_REQUEST
+      | None ->
+        let%lwt _ = Logs_lwt.debug (fun m -> m "FES: processing VALUES - failed to decode body") in
+        Lwt.return @@ reply_with_error msg BAD_REQUEST
 
     let process_error msg code = Lwt.return @@ reply_with_error msg code 
   end
 end 
-
 

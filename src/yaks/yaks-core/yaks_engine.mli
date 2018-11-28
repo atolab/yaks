@@ -9,7 +9,8 @@ module SEngine : sig
 
   module type S = sig 
     type t 
-    type subscription_pusher =  Yaks_types.SubscriberId.t -> cleanup:(Yaks_types.SubscriberId.t -> unit Lwt.t) -> (Yaks_types.Path.t * Yaks_types.Value.t) list -> unit Lwt.t
+    type subscription_pusher =  Yaks_types.SubscriberId.t -> fallback:(Yaks_types.SubscriberId.t -> unit Lwt.t) -> (Yaks_types.Path.t * Yaks_types.Value.t) list -> unit Lwt.t
+    type eval_getter = Path.t -> Selector.t -> fallback:(Path.t -> Value.t Lwt.t) -> Value.t Lwt.t
 
     val make : unit -> t 
 
@@ -30,6 +31,8 @@ module SEngine : sig
 
     val create_subscriber : t -> Access.Id.t -> Selector.t -> bool -> subscription_pusher -> SubscriberId.t Lwt.t  
     val remove_subscriber : t -> Access.Id.t -> SubscriberId.t -> unit Lwt.t  
+
+    val eval : t -> Access.Id.t -> Path.t -> eval_getter -> unit Lwt.t
   end
 
   module Make (MVar: Apero.MVar) : S 

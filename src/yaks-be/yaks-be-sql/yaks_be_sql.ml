@@ -128,32 +128,34 @@ module SQLBE = struct
                     (Selector.to_string selector) (storage_info.table_name)) in
       let open Apero.LwtM.InfixM in
       let (_, typ) = storage_info.schema in
-      let sub_sel = Selector.remove_prefix storage_info.path selector in
-      let condition = get_kv_condition sub_sel in
-        Caqti_driver.get C.conx storage_info.table_name typ ~condition ()
-        (* NOTE: replacing '*' with '%' in LIKE clause gives more keys than we want (as % is similar to %%). We need to filter: *)
-        >|= List.filter (fun row -> match row with
-          | k::_::_::[] -> Selector.is_matching_path (Path.of_string ~is_absolute:false k) sub_sel
-          | _ -> let _ = Logs_lwt.warn (fun m -> m "[SQL]: get in KV table %s returned non k+v+e value: %s" storage_info.table_name (String.concat "," row)) in false
-          )
-        >|= List.map (fun row -> match row with
-          | k::v::e::[] ->
-            let encoding = Value.encoding_of_string e in
-            (match Value.of_string v encoding with 
-            | Ok v -> Some (Path.of_string @@ (Path.to_string storage_info.path)^k, v)
-            | Error err ->
-              let _ = Logs_lwt.warn (fun m -> m "[SQL]: get in KV table %s returned a value for key %s that we failed to transcode: %s"
-                        storage_info.table_name k (show_yerror err)) in
-              None)
-          | _ -> let _ = Logs_lwt.warn (fun m -> m "[SQL]: get in KV table %s returned non k+v+e value: %s" storage_info.table_name (String.concat "," row)) in
-              None)
-        >|= List.filter Apero.Option.is_some
-        >|= List.map (fun o -> Apero.Option.get o)
+      match Selector.remove_matching_prefix storage_info.path selector with
+      | None -> Lwt.return []
+      | Some sub_sel ->
+        let condition = get_kv_condition sub_sel in
+          Caqti_driver.get C.conx storage_info.table_name typ ~condition ()
+          (* NOTE: replacing '*' with '%' in LIKE clause gives more keys than we want (as % is similar to %%). We need to filter: *)
+          >|= List.filter (fun row -> match row with
+            | k::_::_::[] -> Selector.is_matching_path (Path.of_string ~is_absolute:false k) sub_sel
+            | _ -> let _ = Logs_lwt.warn (fun m -> m "[SQL]: get in KV table %s returned non k+v+e value: %s" storage_info.table_name (String.concat "," row)) in false
+            )
+          >|= List.map (fun row -> match row with
+            | k::v::e::[] ->
+              let encoding = Value.encoding_of_string e in
+              (match Value.of_string v encoding with 
+              | Ok v -> Some (Path.of_string @@ (Path.to_string storage_info.path)^k, v)
+              | Error err ->
+                let _ = Logs_lwt.warn (fun m -> m "[SQL]: get in KV table %s returned a value for key %s that we failed to transcode: %s"
+                          storage_info.table_name k (show_yerror err)) in
+                None)
+            | _ -> let _ = Logs_lwt.warn (fun m -> m "[SQL]: get in KV table %s returned non k+v+e value: %s" storage_info.table_name (String.concat "," row)) in
+                None)
+          >|= List.filter Apero.Option.is_some
+          >|= List.map (fun o -> Apero.Option.get o)
 
     let put_kv_table storage_info (path:Path.t) (value:Value.t) =
       let%lwt _ = Logs_lwt.debug (fun m -> m "[SQL]: put(%s) into kv table %s"
                     (Path.to_string path) (storage_info.table_name)) in
-      let sub_path = Path.remove_prefix ~prefix:storage_info.path path in
+      let sub_path = Path.remove_prefix (Path.length storage_info.path) path in
       let v = Value.to_string value |> to_sql_string in
       let enc = Value.encoding_to_string @@ Value.encoding value |> to_sql_string in
       Caqti_driver.put C.conx storage_info.table_name storage_info.schema ((Path.to_string sub_path |> to_sql_string)::v::enc::[]) ()
@@ -176,7 +178,7 @@ module SQLBE = struct
     let remove_kv_table storage_info path = 
       let%lwt _ = Logs_lwt.debug (fun m -> m "[SQL]: remove(%s) from kv table %s"
                     (Path.to_string path) (storage_info.table_name)) in
-      let sub_path = Path.remove_prefix ~prefix:storage_info.path path in
+      let sub_path = Path.remove_prefix (Path.length storage_info.path) path in
       Caqti_driver.remove C.conx storage_info.table_name ("k='"^(Path.to_string sub_path)^"'") ()
 
 

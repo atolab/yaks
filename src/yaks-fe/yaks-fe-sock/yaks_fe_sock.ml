@@ -1,12 +1,13 @@
 open Apero
 open Apero_net
 open Lwt.Infix
+open Yaks_types
 open Yaks_fe_sock_codes
 open Yaks_fe_sock_types
 open Yaks_fe_sock_codec
 open Yaks_fe_sock_processor
 
-module Make (YEngine : Yaks_engine.SEngine.S) = struct 
+module Make (YEngine : Yaks_engine.SEngine.S) (MVar: Apero.MVar) = struct 
 
 
   module Config = NetServiceTcp.TcpConfig
@@ -15,12 +16,17 @@ module Make (YEngine : Yaks_engine.SEngine.S) = struct
 
   module TcpSocketFE = NetServiceTcp.Make (MVar_lwt)  
 
-  module MVar = MVar_lwt 
-
   type t = 
     { tcp_fe: TcpSocketFE.t
     ; io_svc: TcpSocketFE.io_service }
 
+  module WorkingMap = Map.Make(Apero.Vle)
+
+  type state_t = {
+    pending_eval_results : Value.t Lwt.u WorkingMap.t
+  }
+
+  type state = state_t MVar.t
 
   let reader sock  =     
     let lbuf = IOBuf.create 16 in 
@@ -39,7 +45,7 @@ module Make (YEngine : Yaks_engine.SEngine.S) = struct
 
   let writer buf sock msg = 
     match encode_message msg buf with 
-    | Ok buf ->  
+    | Ok buf ->
       let lbuf = IOBuf.create 16 in 
       let fbuf = (IOBuf.flip buf) in       
       (match encode_vle (Vle.of_int @@ IOBuf.limit fbuf) lbuf with 
@@ -47,14 +53,30 @@ module Make (YEngine : Yaks_engine.SEngine.S) = struct
          let%lwt _ = Logs_lwt.debug (fun m -> m "Sending message to socket") in
          Net.send_vec sock [IOBuf.flip lbuf; fbuf]
        | Error e -> 
-         let%lwt _ = Logs_lwt.err (fun m -> m "Falied in writing message: %s" (Apero.show_error e)) in
+         let%lwt _ = Logs_lwt.err (fun m -> m "Failed in writing message: %s" (Apero.show_error e)) in
          Lwt.fail @@ Exception e )     
     | Error e -> 
-      let%lwt _ = Logs_lwt.err (fun m -> m "Falied in encoding messge: %s" (Apero.show_error e)) in
+      let%lwt _ = Logs_lwt.err (fun m -> m "Failed in encoding messge: %s" (Apero.show_error e)) in
       Lwt.fail @@ Exception e 
 
 
-  let dispatch_message engine tx_sex  msg = 
+  let process_get_on_eval (s:state) sock buf (path:Path.t) selector ~fallback =
+    let _ = Logs_lwt.debug (fun m -> m "[FES] send GET(%s) for eval %s" (Selector.to_string selector) (Path.to_string path)) in
+    let (body:payload) = YSelector (selector) in
+    let h = make_header GET [] Vle.zero Properties.empty in
+    let msg = make_message h body in
+    Lwt.catch (
+      fun () ->
+        let (promise:Value.t Lwt.t), (resolver:Value.t Lwt.u) = Lwt.wait () in
+        MVar.guarded s @@ fun self ->
+        writer buf sock msg >>= fun _ ->
+        MVar.return_lwt promise { pending_eval_results = WorkingMap.add msg.header.corr_id resolver self.pending_eval_results }
+      )
+    (fun _ -> fallback path)
+
+
+
+  let dispatch_message state engine tx_sex  msg = 
     match msg.header.mid with 
     | OPEN -> P.process_open engine msg 
     | CREATE -> P.process_create engine msg
@@ -64,14 +86,25 @@ module Make (YEngine : Yaks_engine.SEngine.S) = struct
     | SUB -> 
       let sock = TxSession.socket tx_sex in 
       let buf = IOBuf.create Yaks_fe_sock_types.max_msg_size in 
-      let push_sub buf  sid ~cleanup pvs = 
+      let push_sub buf sid ~fallback pvs = 
         let body = YNotification (Yaks_core.SubscriberId.to_string sid, pvs)  in                 
         let h = make_header NOTIFY [] Vle.zero Properties.empty in         
         let msg = make_message h body in         
-        Lwt.catch (fun () -> writer buf sock msg >|= fun _ -> ()) (fun _ -> cleanup sid)
+        Lwt.catch (fun () -> writer buf sock msg >|= fun _ -> ()) (fun _ -> fallback sid)
       in  P.process_sub engine msg (push_sub buf)
     | UNSUB -> P.process_unsub engine msg
-    | EVAL -> P.process_eval engine msg    
+    | EVAL ->
+      let sock = TxSession.socket tx_sex in
+      let buf = IOBuf.create Yaks_fe_sock_types.max_msg_size in 
+      P.process_eval engine msg (process_get_on_eval state sock buf)
+    | VALUES ->
+      MVar.guarded state @@ (fun self ->
+      (match WorkingMap.find_opt msg.header.corr_id self.pending_eval_results with 
+      | Some resolver ->
+        MVar.return_lwt (P.process_values msg resolver) { pending_eval_results = WorkingMap.remove msg.header.corr_id self.pending_eval_results }
+      | None ->
+        MVar.return_lwt (P.process_error msg BAD_REQUEST) self)
+      )
     | _ ->  P.process_error msg BAD_REQUEST
 
 
@@ -79,12 +112,20 @@ module Make (YEngine : Yaks_engine.SEngine.S) = struct
     let buf = IOBuf.create (Config.buf_size config) in 
     let sock = TxSession.socket tx_sex in 
     let mwriter = writer buf sock in 
-    fun () -> 
-      reader sock >>= (dispatcher tx_sex)  >>= mwriter >>= fun _ -> Lwt.return_unit
+    fun () ->
+      (* Note: block on read, but return unit as soon as a message is read. 
+         The message is dispatched as another promise.
+         This is to allow the engine to not block on a GET request that might require to be resolved
+         by an incoming VALUES message from an API (in case an Eval matches the GET).
+      *) 
+      reader sock >>= fun msg -> 
+        let _ = (dispatcher tx_sex) msg >>= fun reply -> mwriter reply in
+      Lwt.return_unit
 
   let create (conf : Config.t) (engine: YEngine.t) = 
-    let tcp_fe = TcpSocketFE.make conf in 
-    let dispatcher = dispatch_message engine in 
+    let tcp_fe = TcpSocketFE.make conf in
+    let state = MVar.create { pending_eval_results=WorkingMap.empty } in
+    let dispatcher = dispatch_message state engine in 
     let io_svc = fe_service conf dispatcher in (* TxSession.t -> unit -> unit Lwt.t*)
     {tcp_fe; io_svc}
 
