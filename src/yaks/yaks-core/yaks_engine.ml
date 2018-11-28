@@ -57,7 +57,7 @@ module SEngine = struct
       ; stores : Storage.t StorageMap.t
       ; accs : Access.t AccessMap.t 
       ; subs : subscription SubscriberMap.t
-      ; evals : eval_getter EvalMap.t
+      ; evals : (Access.Id.t * eval_getter) EvalMap.t
       }
 
     type t = state MVar.t
@@ -105,20 +105,21 @@ module SEngine = struct
 
     let dispose_access engine access_id =
       let%lwt _ = Logs_lwt.debug (fun m -> m "[YE]: dispose_access %s" (Access.Id.to_string access_id)) in
-      MVar.guarded engine @@ fun self ->         
-        let access = AccessMap.find_opt access_id self.accs in 
-        let subs' = (match access with 
-          | Some a ->         
-            (let asubs = Access.subscribers a in 
-            let rec remove_subs smap subs = match subs with 
-              | [] -> smap
-              | h::tl -> remove_subs (SubscriberMap.remove h smap) tl
-            in remove_subs self.subs asubs)
-          | None -> self.subs) 
-        in                    
+      MVar.guarded engine @@ fun self ->
+        let accs', subs', evals' = match AccessMap.find_opt access_id self.accs with
+        | Some access ->
+          let asubs = Access.subscribers access in
+          let rec remove_subs smap subs = match subs with 
+            | [] -> smap
+            | h::tl -> remove_subs (SubscriberMap.remove h smap) tl
+          in
+          AccessMap.remove access_id self.accs,
+          remove_subs self.subs asubs,
+          EvalMap.filter (fun _  (aid, _) -> aid <> access_id) self.evals
+        | None -> self.accs, self.subs, self.evals
+       in
         MVar.return () 
-        {self with accs =  AccessMap.remove access_id self.accs ; subs = subs'}
-
+        { self with accs = accs' ; subs = subs' ; evals = evals' }
 
     (****************************)
     (*   Storages management    *)
@@ -187,11 +188,11 @@ module SEngine = struct
     (****************************)
     (*     Eval management      *)
     (****************************)
-    let eval engine _ (* access *) path eval_getter =
+    let eval engine access_id path eval_getter =
       let%lwt _ = Logs_lwt.debug (fun m -> m "[YE]: eval %s" (Path.to_string path)) in
       (MVar.guarded engine 
       @@ fun self ->         
-        let evals' = EvalMap.add path eval_getter self.evals in 
+        let evals' = EvalMap.add path (access_id, eval_getter) self.evals in 
         MVar.return () {self with evals = evals'} )
 
     let remove_eval engine path =
@@ -241,7 +242,7 @@ module SEngine = struct
           (Printf.sprintf "Error calling get(%s) on eval(%s): Access was removed"
           (Selector.to_string selector) (Path.to_string path))
       in
-      let call_eval path (eval_getter:eval_getter) = eval_getter path selector ~fallback
+      let call_eval path (_,(eval_getter:eval_getter)) = eval_getter path selector ~fallback
       in
       MVar.read engine >>= fun self ->
       let evals = EvalMap.filter (fun path _ -> Selector.is_matching_path path selector) self.evals in
