@@ -7,7 +7,7 @@ module Storage : sig
 
   type t 
 
-  val make : ?alias:string -> Path.t -> properties ->
+  val make : Path.t -> properties ->
     (unit -> unit Lwt.t) ->
     (Selector.t -> (Path.t * Value.t) list Lwt.t) ->
     (Path.t -> Value.t -> unit Lwt.t) ->

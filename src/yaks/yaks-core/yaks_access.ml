@@ -1,4 +1,6 @@
+open Apero
 open Yaks_types
+open Yaks_core_properties
 
 module Access = struct
 
@@ -11,7 +13,14 @@ module Access = struct
     ; as_string : string 
     ; subs : Yaks_types.SubscriberId.t list }
 
-  let make ?alias path cache_size =
+  let default_cache_size = 1024L  (* TODO: make this configurable *)
+
+  let make path properties =
+    let cache_size = Option.get_or_default 
+      (Properties.decode_property_value Int64.of_string Property.Access.Key.cache_size properties)
+      default_cache_size
+    in 
+    let alias = Properties.get Property.Access.Key.alias properties in 
     let uuid = match alias with | Some(a) -> Id.make_from_alias a | None -> Id.make () in
     { id = uuid; path; cache_size; as_string = "Acc#"^(Id.to_string uuid)^"("^(Path.to_string path)^")"; subs = [] }
 

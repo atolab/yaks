@@ -5,7 +5,7 @@ module Access : sig
 
   type t 
 
-  val make : ?alias:string -> Path.t -> int64 ->  t 
+  val make : Path.t -> Apero.properties -> t 
   val id : t -> Id.t
   val alias : t -> string option
   val path : t -> Path.t

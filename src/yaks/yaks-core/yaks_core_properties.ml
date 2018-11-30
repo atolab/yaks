@@ -1,4 +1,7 @@
-module Property = struct 
+module Property = struct
+
+  include Yaks_properties
+
   module Auth = struct
     module Key = struct 
       let key = "is.yaks.auth"
@@ -22,24 +25,6 @@ module Property = struct
       let ws = "is.yaks.group.ws" 
     end
   end 
-  module Access = struct               
-    module Key = struct 
-      let key = "is.yaks.access" 
-      let id = "is.yaks.access.id" 
-      let alias = "is.yaks.access.alias" 
-      let cache_size = "is.yaks.access.cachesize" 
-      let subscription_id = "is.yaks.subscription.id"
-    end
-  end
-  module Storage = struct
-    module Key = struct 
-      let key = "is.yaks.storage"
-      let id = "is.yaks.storage.id"    
-      let alias = "is.yaks.storage.alias"    
-      let config = "is.yaks.storage.config" 
-      let set = "is.yaks.storage.set"
-    end
-  end  
   module Backend = struct
     module Key = struct 
       let key = "is.yaks.backend"    

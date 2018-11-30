@@ -16,11 +16,11 @@ module SEngine : sig
 
     val add_backend : t -> (module Backend) -> unit Lwt.t
 
-    val create_access : t  -> ?alias:string -> Path.t -> int64 ->  Access.t Lwt.t
+    val create_access : t  -> Path.t -> properties ->  Access.t Lwt.t
     val get_access : t -> Access.Id.t -> Access.t option Lwt.t
     val dispose_access : t -> Access.Id.t -> unit Lwt.t
 
-    val create_storage : t -> ?alias:string -> Path.t -> properties -> Storage.t Lwt.t 
+    val create_storage : t -> Path.t -> properties -> Storage.t Lwt.t 
     val get_storage : t -> Storage.Id.t -> Storage.t option Lwt.t
     val dispose_storage : t -> Storage.Id.t -> unit Lwt.t
 

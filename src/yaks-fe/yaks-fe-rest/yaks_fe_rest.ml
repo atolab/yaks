@@ -85,8 +85,8 @@ module Make (YEngine : Yaks_engine.SEngine.S) = struct
   let missing_query query_elts =
     Server.respond_error ~status:`Bad_request ~body:("Missing query elements (or wrong format): "^String.concat " , " query_elts) ()
 
-  let insufficient_storage cache_size =
-    Server.respond_error ~status:`Insufficient_storage ~body:("Insufficient storage for creation of an Access with cache size = "^(Int64.to_string cache_size)) ()
+  (* let insufficient_storage cache_size =
+    Server.respond_error ~status:`Insufficient_storage ~body:("Insufficient storage for creation of an Access with cache size = "^(Int64.to_string cache_size)) () *)
 
   let access_not_found id =
     Server.respond_error ~status:`Not_found ~body:("Access \""^id^"\" not found") ()
@@ -106,26 +106,27 @@ module Make (YEngine : Yaks_engine.SEngine.S) = struct
   (* let invalid_selector s =
      Server.respond_error ~status:`Not_found ~body:("Invalid Selector  \""^s) () *)
 
-  (* let bad_request s =
-     Server.respond_error ~status:`Bad_request ~body:("Invalid Request  \""^s) () *)
+  let bad_request s =
+     Server.respond_error ~status:`Bad_request ~body:("Invalid Request  \""^s) ()
 
 
   (**********************************)
   (*      Control operations        *)
   (**********************************)
 
-  let create_access fe ?alias (path:Path.t) cache_size = 
-    let%lwt _ = Logs_lwt.debug (fun m -> m "[FER]   create_access %s %s %Ld" (Apero.Option.get_or_default alias "?") (Path.to_string path) cache_size) in
+  let create_access fe (path:Path.t) properties = 
+    let%lwt _ = Logs_lwt.debug (fun m -> m "[FER]   create_access for %s with %s" (Path.to_string path) (Properties.to_string properties)) in
     Lwt.try_bind 
-      (fun () -> YEngine.create_access fe.engine ?alias path cache_size)
+      (fun () -> YEngine.create_access fe.engine path properties)
       (fun access ->
          let aid = Access.Id.to_string @@ Access.id access in
+         let alias = Storage.Id.alias @@ Access.id access in
          Logs_lwt.debug (fun m -> m "[FER]   Created Access with id : %s responding client" aid) >>      
          let headers = Header.add_list (Header.init()) 
              [("Location", match alias with | Some(_) -> "." | None -> aid);
               (set_cookie cookie_name_access_id aid)] in
          Server.respond_string ~status:`Created ~headers ~body:"" ())
-      (fun _ -> insufficient_storage cache_size)
+      (fun ex -> bad_request @@ Printexc.to_string ex)
 
 
   let get_access fe access_id =
@@ -145,14 +146,18 @@ module Make (YEngine : Yaks_engine.SEngine.S) = struct
     YEngine.dispose_access fe.engine access_id 
     >>= fun () -> Server.respond_string ~status:`No_content ~body:"" ()
 
-  let create_storage fe ?alias path properties = 
-    YEngine.create_storage fe.engine ?alias path properties
-    >>= fun (storage) -> 
-    let sid = Storage.Id.to_string @@ Storage.id storage in
-    let headers = Header.add_list (Header.init())
-        [("Location",  match alias with | Some(_) -> "." | None -> sid);
-         (set_cookie cookie_name_storage_id sid)] in
-    Server.respond_string ~status:`Created ~headers ~body:"" ()
+  let create_storage fe path properties = 
+    let%lwt _ = Logs_lwt.debug (fun m -> m "[FER]   create_storage for %s with %s" (Path.to_string path) (Properties.to_string properties)) in
+    Lwt.try_bind 
+    (fun () -> YEngine.create_storage fe.engine path properties)
+    (fun storage ->
+      let sid = Storage.Id.to_string @@ Storage.id storage in
+      let alias = Storage.Id.alias @@ Storage.id storage in
+      let headers = Header.add_list (Header.init())
+          [("Location",  match alias with | Some(_) -> "." | None -> sid);
+          (set_cookie cookie_name_storage_id sid)] in
+      Server.respond_string ~status:`Created ~headers ~body:"" ())
+      (fun ex -> bad_request @@ Printexc.to_string ex)
 
   let dispose_storage fe storage_id = 
     (* Intentionally do not give hint when an access_id does not exist.
@@ -279,14 +284,18 @@ let unsubscribe fe access_id sub_id =
         let open Option.Infix in
         let access_path =  query_get_opt query "path" >== List.hd in
         let cache_size = query_get_opt query "cacheSize" >== List.hd >>= Int64.of_string_opt in
-
         match (access_path, cache_size) with
         | (None, None) -> missing_query (["path:string"; "cacheSize:int"])
         | (None, _)    -> missing_query (["path:string"])
         | (_, None)    -> missing_query (["cacheSize:int"])
         | (Some(path), Some(cache_size)) -> (
-            match Path.of_string_opt path with 
-            | Some p -> create_access fe p cache_size 
+          let properties = query |> properties_of_query |>
+            Properties.remove "path" |>
+            Properties.remove "cacheSize" |>
+            Properties.add Property.Access.Key.cache_size @@ Int64.to_string cache_size
+          in
+          match Path.of_string_opt path with 
+            | Some p -> create_access fe p properties 
             | None -> invalid_path path)
       )
     (* PUT /yaks/access/id ? path & cacheSize *)
@@ -295,14 +304,19 @@ let unsubscribe fe access_id sub_id =
         (* Very dummy authentication method *)
         let access_path =  query_get_opt query "path" >== List.hd in
         let cache_size = query_get_opt query "cacheSize" >== List.hd >>= Int64.of_string_opt in
-
         match (access_path, cache_size) with
         | (None, None) -> missing_query (["path:string"; "cacheSize:int"])
         | (None, _)    -> missing_query (["path:string"])
         | (_, None)    -> missing_query (["cacheSize:int"])
         | (Some(path), Some(cache_size)) -> 
+          let properties = query |> properties_of_query |>
+            Properties.remove "path" |>
+            Properties.remove "cacheSize" |>
+            Properties.add Property.Access.Key.cache_size @@ Int64.to_string cache_size |>
+            Properties.add Property.Access.Key.alias id
+          in
           match Path.of_string_opt path with 
-          |Some p -> create_access fe ~alias:id p cache_size 
+          | Some p -> create_access fe p properties 
           | None -> invalid_path path
       )
     (* GET /yaks/access *)
@@ -349,10 +363,12 @@ let unsubscribe fe access_id sub_id =
         match storage_path with
         | None -> missing_query (["path:string"])
         | Some(path) -> 
-          let properties = query |> properties_of_query |> Properties.remove "path"  in      
+          let properties = query |> properties_of_query |> Properties.remove "path" |>
+            Properties.add Property.Access.Key.alias id
+          in      
           (match Path.of_string_opt path with 
            | Some p ->
-             create_storage fe ~alias:id p properties 
+             create_storage fe p properties 
            | None -> invalid_path path)
       )
     (* GET /yaks/storages *)

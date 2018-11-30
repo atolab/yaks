@@ -1,5 +1,6 @@
 open Apero
 open Yaks_types
+open Yaks_core_properties
 
 module Storage = struct
 
@@ -17,7 +18,8 @@ module Storage = struct
     ; as_string : string
     }
 
-  let make ?alias path props dispose get put put_delta remove =
+  let make path props dispose get put put_delta remove =
+    let alias = Properties.get Property.Storage.Key.alias props in   
     let uuid = match alias with | Some(a) -> Id.make_from_alias a | None -> Id.make () in
     { id = uuid; path; props; dispose; get; put; put_delta; remove;
       as_string = "Sto#"^(Id.to_string uuid)^"("^(Path.to_string path)^")"

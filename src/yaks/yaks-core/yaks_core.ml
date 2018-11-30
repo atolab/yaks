@@ -1,4 +1,4 @@
-include Yaks_properties
+include Yaks_core_properties
 include Yaks_common_errors
 include Yaks_types
 include Yaks_be

@@ -50,30 +50,25 @@ module Processor = struct
 
     let process_create_access engine msg path = 
       let%lwt _ = Logs_lwt.debug (fun m -> m "FES: processing CREATE:Access") in
-      let open Option.Infix in 
-      let header = msg.header in     
-      let cache_size_opt = Properties.decode_property_value Int64.of_string Property.Access.Key.cache_size header.properties in 
-      let alias_opt = Properties.get Property.Access.Key.alias header.properties in 
-
-      let accest_opt = cache_size_opt >>= fun cache_size ->
-        Some (YEngine.create_access engine ?alias:alias_opt path cache_size) in 
-      match accest_opt with 
-      | Some access -> 
-        Lwt.bind access 
-        @@ fun a -> 
-        let access_id = Access.Id.to_string (Access.id a) in
-        let props = Properties.add Property.Access.Key.id access_id Properties.empty in
-        Lwt.return @@ reply_with_ok msg props
-      | None -> Lwt.return @@ reply_with_error msg BAD_REQUEST 
+      Lwt.try_bind
+        (fun () -> YEngine.create_access engine path msg.header.properties)
+        (fun access -> 
+          let access_id = Access.Id.to_string (Access.id access) in
+          let props = Properties.add Property.Access.Key.id access_id Properties.empty in
+          Lwt.return @@ reply_with_ok msg props)
+        (fun _ -> Lwt.return @@ reply_with_error msg BAD_REQUEST)
 
     let process_create_storage engine msg path = 
       let%lwt _ = Logs_lwt.debug (fun m -> m "FES: processing CREATE:Storage") in
-      let ps = msg.header.properties in 
-      let alias_opt = Properties.get Property.Storage.Key.alias ps in    
-      let%lwt storage = YEngine.create_storage engine ?alias:alias_opt path ps in 
-      let storage_id = Storage.Id.to_string (Storage.id storage) in     
-      let ps = Properties.singleton Property.Storage.Key.id storage_id in 
-      Lwt.return @@ reply_with_ok msg ps
+      Lwt.try_bind
+        (fun () -> YEngine.create_storage engine path msg.header.properties)
+        (fun storage -> 
+          let storage_id = Access.Id.to_string (Storage.id storage) in
+          let props = Properties.add Property.Storage.Key.id storage_id Properties.empty in
+          Lwt.return @@ reply_with_ok msg props)
+        (fun ex -> 
+          let _ = Logs_lwt.warn (fun m -> m "FES: Error creating storage: %s" (Printexc.to_string ex)) in
+          Lwt.return @@ reply_with_error msg BAD_REQUEST)
 
     let process_create engine msg =       
       match get_path_payload msg with 

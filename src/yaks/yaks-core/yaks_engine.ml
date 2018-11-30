@@ -17,11 +17,11 @@ module SEngine = struct
 
     val add_backend : t -> (module Backend) -> unit Lwt.t
 
-    val create_access : t  -> ?alias:string -> Path.t -> int64 ->  Access.t Lwt.t
+    val create_access : t  -> Path.t -> properties ->  Access.t Lwt.t
     val get_access : t -> Access.Id.t -> Access.t option Lwt.t
     val dispose_access : t -> Access.Id.t -> unit Lwt.t
 
-    val create_storage : t -> ?alias:string -> Path.t -> properties -> Storage.t Lwt.t 
+    val create_storage : t -> Path.t -> properties -> Storage.t Lwt.t 
     val get_storage : t -> Storage.Id.t -> Storage.t option Lwt.t
     val dispose_storage : t -> Storage.Id.t -> unit Lwt.t
 
@@ -93,9 +93,9 @@ module SEngine = struct
     (**************************)
     (*   Access management    *)
     (**************************)
-    let create_access engine ?alias path cache_size = 
-      let%lwt _ = Logs_lwt.debug (fun m -> m "[YE]: create_access path: %s  alias: %s" (Path.to_string path) (Apero.Option.get_or_default alias "-")) in
-      let access = Access.make ?alias path cache_size in       
+    let create_access engine path properties = 
+      let%lwt _ = Logs_lwt.debug (fun m -> m "[YE]: create_access %s with %s" (Path.to_string path) (Properties.to_string properties)) in
+      let access = Access.make path properties in       
       MVar.guarded engine @@ fun self ->
       MVar.return access { self with accs = AccessMap.add (Access.id access) access self.accs }
 
@@ -130,7 +130,7 @@ module SEngine = struct
           let _ = Logs_lwt.debug (fun m -> m "[YE]:    try Backend %s" BE.to_string) in
           Properties.not_conflicting properties BE.properties) self.backends
 
-    let create_storage engine ?alias path properties =
+    let create_storage engine path properties =
       MVar.guarded engine
       @@ fun (self:state) ->
       if not @@ StorageMap.exists (fun _ s -> Storage.is_conflicting s path) self.stores then
@@ -138,7 +138,7 @@ module SEngine = struct
         | Some be ->
           let module BE = (val be : Backend) in
           let%lwt _ = Logs_lwt.debug (fun m -> m "[YE]: create_storage %s {%s} using Backend %s" (Path.to_string path) (Properties.to_string properties) (BE.to_string)) in
-          let%lwt store = BE.create_storage ?alias path properties in
+          let%lwt store = BE.create_storage path properties in
           MVar.return (store) {self with stores = (StorageMap.add (Storage.id store) store self.stores)}
         | None ->
           let%lwt _ = Logs_lwt.err (fun m -> m "[YE]: create_storage %s {%s} failed: no compatible backend" (Path.to_string path) (Properties.to_string properties)) in
