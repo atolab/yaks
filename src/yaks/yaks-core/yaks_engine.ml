@@ -251,11 +251,11 @@ module SEngine = struct
     let get engine access_id selector =
       MVar.read engine 
       >>= fun self ->
-      match Selector.get_query selector with
-      | Some q when Apero.Astring.get q 0 = '!' ->
+      match Selector.properties selector with
+      | Some _ ->
         let%lwt _ = Logs_lwt.debug (fun m -> m "[YE]: get %s from evals" (Selector.to_string selector)) in
         get_on_evals engine selector
-      | _ ->
+      | None ->
         let%lwt _ = Logs_lwt.debug (fun m -> m "[YE]: get %s from storages" (Selector.to_string selector)) in
         let%lwt _ = check_access_for_selector self access_id selector in
         get_stores_for_selector self selector
