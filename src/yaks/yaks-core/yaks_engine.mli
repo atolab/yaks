@@ -12,7 +12,7 @@ module SEngine : sig
     type subscription_pusher =  Yaks_types.SubscriberId.t -> fallback:(Yaks_types.SubscriberId.t -> unit Lwt.t) -> (Yaks_types.Path.t * Yaks_types.Value.t) list -> unit Lwt.t
     type eval_getter = Path.t -> Selector.t -> fallback:(Path.t -> Value.t Lwt.t) -> Value.t Lwt.t
 
-    val make : unit -> t 
+    val make : Zenoh.t -> t 
 
     val add_backend : t -> (module Backend) -> unit Lwt.t
 

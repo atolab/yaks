@@ -21,6 +21,9 @@ let wsock_port = Arg.(value & opt int 7888 & info ["x"; "wsock-port"] ~docv:"POR
 let sql_url = Arg.(value & opt string "" & info ["u"; "sql-url"] ~docv:"URL"
                        ~doc:"URL of the database used by the SQL backend")
 
+let zenoh_locator = Arg.(value & opt string "tcp/127.0.0.1:7447" & info ["z"; "zenoh"] ~docv:"zenoh locator"
+                       ~doc:"A locator for the zenoh service")
+
 let setup_log style_renderer level =
   Fmt_tty.setup_std_outputs ?style_renderer ();
   Logs.set_level level;
@@ -68,9 +71,10 @@ let add_websock_fe engine wsock_port =
   let wsfe = WSockFE.create wsock_cfg engine in
   WSockFE.start wsfe
 
-let run_yaksd without_storage http_port sock_port wsock_port sql_url = 
+let run_yaksd without_storage http_port sock_port wsock_port sql_url zenoh_locator = 
   try%lwt
-    let engine = YEngine.make () in
+    let%lwt z = (Zenoh.zopen zenoh_locator) in 
+    let engine = YEngine.make z in
     let mem_be = add_mem_be engine in
     let sql_be = add_sql_be engine sql_url in
     let def_store = add_default_storage engine without_storage >>= fun _ -> Lwt.return_unit in
@@ -85,12 +89,12 @@ let run_yaksd without_storage http_port sock_port wsock_port sql_url =
     Logs_lwt.err (fun m -> m "Exception %s raised:\n%s" (Printexc.to_string exn) (Printexc.get_backtrace ())) >> Lwt.return_unit
 
 
-let run without_storage http_port sock_port wsock_port sql_url style_renderer level = 
+let run without_storage http_port sock_port wsock_port sql_url zenoh_locator style_renderer level = 
   setup_log style_renderer level; 
-  Lwt_main.run @@ run_yaksd without_storage http_port sock_port wsock_port sql_url
+  Lwt_main.run @@ run_yaksd without_storage http_port sock_port wsock_port sql_url zenoh_locator
 
 
 let () =
   Printexc.record_backtrace true;
   let env = Arg.env_var "YAKSD_VERBOSITY" in
-  let _ = Term.(eval (const run $ without_storage $ http_port $ sock_port $ wsock_port $ sql_url $ Fmt_cli.style_renderer () $ Logs_cli.level ~env (), Term.info "Yaks daemon")) in  ()
+  let _ = Term.(eval (const run $ without_storage $ http_port $ sock_port $ wsock_port $ sql_url $ zenoh_locator $ Fmt_cli.style_renderer () $ Logs_cli.level ~env (), Term.info "Yaks daemon")) in  ()

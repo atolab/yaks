@@ -13,7 +13,7 @@ module SEngine = struct
     type subscription_pusher =  Yaks_types.SubscriberId.t -> fallback:(Yaks_types.SubscriberId.t -> unit Lwt.t) -> (Yaks_types.Path.t * Yaks_types.Value.t) list -> unit Lwt.t
     type eval_getter = Path.t -> Selector.t -> fallback:(Path.t -> Value.t Lwt.t) -> Value.t Lwt.t
 
-    val make : unit -> t 
+    val make : Zenoh.t -> t 
 
     val add_backend : t -> (module Backend) -> unit Lwt.t
 
@@ -58,6 +58,7 @@ module SEngine = struct
       ; accs : Access.t AccessMap.t 
       ; subs : subscription SubscriberMap.t
       ; evals : (Access.Id.t * eval_getter) EvalMap.t
+      ; zenoh : Zenoh.t
       }
 
     type t = state MVar.t
@@ -69,14 +70,15 @@ module SEngine = struct
     let add_back_end engine be_name be_module = (engine, Lwt.return_unit)
     *)
 
-    let make () = 
+    let make zenoh = 
       let _ = Logs_lwt.debug (fun m -> m "Creating Engine\n") in 
       MVar.create 
         { backends = []
         ; stores = StorageMap.empty
         ; accs = AccessMap.empty 
         ; subs = SubscriberMap.empty
-        ; evals = EvalMap.empty }
+        ; evals = EvalMap.empty 
+        ; zenoh }
 
 
     (**************************)
@@ -139,6 +141,7 @@ module SEngine = struct
           let module BE = (val be : Backend) in
           let%lwt _ = Logs_lwt.debug (fun m -> m "[YE]: create_storage %s {%s} using Backend %s" (Path.to_string path) (Properties.to_string properties) (BE.to_string)) in
           let%lwt store = BE.create_storage path properties in
+          
           MVar.return (store) {self with stores = (StorageMap.add (Storage.id store) store self.stores)}
         | None ->
           let%lwt _ = Logs_lwt.err (fun m -> m "[YE]: create_storage %s {%s} failed: no compatible backend" (Path.to_string path) (Properties.to_string properties)) in
