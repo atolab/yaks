@@ -132,6 +132,12 @@ module SEngine = struct
           let _ = Logs_lwt.debug (fun m -> m "[YE]:    try Backend %s" BE.to_string) in
           Properties.not_conflicting properties BE.properties) self.backends
 
+    let remove_subscriber_no_acc engine sid = 
+      (MVar.guarded engine 
+      @@ fun self ->         
+        let subs' = SubscriberMap.remove sid self.subs in 
+        MVar.return () {self with subs = subs'} )
+      
     let create_storage engine path properties =
       MVar.guarded engine
       @@ fun (self:state) ->
@@ -179,13 +185,7 @@ module SEngine = struct
       (MVar.guarded engine 
       @@ fun self ->         
         let subs' = SubscriberMap.remove sid self.subs in 
-        MVar.return () {self with subs = subs'} )
-
-    let remove_subscriber_no_acc engine sid = 
-      (MVar.guarded engine 
-      @@ fun self ->         
-        let subs' = SubscriberMap.remove sid self.subs in 
-        MVar.return () {self with subs = subs'} )
+        MVar.return () {self with subs = subs'} )    
 
 
     (****************************)

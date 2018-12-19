@@ -3,9 +3,10 @@ open Yaks_types
 module Access : sig 
   module Id : (module type of Apero.Uuid)
 
+  type access_kind = Internal | FrontEnd | Transport
   type t 
 
-  val make : Path.t -> Apero.properties -> t 
+  val make : ?kind:access_kind -> Path.t -> Apero.properties -> t 
   val id : t -> Id.t
   val alias : t -> string option
   val path : t -> Path.t
