@@ -5,7 +5,7 @@ open Yaks_types
 module MainMemoryBE = struct 
 
   module type Config = sig    
-    val id: Apero.Uuid.t 
+    val id: BeId.t 
     val properties : properties
   end
 
@@ -15,9 +15,10 @@ module MainMemoryBE = struct
 
     let mvar_self = MVar.create SMap.empty
 
+    let id = C.id
     let properties = C.properties
 
-    let to_string = "MainMemoryBE#"^(Apero.Uuid.to_string C.id)^"{"^(Properties.to_string properties)^"}"
+    let to_string = "MainMemoryBE#"^(BeId.to_string C.id)^"{"^(Properties.to_string properties)^"}"
 
     let get selector =       
       match Selector.as_unique_path selector with 
@@ -70,15 +71,15 @@ module MainMemoryBE = struct
 end 
 
 
-let make_memory_be props =
-  let module M = MainMemoryBE.Make (
+module MainMemoryBEF = struct 
+  let kind = Property.Backend.Value.memory
+
+  let make id properties =
+    let module M = MainMemoryBE.Make (
     struct 
-      let id = Apero.Uuid.make ()
-      let properties = Properties.add Property.Backend.Key.kind Property.Backend.Value.memory props
+      let id = id
+      let properties = Properties.add Property.Backend.Key.kind Property.Backend.Value.memory properties
     end) (Apero.MVar_lwt) in (module M : Backend)
 
-module MainMemoryBEF = struct 
-  let make (props:properties) = make_memory_be props
-  let name = Property.Backend.Value.memory
 end
 

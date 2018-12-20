@@ -28,56 +28,64 @@ let setup_log style_renderer level =
   ()
 
 
-module YEngine = Yaks_core.SEngine.Make (Apero.MVar_lwt)
+module YEngine = Yaks_core.Engine.Make (Apero.MVar_lwt)
+ 
+
+let (local_client_id:ClientId.t) = { feid = FeId.of_string "local"; sid = SessionId.of_string "daemon"}
+
 
 let add_mem_be engine =
-  YEngine.add_backend engine (Yaks_be_mm.MainMemoryBEF.make Properties.empty)
+  YEngine.add_backend_TMP engine @@
+    Yaks_be_mm.MainMemoryBEF.make (BeId.of_string "Memory") Properties.empty
 
 let add_sql_be engine sql_url =
   if String.length sql_url > 0 then
     let sql_props = Properties.singleton Be_sql_property.Key.url sql_url in
-    YEngine.add_backend engine (Yaks_be_sql.SQLBEF.make sql_props)
+    YEngine.add_backend_TMP engine @@
+      Yaks_be_sql.SQLBEF.make (BeId.of_string "SQL") sql_props
   else Lwt.return_unit
 
 
 let add_default_storage engine without_storage =
-  let props = Properties.singleton Property.Backend.Key.kind Property.Backend.Value.memory in
   if not without_storage then 
-    (* Some (YEngine.create_storage engine (Path.of_string "//") props) *)
-    YEngine.create_storage engine (Path.of_string "//") props >|= Apero.Option.return
-  else Lwt.return_none
+    let path = "/yaks/local/backend/Memory/storage/default" in
+    let props = Properties.singleton "path" "/" in
+    YEngine.put engine local_client_id (Path.of_string path) (Value.PropertiesValue props)
+  else Lwt.return_unit
 
 let add_rest_fe engine http_port =
   let module YRestFE = Yaks_fe_rest.Make (YEngine) in 
-  let restfe_cfg = YRestFE.{ port = http_port } in
-  let restfe = YRestFE.create restfe_cfg  engine in 
+  let restfe_cfg = YRestFE.{ id = FeId.of_string "REST"; port = http_port } in
+  let restfe = YRestFE.create restfe_cfg  engine in
+  YEngine.add_frontend_TMP engine "REST" @@ Properties.singleton "port" (string_of_int http_port) >>= fun _ ->
   YRestFE.start restfe
 
-let add_socket_fe engine sock_port =
+(* let add_socket_fe engine sock_port =
   let module YSockFE = Yaks_fe_sock.Make (YEngine) (Apero.MVar_lwt) in
   let socket_addr = "tcp/0.0.0.0:"^(string_of_int sock_port) in
   
   let socket_cfg = YSockFE.Config.make (Apero.Option.get @@ Apero_net.TcpLocator.of_string socket_addr) in 
   let sockfe = YSockFE.create socket_cfg engine in 
-  YSockFE.start sockfe
+  YSockFE.start sockfe *)
 
-let add_websock_fe engine wsock_port = 
+(* let add_websock_fe engine wsock_port = 
   let module WSockFE = Yaks_fe_wsock.Make (YEngine) (Apero.MVar_lwt) in 
   let wsock_addr = "ws/0.0.0.0:"^(string_of_int wsock_port) in  
   let wsock_cfg = WSockFE.Config.make (Apero.Option.get @@ Apero_net.WebSockLocator.of_string wsock_addr) in 
   let wsfe = WSockFE.create wsock_cfg engine in
-  WSockFE.start wsfe
+  WSockFE.start wsfe *)
 
 let run_yaksd without_storage http_port sock_port wsock_port sql_url = 
+  (** **) let _ = ignore sock_port and _ = ignore wsock_port in
   try%lwt
     let engine = YEngine.make () in
     let mem_be = add_mem_be engine in
     let sql_be = add_sql_be engine sql_url in
     let def_store = add_default_storage engine without_storage >>= fun _ -> Lwt.return_unit in
     let rest_fe = add_rest_fe engine http_port in
-    let sock_fe = add_socket_fe engine sock_port in
-    let wsock_fe = add_websock_fe engine wsock_port in 
-    Lwt.join [mem_be; sql_be; def_store; rest_fe; sock_fe; wsock_fe]
+    (* let sock_fe = add_socket_fe engine sock_port in
+    let wsock_fe = add_websock_fe engine wsock_port in  *)
+    Lwt.join [mem_be; sql_be; def_store; rest_fe(*; sock_fe; wsock_fe*)]
   with 
   | YException e  -> 
     Logs_lwt.err (fun m -> m "Exception %s raised:\n%s" (show_yerror e) (Printexc.get_backtrace ())) >> Lwt.return_unit

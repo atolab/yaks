@@ -1,6 +1,8 @@
-module Make (YEngine : Yaks_engine.SEngine.S) : sig
+open Yaks_core
 
-  type config = { port : int }
+module Make (YEngine : Yaks_engine.Engine.S) : sig
+
+  type config = { id : FeId.t; port : int }
 
   type t
 
@@ -8,6 +10,6 @@ module Make (YEngine : Yaks_engine.SEngine.S) : sig
 
   val start : t -> unit Lwt.t
 
-  val stop : t -> unit
+  val stop : t -> unit Lwt.t
 
 end

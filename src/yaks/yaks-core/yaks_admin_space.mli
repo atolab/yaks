@@ -8,7 +8,7 @@ module AdminSpace : sig
 
   module type S = sig 
     type t
-    val make : unit -> t
+    val make : Yid.t -> t
 
     val login : t -> ClientId.t -> properties -> unit Lwt.t
     val logout : t -> ClientId.t -> unit Lwt.t
@@ -30,7 +30,7 @@ module AdminSpace : sig
     val notify_subscribers : t -> Path.t -> Value.t -> unit Lwt.t
 
     (* TODO: Temporary operations that should be replaced by put/get/remove usage *)
-    val add_backend_TMP : t -> string -> (module Backend) -> unit Lwt.t
+    val add_backend_TMP : t -> (module Backend) -> unit Lwt.t
     val add_frontend_TMP : t -> string -> properties -> unit Lwt.t
 
   end

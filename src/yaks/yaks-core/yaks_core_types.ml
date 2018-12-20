@@ -19,6 +19,8 @@ module SessionId = Id.Make(
 (** session id *)
 module WsId = NumId.Make(Int32)
 (** workspace id*)
+module SubscriberId = NumId.Make(Int32)
+(** subscriber id*)
 
 module BeId = Id.Make(
   struct
