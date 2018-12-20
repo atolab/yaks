@@ -1,13 +1,8 @@
-include Yaks_core_properties
 include Yaks_common_errors
 include Yaks_types
-include Yaks_be
+include Yaks_core_types
 include Yaks_engine
-include Yaks_user
-include Yaks_group
-include Yaks_access
+include Yaks_fe
+include Yaks_be
 include Yaks_storage
-
-module YGroup = Yaks_group.Group
-module YUser = Yaks_user.User
-
+include Yaks_core_properties

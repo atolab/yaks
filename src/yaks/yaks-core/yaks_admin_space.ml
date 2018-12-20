@@ -10,7 +10,7 @@ module AdminSpace = struct
 
   module type S = sig 
     type t
-    val make : unit -> t
+    val make : Yid.t -> t
 
     val login : t -> ClientId.t -> properties -> unit Lwt.t
     val logout : t -> ClientId.t -> unit Lwt.t
@@ -32,7 +32,7 @@ module AdminSpace = struct
     val notify_subscribers : t -> Path.t -> Value.t -> unit Lwt.t
 
     (* TODO: Temporary operations that should be replaced by put/get/remove usage *)
-    val add_backend_TMP : t -> string -> (module Backend) -> unit Lwt.t
+    val add_backend_TMP : t -> (module Backend) -> unit Lwt.t
     val add_frontend_TMP : t -> string -> properties -> unit Lwt.t
 
   end
@@ -86,8 +86,7 @@ module AdminSpace = struct
 
     let empty_props_value = Value.PropertiesValue Properties.empty
 
-    let make () =
-      let yid = Uuid.make () in
+    let make yid =
       let prefix = "/yaks/"^(Uuid.to_string yid) in
       let _ = Logs_lwt.debug (fun m -> m "Create Yaks %s admin space\n" prefix) in
       let kvs = KVMap.empty
@@ -110,21 +109,21 @@ module AdminSpace = struct
       Lwt.fail @@ YException (`InternalError (`Msg ("add_backend not yet implemented")))
 
     (* TODO: Temporary operation that should be replaced by put/get/remove usage *)
-    let add_backend_TMP admin id be =
+    let add_backend_TMP admin be =
       let module BE = (val be: Backend) in
-      let beid = BeId.of_string id in
+      let id = BeId.to_string BE.id in
       let backend = { beModule=be; storages=StorageMap.empty } in
       Logs_lwt.debug (fun m -> m "[Yadm] add_backend : %s" id) >>
       MVar.guarded admin
       @@ fun self ->
-      if BackendMap.mem beid self.backends then
+      if BackendMap.mem BE.id self.backends then
         MVar.return_lwt (Lwt.fail @@ YException (`Forbidden (`Msg ("Already existing backend: "^id)))) self
       else
         let kvs = KVMap.add
           (Path.of_string @@ Printf.sprintf "%s/backend/%s/" self.prefix id)
-          (Value.StringValue BE.to_string) self.kvs
+          (Value.PropertiesValue BE.properties) self.kvs
         in
-        MVar.return () { self with backends = BackendMap.add beid backend self.backends; kvs }
+        MVar.return () { self with backends = BackendMap.add BE.id backend self.backends; kvs }
 
     let remove_backend admin beid = 
       let _ = ignore admin and _ = ignore beid in
@@ -377,6 +376,7 @@ module AdminSpace = struct
     (*****************************)
     let get admin (clientid:ClientId.t) selector =
       let _ = ignore clientid in  (* will be used for access control*)
+      let%lwt _ = Logs_lwt.debug (fun m -> m "[Yadm] %s: get %s" (ClientId.to_string clientid) (Selector.to_string selector)) in
       match Selector.as_unique_path selector with 
       | Some path ->
         MVar.read admin 
@@ -393,6 +393,7 @@ module AdminSpace = struct
 
     let put admin (clientid:ClientId.t) path value =
       let _ = ignore clientid in  (* will be used for access control*)
+      let%lwt _ = Logs_lwt.debug (fun m -> m "[Yadm] %s: put %s" (ClientId.to_string clientid) (Path.to_string path)) in
       let%lwt prefix = MVar.read admin >|= fun self -> self.prefix in
       let%lwt properties = 
         let open Value in
@@ -402,7 +403,7 @@ module AdminSpace = struct
         | Error e -> Lwt.fail @@ YException e
       in
       if Astring.is_prefix ~affix:prefix (Path.to_string path) then
-        match String.split_on_char '/' @@ Astring.with_range ~first:(String.length prefix) (Path.to_string path) with
+        match String.split_on_char '/' @@ Astring.with_range ~first:(String.length prefix+1) (Path.to_string path) with
         | ["frontend"; feid] -> add_frontend admin feid properties
         | ["backend"; beid]  -> add_backend admin beid properties
         | ["backend"; "auto"; "storage"; stid] -> create_storage admin stid properties
@@ -413,6 +414,7 @@ module AdminSpace = struct
 
     let remove admin (clientid:ClientId.t) path =
       let _ = ignore clientid in  (* will be used for access control*)
+      let%lwt _ = Logs_lwt.debug (fun m -> m "[Yadm] %s: remove %s" (ClientId.to_string clientid) (Path.to_string path)) in
       let%lwt prefix = MVar.read admin >|= fun self -> self.prefix in
       if Astring.is_prefix ~affix:prefix (Path.to_string path) then
         match String.split_on_char '/' @@ Astring.with_range ~first:(String.length prefix) (Path.to_string path) with

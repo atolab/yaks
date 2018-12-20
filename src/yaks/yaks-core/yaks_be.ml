@@ -1,8 +1,10 @@
 open Apero
 open Yaks_storage
 open Yaks_types
+open Yaks_core_types
 
 module type Backend = sig
+  val id : BeId.t
   val properties : properties
   val to_string : string
 
@@ -10,6 +12,6 @@ module type Backend = sig
 end
 
 module type BackendFactory  = sig 
-  val make : Property.t list  -> (module Backend)
-  val name : string
+  val kind : string
+  val make : BeId.t -> properties  -> (module Backend)
 end

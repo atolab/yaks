@@ -35,7 +35,7 @@ module Storage : sig
   val get : t -> Selector.t -> (Path.t * Value.t) list Lwt.t
 
   val put : t -> Path.t -> Value.t -> unit Lwt.t   
-  val put_delta : t -> Path.t -> Value.t -> unit Lwt.t   
+  val update : t -> Path.t -> Value.t -> unit Lwt.t   
 
   val remove : t -> Path.t -> unit Lwt.t
 

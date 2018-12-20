@@ -6,16 +6,17 @@ open Be_sql_property
 module SQLBE = struct 
 
   module type Config = sig    
-    val id: Apero.Uuid.t 
+    val id : BeId.t 
     val properties : properties
     val conx : connection
   end
 
   module Make (C : Config) (MVar : Apero.MVar) = struct 
 
+    let id = C.id
     let properties = C.properties
 
-    let to_string = "SQLBE#"^(Apero.Uuid.to_string C.id)^"{"^(Properties.to_string properties)^"}"
+    let to_string = "SQLBE#"^(BeId.to_string C.id)^"{"^(Properties.to_string properties)^"}"
 
     type storage_info =
       {
@@ -240,22 +241,23 @@ module SQLBE = struct
   end
 end 
 
-let make_sql_be props =
-  let url = match Properties.get Be_sql_property.Key.url props with
-    | Some url -> url
-    | None -> raise @@ YException (`InvalidBackendProperty (`Msg ("Property "^Be_sql_property.Key.url^" is not specified")))
-  in
-  let connection = Caqti_driver.connect url in
-  let module M = SQLBE.Make (
-    struct 
-      let id = Apero.Uuid.make ()
-      let properties = Properties.add Property.Backend.Key.kind Property.Backend.Value.dbms props
-      let conx = connection
-    end) (Apero.MVar_lwt)
-  in (module M : Backend)
 
 module SQLBEF = struct 
-  let make (props:properties) = make_sql_be props
-  let name = Property.Backend.Value.memory
+  let kind = Property.Backend.Value.memory
+
+  let make id properties =
+    let url = match Properties.get Be_sql_property.Key.url properties with
+      | Some url -> url
+      | None -> raise @@ YException (`InvalidBackendProperty (`Msg ("Property "^Be_sql_property.Key.url^" is not specified")))
+    in
+    let connection = Caqti_driver.connect url in
+    let module M = SQLBE.Make (
+      struct 
+        let id = id
+        let properties = Properties.add Property.Backend.Key.kind Property.Backend.Value.dbms properties
+        let conx = connection
+      end) (Apero.MVar_lwt)
+    in (module M : Backend)
+
 end
 
