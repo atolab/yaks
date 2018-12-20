@@ -39,6 +39,7 @@ module SEngine = struct
   module Make (MVar: Apero.MVar) = struct
 
     module StorageMap  = Map.Make (Storage.Id)
+    module ZStoresMap = Map.Make(String)
     module AccessMap = Map.Make (Access.Id)
     module SubscriberMap = Map.Make (SubscriberId)
     module EvalMap = Map.Make (Path)
@@ -59,6 +60,7 @@ module SEngine = struct
       ; subs : subscription SubscriberMap.t
       ; evals : (Access.Id.t * eval_getter) EvalMap.t
       ; zenoh : Zenoh.t
+      ; zenoh_stores : Zenoh.storage ZStoresMap.t 
       }
 
     type t = state MVar.t
@@ -78,7 +80,8 @@ module SEngine = struct
         ; accs = AccessMap.empty 
         ; subs = SubscriberMap.empty
         ; evals = EvalMap.empty 
-        ; zenoh }
+        ; zenoh
+        ; zenoh_stores = ZStoresMap.empty }
 
 
     (**************************)
@@ -137,7 +140,76 @@ module SEngine = struct
       @@ fun self ->         
         let subs' = SubscriberMap.remove sid self.subs in 
         MVar.return () {self with subs = subs'} )
+  
+    let notify_subscriber engine subs path value = 
+      SubscriberMap.iter 
+        (fun sid sub -> 
+          if Selector.is_matching_path path sub.selector then Lwt.ignore_result (sub.pusher sid ~fallback:(remove_subscriber_no_acc engine) [(path, value)]) 
+          else ()) subs
+
+    let get_stores_for_path (self:state) (path: Path.t) =
+      StorageMap.filter
+        (fun _ store -> Storage.is_covering_path store path)
+        self.stores
+      |> StorageMap.bindings
+ 
+    let remote_put (engine: t) (path:Path.t) (value:Value.t) =
+      let%lwt _ = Logs_lwt.debug (fun m -> m "[YE]: put %s" (Path.to_string path)) in
+      MVar.read engine 
+      >>= fun self ->      
+      let _ = Lwt.return @@ notify_subscriber engine self.subs path value in
+      get_stores_for_path self path
+      |> List.map (fun (_,store) -> Storage.put store path value)
+      |> Lwt.join
+
+    let incoming_data_handler engine (data:IOBuf.t) (key:string) = 
+      let open Yaks_fe_sock_codec in 
+      match decode_value data with 
+      | Ok (v, _) -> 
+        (match Path.of_string_opt key with 
+        | Some path -> 
+          let%lwt _ = Logs_lwt.warn (fun m -> m "Inserting remote update for key %s" key) in 
+          remote_put engine path v  
+        | _ -> 
+          let%lwt _ = Logs_lwt.warn (fun m -> m "Received data for key %s which I cannot store" key) 
+          in Lwt.return_unit)      
+      | _ -> Lwt.return_unit
+
+    let query_handler (*tx resname predicate*) _ _ _  = Lwt.return [("", IOBuf.create 1)]
       
+    let to_zenoh_storage_path path = 
+      let p = Path.to_string path in 
+      if (String.get p (String.length p - 1)) = '/' then (Printf.sprintf ("%s**") p)
+      else Printf.sprintf "%s/**" p 
+
+    let add_zenoh_storage self engine (path:Path.t) =                 
+      let spath = to_zenoh_storage_path path in 
+        match ZStoresMap.find_opt spath self.zenoh_stores with 
+        | Some _ ->  Lwt.return self
+        | _ -> 
+          let%lwt storage = Zenoh.storage spath (incoming_data_handler engine) (query_handler engine) self.zenoh in       
+          let zenoh_stores' = ZStoresMap.add spath storage self.zenoh_stores in 
+          Lwt.return {self with zenoh_stores = zenoh_stores'}
+      
+    let remove_zenoh_storage self path  = 
+      let spath = to_zenoh_storage_path path in       
+      match ZStoresMap.find_opt spath self.zenoh_stores with 
+      | Some storage ->  
+        let%lwt () = Zenoh.unstore storage self.zenoh in 
+        let zenoh_stores' = ZStoresMap.remove spath self.zenoh_stores in 
+        Lwt.return {self with zenoh_stores = zenoh_stores'}
+      | _ -> Lwt.return self
+    
+    let distribute_update path value tx =
+      let res = Path.to_string path in
+      let buf = IOBuf.create ~grow:8192 8192 in 
+      let open Yaks_fe_sock_codec in
+      match (encode_value value buf) with 
+      | Ok buf -> 
+        let buf' = IOBuf.flip buf in 
+        Zenoh.write buf' res tx.zenoh 
+      | Error e -> Lwt.fail @@ Exception e 
+  
     let create_storage engine path properties =
       MVar.guarded engine
       @@ fun (self:state) ->
@@ -146,9 +218,10 @@ module SEngine = struct
         | Some be ->
           let module BE = (val be : Backend) in
           let%lwt _ = Logs_lwt.debug (fun m -> m "[YE]: create_storage %s {%s} using Backend %s" (Path.to_string path) (Properties.to_string properties) (BE.to_string)) in
-          let%lwt store = BE.create_storage path properties in
-          
-          MVar.return (store) {self with stores = (StorageMap.add (Storage.id store) store self.stores)}
+          let%lwt store = BE.create_storage path properties in          
+          let self' = {self with stores = (StorageMap.add (Storage.id store) store self.stores)} in 
+          let%lwt self'' = add_zenoh_storage self' engine path in 
+          MVar.return (store) self''
         | None ->
           let%lwt _ = Logs_lwt.err (fun m -> m "[YE]: create_storage %s {%s} failed: no compatible backend" (Path.to_string path) (Properties.to_string properties)) in
           Lwt.fail @@ YException (`NoCompatibleBackend (`Msg (Properties.to_string properties)))
@@ -161,12 +234,16 @@ module SEngine = struct
     let dispose_storage engine storage_id =
       let _ = Logs_lwt.debug (fun m -> m "[YE]: dispose_storage") in
       MVar.guarded engine
-      @@ fun self ->
-      let open Apero.Option.Infix in
+      @@ fun self ->      
       let _ = StorageMap.find_opt storage_id self.stores |> function | Some _ -> print_endline "!!!!! FOUND" | None -> print_endline "!!!! NOT_FOUND" in
-      let%lwt _ = StorageMap.find_opt storage_id self.stores >== Storage.dispose >?= Lwt.return_unit in
-      let self' = {self with stores =  StorageMap.remove storage_id self.stores } in
-      MVar.return () self'
+      match StorageMap.find_opt storage_id self.stores with 
+      | Some storage ->  
+        let%lwt () = Storage.dispose storage in 
+        let self' = {self with stores =  StorageMap.remove storage_id self.stores } in
+        let%lwt self'' = remove_zenoh_storage self' (Storage.path storage) in  
+        MVar.return () self''
+      | None -> MVar.return () self
+            
 
     (****************************)
     (*  Subscribers management  *)
@@ -226,11 +303,6 @@ module SEngine = struct
           Lwt.fail @@ YException (`Forbidden (`Msg  (Printf.sprintf "%s cannot access Selector %s" (Access.to_string access) (Selector.to_string selector))))
       | None -> Lwt.fail @@ YException (`UnknownAccess (`Msg (Access.Id.to_string access_id)))
 
-    let get_stores_for_path (self:state) (path: Path.t) =
-      StorageMap.filter
-        (fun _ store -> Storage.is_covering_path store path)
-        self.stores
-      |> StorageMap.bindings
 
     let get_stores_for_selector (self:state) (selector: Selector.t) =
       StorageMap.filter
@@ -269,11 +341,6 @@ module SEngine = struct
         there might be duplicate keys from different Storages in this result.
         Shall we remove duplicates?? *)
 
-     let notify_subscriber engine subs path value = 
-      SubscriberMap.iter 
-        (fun sid sub -> 
-          if Selector.is_matching_path path sub.selector then Lwt.ignore_result (sub.pusher sid ~fallback:(remove_subscriber_no_acc engine) [(path, value)]) 
-          else ()) subs
           
     let put (engine: t) access_id (path:Path.t) (value:Value.t) =
       let%lwt _ = Logs_lwt.debug (fun m -> m "[YE]: put %s" (Path.to_string path)) in
@@ -285,9 +352,9 @@ module SEngine = struct
       when there is a put of a selector I do notify based on matching on the Path that
       prefixes the selector. This is far from being pefect, but at least a starting point *)
       let _ = Lwt.return @@ notify_subscriber engine self.subs path value in
-      get_stores_for_path self path
+      (get_stores_for_path self path
       |> List.map (fun (_,store) -> Storage.put store path value)
-      |> Lwt.join
+      |> Lwt.join) >>= fun () -> distribute_update path value self
 
     let put_delta engine access_id path value = 
       let%lwt _ = Logs_lwt.debug (fun m -> m "[YE]: put_delta %s" (Path.to_string path)) in
