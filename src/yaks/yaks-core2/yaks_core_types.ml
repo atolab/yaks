@@ -46,6 +46,8 @@ module ClientId = struct
 
   let equal t t' = (FeId.equal t.feid t'.feid) && (SessionId.equal t.sid t'.sid)
 
+  let to_string t = (FeId.to_string t.feid)^"/"^(SessionId.to_string t.sid)
+
 end
 
 

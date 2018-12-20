@@ -40,7 +40,7 @@ module Storage = struct
 
   let get t = t.get
   let put t = t.put
-  let put_delta t = t.put_delta
+  let update t = t.put_delta
   let remove t = t.remove
 
 
