@@ -6,7 +6,7 @@ open Yaks_be
 open Yaks_storage
 open Apero.LwtM.InfixM
 
-module YAdminSpace = struct
+module AdminSpace = struct
 
   module type S = sig 
     type t
@@ -15,7 +15,7 @@ module YAdminSpace = struct
     val login : t -> ClientId.t -> properties -> unit Lwt.t
     val logout : t -> ClientId.t -> unit Lwt.t
 
-    val workspace : t -> ClientId.t -> Path.t -> WsId.t Lwt.t
+    val add_workspace : t -> ClientId.t -> Path.t -> WsId.t Lwt.t
 
     val get : t -> ClientId.t -> Selector.t -> (Path.t * Value.t) list  Lwt.t
     val put : t -> ClientId.t -> Path.t -> Value.t -> unit Lwt.t
@@ -24,11 +24,16 @@ module YAdminSpace = struct
     val create_subscriber : t -> ClientId.t -> Selector.t -> bool -> notify_subscriber -> SubscriberId.t Lwt.t  
     val remove_subscriber : t -> ClientId.t -> SubscriberId.t -> unit Lwt.t  
 
+    val get_workspace_path : t -> ClientId.t -> WsId.t -> Path.t Lwt.t
+
     val get_storages_for_path : t -> Path.t -> Storage.t list Lwt.t
     val get_storages_for_selector : t -> Selector.t -> Storage.t list Lwt.t
 
+    val notify_subscribers : t -> Path.t -> Value.t -> unit Lwt.t
+
     (* TODO: Temporary operations that should be replaced by put/get/remove usage *)
-    val add_backend_TMP : t -> (module Backend) -> string -> unit Lwt.t
+    val add_backend_TMP : t -> string -> (module Backend) -> unit Lwt.t
+    val add_frontend_TMP : t -> string -> properties -> unit Lwt.t
 
   end
 
@@ -63,19 +68,21 @@ module YAdminSpace = struct
       }
 
     type backend =
-      { backend : (module Backend)
+      { beModule : (module Backend)
       ; storages : Storage.t StorageMap.t
       }
 
     type state =
       { yid : Uuid.t  
-      ; prefix : string
+      ; prefix : string   (* prefix used in admin space: "/yaks/yid" *)
       ; frontends : frontend FrontendMap.t
       ; backends : backend BackendMap.t
       ; kvs : Value.t KVMap.t
       }
 
     type t = state MVar.t
+
+    let local_client: ClientId.t = { feid=(FeId.of_string "Yaks"); sid=(SessionId.of_string "0") }
 
     let empty_props_value = Value.PropertiesValue Properties.empty
 
@@ -84,10 +91,7 @@ module YAdminSpace = struct
       let prefix = "/yaks/"^(Uuid.to_string yid) in
       let _ = Logs_lwt.debug (fun m -> m "Create Yaks %s admin space\n" prefix) in
       let kvs = KVMap.empty
-        |> KVMap.add (Path.of_string "/yaks") empty_props_value
         |> KVMap.add (Path.of_string prefix) empty_props_value
-        |> KVMap.add (Path.of_string @@ prefix^"/frontend") empty_props_value
-        |> KVMap.add (Path.of_string @@ prefix^"/backend") empty_props_value
       in
       MVar.create
         { yid
@@ -106,10 +110,10 @@ module YAdminSpace = struct
       Lwt.fail @@ YException (`InternalError (`Msg ("add_backend not yet implemented")))
 
     (* TODO: Temporary operation that should be replaced by put/get/remove usage *)
-    let add_backend_TMP admin be id =
+    let add_backend_TMP admin id be =
       let module BE = (val be: Backend) in
       let beid = BeId.of_string id in
-      let backend = { backend=be; storages=StorageMap.empty } in
+      let backend = { beModule=be; storages=StorageMap.empty } in
       Logs_lwt.debug (fun m -> m "[Yadm] add_backend : %s" id) >>
       MVar.guarded admin
       @@ fun self ->
@@ -130,13 +134,69 @@ module YAdminSpace = struct
     (**************************)
     (*   Storages management  *)
     (**************************)
+    let find_compatible_backend backends properties =
+      BackendMap.filter (fun beid be ->
+        let module BE = (val be.beModule: Backend) in
+        let _ = Logs_lwt.debug (fun m -> m "[Yadm]:    try Backend %s (%s)" (BeId.to_string beid) BE.to_string) in
+        Properties.not_conflicting properties BE.properties) backends
+      |> BackendMap.choose_opt
+
+
     let create_storage admin ?beid stid properties =
-      let _ = ignore admin and _ = ignore beid and _ = ignore stid and _ = ignore properties in
-      Lwt.fail @@ YException (`InternalError (`Msg ("add_storage not yet implemented")))
+      (* get "path" from properties *)
+      let%lwt path = match Properties.find_opt "path" properties with
+        | None -> Lwt.fail @@ YException (`InternalError (`Msg ("create_storage "^stid^"without 'path' in properties")))
+        | Some p -> (match Path.of_string_opt p with 
+          | None -> Lwt.fail @@ YException (`InternalError (`Msg ("create_storage "^stid^" with invalid 'path': "^p)))
+          | Some p' -> Lwt.return p')
+      in
+      let storageId = StorageId.of_string stid in
+      Logs_lwt.debug (fun m -> m "[Yadm] create_storage %s on %s" stid (Path.to_string path)) >>
+      MVar.guarded admin
+      @@ fun self ->
+      (* get backend from beid or a compatible one if beid is not set *)
+      let%lwt (beid', be) = match beid with
+        | None -> (match find_compatible_backend self.backends properties with
+          | Some (id, be) -> Lwt.return (id, be)
+          | None -> Lwt.fail @@ YException (`InternalError (`Msg ("create_storage "^stid^" failed: no comatible backend ")))
+          )
+        | Some s -> let id = BeId.of_string s in
+          (match BackendMap.find_opt id self.backends with
+          | Some be -> Lwt.return (id, be)
+          | None -> Lwt.fail @@ YException (`InternalError (`Msg ("create_storage "^stid^" failed: backend not found: "^s)))
+        )
+      in
+      (* check if storage with this id doen's already exists*)
+      if StorageMap.mem storageId be.storages then
+        Lwt.fail @@ YException (`InternalError (`Msg (
+          Printf.sprintf "create_storage %s on %s failed: storage with same id already exists" stid (BeId.to_string beid'))))
+      else
+        (* create storage and add it to self state *)
+        let module BE = (val be.beModule: Backend) in
+        let%lwt _ = Logs_lwt.debug (fun m -> m "[Yadm]: create_storage %s using Backend %s" stid (BE.to_string)) in
+        let%lwt storage = BE.create_storage path properties in
+        let be' = { be with storages = StorageMap.add storageId storage be.storages } in
+        let kvs = KVMap.add
+          (Path.of_string @@ Printf.sprintf "%s/backend/%s/storage/%s" self.prefix (BeId.to_string beid') stid)
+          (Value.PropertiesValue properties) self.kvs
+        in
+        MVar.return () { self with backends = BackendMap.add beid' be' self.backends; kvs}
+
 
     let remove_storage admin beid stid =
-      let _ = ignore admin and _ = ignore beid and _ = ignore stid in
-      Lwt.fail @@ YException (`InternalError (`Msg ("remove_storage not yet implemented")))
+      let beid' = BeId.of_string beid in
+      let stid' = StorageId.of_string stid in
+      Logs_lwt.debug (fun m -> m "[Yadm] remove_storage %s/%s" beid stid) >>
+      MVar.guarded admin
+      @@ fun self ->
+      let%lwt be = match BackendMap.find_opt beid' self.backends with
+        | None -> Lwt.fail @@ YException (`InternalError (`Msg ("No backend with id: "^beid)))
+        | Some be -> Lwt.return be
+      in
+      let be' = { be with storages = StorageMap.remove stid' be.storages } in
+      let kvs = KVMap.remove (Path.of_string @@ Printf.sprintf "%s/backend/%s/storage/%s" self.prefix beid stid) self.kvs in
+      MVar.return () { self with backends = BackendMap.add beid' be' self.backends; kvs}
+
 
     let get_storages_for_path admin path =
       let get_matching_storages backend =
@@ -172,6 +232,7 @@ module YAdminSpace = struct
         in
         MVar.return () { self with frontends = FrontendMap.add (FeId.of_string feid) fe self.frontends; kvs}
 
+    let add_frontend_TMP = add_frontend
 
     let remove_frontend admin feid = 
       Logs_lwt.debug (fun m -> m "[Yadm] remove_frontend %s" feid) >>
@@ -181,9 +242,7 @@ module YAdminSpace = struct
         let _ = Logs_lwt.warn (fun m -> m "[Yadm] remove non-existing frontend: %s" feid) in
         MVar.return () self
       else
-        let kvs = KVMap.remove
-          (Path.of_string @@ Printf.sprintf "%s/frontend/%s" self.prefix feid) self.kvs
-        in
+        let kvs = KVMap.remove (Path.of_string @@ Printf.sprintf "%s/frontend/%s" self.prefix feid) self.kvs in
         MVar.return () { self with frontends = FrontendMap.remove (FeId.of_string feid) self.frontends; kvs}
 
 
@@ -191,11 +250,11 @@ module YAdminSpace = struct
     (*   Sessions management  *)
     (**************************)
     let login admin (clientid:ClientId.t) properties =
-      let feid = FeId.to_string clientid.feid in
-      let sid = SessionId.to_string clientid.sid in
-      Logs_lwt.debug (fun m -> m "[Yadm] %s/%s: login" feid sid) >>
+      Logs_lwt.debug (fun m -> m "[Yadm] %s: login" (ClientId.to_string clientid)) >>
       MVar.guarded admin
       @@ fun self ->
+      let feid = FeId.to_string clientid.feid in
+      let sid = SessionId.to_string clientid.sid in
       match FrontendMap.find_opt clientid.feid self.frontends with
         | None -> MVar.return_lwt (Lwt.fail @@ YException (`InternalError (`Msg ("No frontend with id: "^feid)))) self
         | Some fe ->
@@ -211,22 +270,21 @@ module YAdminSpace = struct
             MVar.return () { self with frontends = FrontendMap.add clientid.feid fe' self.frontends; kvs}
 
     let logout admin (clientid:ClientId.t) =
-      let feid = FeId.to_string clientid.feid in
-      let sid = SessionId.to_string clientid.sid in
-      Logs_lwt.debug (fun m -> m "[Yadm] %s/%s: logout" feid sid) >>
+      Logs_lwt.debug (fun m -> m "[Yadm] %s: logout" (ClientId.to_string clientid)) >>
       MVar.guarded admin
       @@ fun self ->
       match FrontendMap.find_opt clientid.feid self.frontends with
-        | None -> let _ = Logs_lwt.warn (fun m -> m "[Yadm] logout from non-existing frontend: %s" feid) in
+        | None -> let _ = Logs_lwt.warn (fun m -> m "[Yadm] logout from non-existing frontend: %s" (FeId.to_string clientid.feid)) in
           MVar.return () self
         | Some fe ->
           if not @@ SessionMap.mem clientid.sid fe.sessions then
-             let _ = Logs_lwt.warn (fun m -> m "[Yadm] logout from non-existing session: %s/%s" feid sid) in
+             let _ = Logs_lwt.warn (fun m -> m "[Yadm] logout from non-existing session: %s" (ClientId.to_string clientid)) in
             MVar.return () self
           else
             let fe' = {fe with sessions = SessionMap.remove clientid.sid fe.sessions} in
             let kvs = KVMap.remove
-              (Path.of_string @@ Printf.sprintf "%s/frontend/%s/session/%s" self.prefix feid sid)
+              (Path.of_string @@ Printf.sprintf "%s/frontend/%s/session/%s"
+                self.prefix (FeId.to_string clientid.feid) (SessionId.to_string clientid.sid))
               self.kvs
             in
             MVar.return () { self with frontends = FrontendMap.add clientid.feid fe' self.frontends; kvs }
@@ -239,26 +297,40 @@ module YAdminSpace = struct
           | None -> Lwt.fail @@ YException (`InternalError (`Msg ("No session with id: "^(SessionId.to_string sid))))
           | Some s -> Lwt.return (fe, s))
 
-    let workspace admin (clientid:ClientId.t) path =
-      let feid = FeId.to_string clientid.feid in
-      let sid = SessionId.to_string clientid.sid in
-      Logs_lwt.debug (fun m -> m "[Yadm] %s/%s: workspace %s" feid sid (Path.to_string path)) >>
-      MVar.guarded admin
-      @@ fun self ->
+
+    (****************************)
+    (*   Workspaces management  *)
+    (****************************)
+    let add_workspace admin (clientid:ClientId.t) path =
+      if Path.is_relative path then
+        Lwt.fail @@ YException (`InternalError (`Msg ("Invalid workspace with non-absolute path: "^(Path.to_string path))))
+      else
+        Logs_lwt.debug (fun m -> m "[Yadm] %s: workspace %s" (ClientId.to_string clientid) (Path.to_string path)) >>
+        MVar.guarded admin
+        @@ fun self ->
         let%lwt (fe, s) = get_frontend_session self clientid.feid clientid.sid in
         let wsid = WsId.add s.lastWsid WsId.one in
         let s' = { s with ws = WsMap.add wsid path s.ws; lastWsid = wsid } in
         let fe' = {fe with sessions = SessionMap.add clientid.sid s' fe.sessions} in
         let kvs = KVMap.add
-          (Path.of_string @@ Printf.sprintf "%s/frontend/%s/session/%s/workspace/%s" self.prefix feid sid (WsId.to_string wsid))
+          (Path.of_string @@ Printf.sprintf "%s/frontend/%s/session/%s/workspace/%s"
+            self.prefix (FeId.to_string clientid.feid) (SessionId.to_string clientid.sid) (WsId.to_string wsid))
           (Value.StringValue (Path.to_string path)) self.kvs
         in
         MVar.return wsid { self with frontends = FrontendMap.add clientid.feid fe' self.frontends; kvs}
 
+    let get_workspace_path admin (clientid:ClientId.t) wsid =
+      MVar.read admin >>= fun self ->
+      let%lwt (_, s) = get_frontend_session self clientid.feid clientid.sid in
+      match WsMap.find_opt wsid s.ws with
+      | None -> Lwt.fail @@ YException (`InternalError (`Msg ("No workspace with id: "^(WsId.to_string wsid))))
+      | Some path -> Lwt.return path
+
+    (*******************************)
+    (*   Subscriptions management  *)
+    (*******************************)
     let create_subscriber admin (clientid:ClientId.t) selector is_push notifier =
-      let feid = FeId.to_string clientid.feid in
-      let sid = SessionId.to_string clientid.sid in
-      Logs_lwt.debug (fun m -> m "[Yadm] %s/%s: create_subscriber %s" feid sid (Selector.to_string selector)) >>
+      Logs_lwt.debug (fun m -> m "[Yadm] %s: create_subscriber %s" (ClientId.to_string clientid) (Selector.to_string selector)) >>
       MVar.guarded admin 
       @@ fun self ->
         let%lwt (fe, s) = get_frontend_session self clientid.feid clientid.sid in
@@ -267,26 +339,38 @@ module YAdminSpace = struct
         let s' = { s with subs = SubscriberMap.add subid sub s.subs } in
         let fe' = {fe with sessions = SessionMap.add clientid.sid s' fe.sessions} in
         let kvs = KVMap.add
-          (Path.of_string @@ Printf.sprintf "%s/frontend/%s/session/%s/subscriber/%s" self.prefix feid sid (SubscriberId.to_string subid))
+          (Path.of_string @@ Printf.sprintf "%s/frontend/%s/session/%s/subscriber/%s"
+            self.prefix (FeId.to_string clientid.feid) (SessionId.to_string clientid.sid) (SubscriberId.to_string subid))
           (Value.StringValue (Selector.to_string selector)) self.kvs
         in
         MVar.return subid { self with frontends = FrontendMap.add clientid.feid fe' self.frontends; kvs}
 
     let remove_subscriber admin (clientid:ClientId.t) subid =
-      let feid = FeId.to_string clientid.feid in
-      let sid = SessionId.to_string clientid.sid in
-      Logs_lwt.debug (fun m -> m "[Yadm] %s/%s: remove_subscriber %s" feid sid (SubscriberId.to_string subid)) >>
+      Logs_lwt.debug (fun m -> m "[Yadm] %s: remove_subscriber %s" (ClientId.to_string clientid) (SubscriberId.to_string subid)) >>
       MVar.guarded admin 
       @@ fun self ->
         let%lwt (fe, s) = get_frontend_session self clientid.feid clientid.sid in
         let s' = { s with subs = SubscriberMap.remove subid s.subs } in
         let fe' = {fe with sessions = SessionMap.add clientid.sid s' fe.sessions} in
         let kvs = KVMap.remove
-          (Path.of_string @@ Printf.sprintf "%s/frontend/%s/session/%s/subscriber/%s" self.prefix feid sid (SubscriberId.to_string subid))
+          (Path.of_string @@ Printf.sprintf "%s/frontend/%s/session/%s/subscriber/%s"
+            self.prefix (FeId.to_string clientid.feid) (SessionId.to_string clientid.sid) (SubscriberId.to_string subid))
           self.kvs
         in
         MVar.return () { self with frontends = FrontendMap.add clientid.feid fe' self.frontends; kvs}
 
+    let notify_subscribers admin path value =
+      let iter_session s = SubscriberMap.iter
+        (fun sid sub -> 
+          if Selector.is_matching_path path sub.selector then
+            Lwt.ignore_result (sub.notifier sid ~fallback:(remove_subscriber admin local_client) [(path, value)]) 
+          else ()) s.subs
+      in
+      let iter_frontend f = SessionMap.iter (fun _ session -> iter_session session) f.sessions in
+      MVar.read admin >|= (fun self ->
+      FrontendMap.iter (fun _ fe -> iter_frontend fe) self.frontends)
+
+ 
 
     (*****************************)
     (* get/put/remove operations *)

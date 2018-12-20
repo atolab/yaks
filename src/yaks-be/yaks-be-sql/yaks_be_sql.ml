@@ -56,7 +56,7 @@ module SQLBE = struct
                                       (Path.to_string path) (Path.to_string storage_info.path))
         in Lwt.return_unit
 
-    let put_delta_sql_table storage_info path delta =
+    let update_sql_table storage_info path delta =
       let open Apero.LwtM.InfixM in
       if Path.is_prefix ~affix:storage_info.path path then
         let%lwt _ = Logs_lwt.debug (fun m -> m "[SQL]: put_delta(%s) into legacy table %s"
@@ -160,7 +160,7 @@ module SQLBE = struct
       let enc = Value.encoding_to_string @@ Value.encoding value |> to_sql_string in
       Caqti_driver.put C.conx storage_info.table_name storage_info.schema ((Path.to_string sub_path |> to_sql_string)::v::enc::[]) ()
 
-    let put_delta_kv_table storage_info path delta =
+    let update_kv_table storage_info path delta =
       let%lwt _ = Logs_lwt.debug (fun m -> m "[SQL]: put_delta(%s) into kv table %s"
                     (Path.to_string path) (storage_info.table_name)) in
       let open Apero.LwtM.InfixM in
@@ -227,7 +227,7 @@ module SQLBE = struct
           (dispose storage_info)
           (get_kv_table storage_info)
           (put_kv_table storage_info)
-          (put_delta_kv_table storage_info)
+          (update_kv_table storage_info)
           (remove_kv_table storage_info)
       else
         Lwt.return @@
@@ -235,7 +235,7 @@ module SQLBE = struct
           (dispose storage_info)
           (get_sql_table storage_info)
           (put_sql_table storage_info)
-          (put_delta_sql_table storage_info)
+          (update_sql_table storage_info)
           (remove_sql_table storage_info)
   end
 end 

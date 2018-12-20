@@ -47,7 +47,7 @@ module MainMemoryBE = struct
       | Ok r -> r
       | Error _ -> v 
 
-    let put_delta path delta =       
+    let update path delta =       
       MVar.guarded mvar_self
       @@ fun self -> 
       (match SMap.find_opt path self with 
@@ -65,7 +65,7 @@ module MainMemoryBE = struct
 
 
     let create_storage path props =
-      Lwt.return @@ Storage.make path props dispose get put put_delta remove
+      Lwt.return @@ Storage.make path props dispose get put update remove
   end
 end 
 

@@ -253,10 +253,10 @@ module SEngine = struct
       >>= fun self ->
       match Selector.properties selector with
       | Some _ ->
-        let%lwt _ = Logs_lwt.debug (fun m -> m "[YE]: get %s from evals" (Selector.to_string selector)) in
+        let%lwt _ = Logs_lwt.debug (fun m -> m "[YE]: get %s with properties => forward to evals" (Selector.to_string selector)) in
         get_on_evals engine selector
       | None ->
-        let%lwt _ = Logs_lwt.debug (fun m -> m "[YE]: get %s from storages" (Selector.to_string selector)) in
+        let%lwt _ = Logs_lwt.debug (fun m -> m "[YE]: get %s => query storages" (Selector.to_string selector)) in
         let%lwt _ = check_access_for_selector self access_id selector in
         get_stores_for_selector self selector
         |> List.map (fun (_,store) -> Storage.get store selector)
