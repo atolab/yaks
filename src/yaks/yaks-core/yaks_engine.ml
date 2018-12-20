@@ -175,7 +175,40 @@ module SEngine = struct
           in Lwt.return_unit)      
       | _ -> Lwt.return_unit
 
-    let query_handler (*tx resname predicate*) _ _ _  = Lwt.return [("", IOBuf.create 1)]
+    let remove_eval engine path =
+      (MVar.guarded engine 
+      @@ fun self ->         
+        let evals' = EvalMap.remove path self.evals in 
+        MVar.return () {self with evals = evals'} )
+
+    let get_on_evals engine (selector: Selector.t) =
+      let fallback path =
+        remove_eval engine path >>= fun _ ->
+        Lwt.return @@ Value.StringValue
+          (Printf.sprintf "Error calling get(%s) on eval(%s): Access was removed"
+          (Selector.to_string selector) (Path.to_string path))
+      in
+      let call_eval path (_,(eval_getter:eval_getter)) = eval_getter path selector ~fallback
+      in
+      MVar.read engine >>= fun self ->
+      let evals = EvalMap.filter (fun path _ -> Selector.is_matching_path path selector) self.evals in
+      EvalMap.mapi call_eval evals |> EvalMap.bindings |> List.map (fun (p,v) -> v >|= (fun v -> (p,v))) |> LwtM.flatten
+
+    let remote_query engine selector =
+      MVar.read engine 
+      >>= fun self ->
+      match Selector.get_query selector with
+      | Some q when Apero.Astring.get q 0 = '!' ->
+        let%lwt _ = Logs_lwt.debug (fun m -> m "[YE]: get %s from evals" (Selector.to_string selector)) in
+        get_on_evals engine selector
+      | _ ->
+        let%lwt _ = Logs_lwt.debug (fun m -> m "[YE]: get %s from storages" (Selector.to_string selector)) in        
+        get_stores_for_selector self selector
+        |> List.map (fun (_,store) -> Storage.get store selector)
+        |> Apero.LwtM.flatten
+        >|= List.concat
+
+    let query_handler (* engine resname predicate*) _ _ _  = Lwt.return [("", IOBuf.create 1)]
       
     let to_zenoh_storage_path path = 
       let p = Path.to_string path in 
@@ -275,11 +308,6 @@ module SEngine = struct
         let evals' = EvalMap.add path (access_id, eval_getter) self.evals in 
         MVar.return () {self with evals = evals'} )
 
-    let remove_eval engine path =
-      (MVar.guarded engine 
-      @@ fun self ->         
-        let evals' = EvalMap.remove path self.evals in 
-        MVar.return () {self with evals = evals'} )
 
 
     (*****************************)
