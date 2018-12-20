@@ -59,20 +59,33 @@ module Make (YEngine : Yaks_engine.Engine.S) = struct
   let invalid_selector s =
      Server.respond_error ~status:`Not_found ~body:("Invalid Selector  \""^s) ()
 
-  let no_matching_key selector =
-    Server.respond_error ~status:`Not_found ~body:("No key found matching selector: "^selector) ()
+  (* let no_matching_key selector =
+    Server.respond_error ~status:`Not_found ~body:("No key found matching selector: "^selector) () *)
 
   (* let bad_request s =
      Server.respond_error ~status:`Bad_request ~body:("Invalid Request  \""^s) () *)
+
+  let internal_error msg =
+    Server.respond_error ~status:`Internal_server_error ~body:msg () 
+
+  let ex_to_response ex =
+    match ex with
+   | YException e -> internal_error (show_yerror e)
+   | ex -> internal_error (Printexc.to_string ex)
+
 
 
   (**********************************)
   (*      Key/Value operations      *)
   (**********************************)
   let json_string_of_key_values (kvs : (Path.t * Value.t) list) =
+    let to_json v = match Value.transcode v Value.Json_Encoding with
+     | Ok v' -> v'
+     | _ -> v 
+    in
     kvs
-    |> List.map (fun (key, value) -> Printf.sprintf "\"%s\":%s" (Path.to_string key)  (Value.to_string value))
-    |> String.concat ","
+    |> List.map (fun (key, value) -> Printf.sprintf "\"%s\" : %s" (Path.to_string key)  (Value.to_string @@ to_json value))
+    |> String.concat ",\n"
     |> Printf.sprintf "{%s}"
 
   let get fe clientid selector =
@@ -89,7 +102,7 @@ module Make (YEngine : Yaks_engine.Engine.S) = struct
          let%lwt _ = Logs_lwt.debug (fun m -> m "[FER]   put calling YEngine.put") in
          YEngine.put fe.engine clientid path value) 
       (fun () -> Server.respond_string ~status:`No_content ~body:"" ())
-      (fun _ -> no_matching_key (Path.to_string path))
+      (fun ex -> ex_to_response ex)
 
 
   let update fe clientid path delta =  
@@ -99,7 +112,7 @@ module Make (YEngine : Yaks_engine.Engine.S) = struct
          let%lwt _ = Logs_lwt.debug (fun m -> m "[FER]   put_delta calling YEngine.put_delta") in
          YEngine.update fe.engine clientid path delta) 
       (fun () -> Server.respond_string ~status:`No_content ~body:"" ())
-      (fun _ -> no_matching_key (Path.to_string path))
+      (fun ex -> ex_to_response ex)
 
   let remove fe clientid path =
     let%lwt _ = Logs_lwt.debug (fun m -> m "[FER]   remove %s %s" (ClientId.to_string clientid) (Path.to_string path)) in
