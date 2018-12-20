@@ -144,7 +144,7 @@ module AdminSpace = struct
     let create_storage admin ?beid stid properties =
       (* get "path" from properties *)
       let%lwt path = match Properties.find_opt "path" properties with
-        | None -> Lwt.fail @@ YException (`InternalError (`Msg ("create_storage "^stid^"without 'path' in properties")))
+        | None -> Lwt.fail @@ YException (`InternalError (`Msg ("create_storage "^stid^" without 'path' in properties")))
         | Some p -> (match Path.of_string_opt p with 
           | None -> Lwt.fail @@ YException (`InternalError (`Msg ("create_storage "^stid^" with invalid 'path': "^p)))
           | Some p' -> Lwt.return p')
@@ -405,6 +405,7 @@ module AdminSpace = struct
       if Astring.is_prefix ~affix:prefix (Path.to_string path) then
         match String.split_on_char '/' @@ Astring.with_range ~first:(String.length prefix+1) (Path.to_string path) with
         | ["frontend"; feid] -> add_frontend admin feid properties
+        | ["backend"; "auto"]  -> Lwt.fail @@ YException (`InvalidPath (`Msg ("Creation of backend/auto forbidden (reserved id)")))
         | ["backend"; beid]  -> add_backend admin beid properties
         | ["backend"; "auto"; "storage"; stid] -> create_storage admin stid properties
         | ["backend"; beid; "storage"; stid] -> create_storage admin ~beid stid properties
