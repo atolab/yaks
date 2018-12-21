@@ -200,7 +200,51 @@ module SEngine = struct
         self.stores
       |> StorageMap.bindings
 
-    let remote_query engine selector =
+(*
+   StorageData of {stoid:IOBuf.t; rsn:int; resname:string; data:IOBuf.t}
+   StorageFinal of {stoid:IOBuf.t; rsn:int}
+   ReplyFinal 
+*)
+    let remote_query_handler promise mlist sample =
+      MVar.guarded mlist 
+      @@ fun xs -> 
+        match sample with 
+        | Zenoh.StorageData {stoid; rsn=_; resname; data} ->
+          (match 
+            let open Apero.Result.Infix in 
+            let open Yaks_fe_sock_codec in       
+            decode_string stoid 
+            >>= fun (store_id, _) -> 
+              decode_value data 
+              >>= fun (value, _) -> Ok(store_id, Path.of_string(resname), value)
+          with 
+          | Ok sample -> MVar.return () (sample::xs)
+          | _ -> MVar.return () xs)
+        | Zenoh.StorageFinal {stoid; rsn;} -> 
+          let%lwt _ = Logs_lwt.debug (fun m -> m "QUERY HANDLER RECIEVED FROM STORAGE [%-16s:%02i] FINAL\n%!" (IOBuf.hexdump stoid) rsn) in
+          MVar.return () xs          
+        | Zenoh.ReplyFinal -> 
+          let%lwt _ = Logs_lwt.debug (fun m -> m "QUERY HANDLER RECIEVED GLOBAL FINAL\n%!") in
+          Lwt.wakeup_later promise xs;
+          MVar.return () xs
+
+          
+    let consolidate_query_result (qrs:(string * Path.t * Value.t) list) = 
+      List.map (fun (_,p,v) -> (p,v)) qrs
+      
+
+    let issue_remote_query engine selector =      
+      MVar.read engine 
+      >>= fun self -> 
+        let path = Selector.get_path selector in 
+        let p,r = Lwt.wait () in 
+        let mlist = MVar.create [] in 
+        let query =  (Option.get_or_default (Selector.get_query selector) "") in
+        let%lwt () = Zenoh.query path query (remote_query_handler r mlist) self.zenoh in
+        let open Lwt.Infix in 
+        p >|= consolidate_query_result
+
+    let serve_remote_query engine selector =
       MVar.read engine 
       >>= fun self ->
       match Selector.get_query selector with
@@ -208,7 +252,7 @@ module SEngine = struct
         let%lwt _ = Logs_lwt.debug (fun m -> m "[YE]: get %s from evals" (Selector.to_string selector)) in
         get_on_evals engine selector
       | _ ->
-        let%lwt _ = Logs_lwt.debug (fun m -> m "[YE]: get %s from storages" (Selector.to_string selector)) in        
+        let%lwt _ = Logs_lwt.debug (fun m -> m "[YE]: get %s from remote storages" (Selector.to_string selector)) in        
         get_stores_for_selector self selector
         |> List.map (fun (_,store) -> Storage.get store selector)
         |> Apero.LwtM.flatten
@@ -218,7 +262,7 @@ module SEngine = struct
       match Selector.of_string_opt  (resname ^ predicate) with 
       | Some selector ->  
         let open Yaks_fe_sock_codec in 
-          let%lwt kvs = remote_query engine selector in 
+          let%lwt kvs = serve_remote_query engine selector in 
           let evs = List.map 
             (fun (path,value) -> 
               let spath = Path.to_string path in 
@@ -383,7 +427,7 @@ module SEngine = struct
         match get_stores_for_selector self selector with 
         | [] -> 
           let%lwt _ = Logs_lwt.debug (fun m -> m "[YE]: Did not find matching local stores for get, query network...") in 
-          remote_query engine selector 
+          issue_remote_query engine selector 
         | _ as xs -> 
           let%lwt _ = 
             Logs_lwt.debug (fun m -> m "[YE]: Found %d matching local stores for get, query network" (List.length xs)) in             
