@@ -194,6 +194,12 @@ module SEngine = struct
       let evals = EvalMap.filter (fun path _ -> Selector.is_matching_path path selector) self.evals in
       EvalMap.mapi call_eval evals |> EvalMap.bindings |> List.map (fun (p,v) -> v >|= (fun v -> (p,v))) |> LwtM.flatten
 
+    let get_stores_for_selector (self:state) (selector: Selector.t) =
+      StorageMap.filter
+        (fun _ store -> Storage.is_covering_selector store selector)
+        self.stores
+      |> StorageMap.bindings
+
     let remote_query engine selector =
       MVar.read engine 
       >>= fun self ->
@@ -208,8 +214,21 @@ module SEngine = struct
         |> Apero.LwtM.flatten
         >|= List.concat
 
-    let query_handler (* engine resname predicate*) _ _ _  = Lwt.return [("", IOBuf.create 1)]
-      
+    let query_handler engine resname predicate  =       
+      match Selector.of_string_opt  (resname ^ predicate) with 
+      | Some selector ->  
+        let open Yaks_fe_sock_codec in 
+          let%lwt kvs = remote_query engine selector in 
+          let evs = List.map 
+            (fun (path,value) -> 
+              let spath = Path.to_string path in 
+              let buf = Result.get  (encode_value value (IOBuf.create ~grow:4096 4096)) in 
+              (spath, buf)) kvs in 
+          Lwt.return evs 
+      | _ -> 
+        let%lwt _ = Logs_lwt.debug (fun m -> m "Unable to resolve query for %s?%s" resname predicate) in 
+        Lwt.return []
+            
     let to_zenoh_storage_path path = 
       let p = Path.to_string path in 
       if (String.get p (String.length p - 1)) = '/' then (Printf.sprintf ("%s**") p)
