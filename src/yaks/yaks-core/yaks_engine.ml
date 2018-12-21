@@ -380,10 +380,18 @@ module SEngine = struct
       | _ ->
         let%lwt _ = Logs_lwt.debug (fun m -> m "[YE]: get %s from storages" (Selector.to_string selector)) in
         let%lwt _ = check_access_for_selector self access_id selector in
-        get_stores_for_selector self selector
-        |> List.map (fun (_,store) -> Storage.get store selector)
-        |> Apero.LwtM.flatten
-        >|= List.concat
+        match get_stores_for_selector self selector with 
+        | [] -> 
+          let%lwt _ = Logs_lwt.debug (fun m -> m "[YE]: Did not find matching local stores for get, query network...") in 
+          remote_query engine selector 
+        | _ as xs -> 
+          let%lwt _ = 
+            Logs_lwt.debug (fun m -> m "[YE]: Found %d matching local stores for get, query network" (List.length xs)) in             
+          xs
+          |> List.map (fun (_,store) -> Storage.get store selector)
+          |> Apero.LwtM.flatten
+          >|= List.concat        
+
       (* TODO? If in the future we accept Storages with conflicting paths,
         there might be duplicate keys from different Storages in this result.
         Shall we remove duplicates?? *)
