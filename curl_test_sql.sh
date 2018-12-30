@@ -1,6 +1,6 @@
 #!/bin/bash
 URL_BASE=http://localhost:8000
-URL_ADMIN=$URL_BASE/yaks/local
+URL_ADMIN=$URL_BASE/_admin_/local
 
 
 function GET ()
