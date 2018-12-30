@@ -281,11 +281,10 @@ module AdminSpace = struct
             MVar.return () self
           else
             let fe' = {fe with sessions = SessionMap.remove clientid.sid fe.sessions} in
-            let kvs = KVMap.remove
-              (Path.of_string @@ Printf.sprintf "%s/frontend/%s/session/%s"
-                self.prefix (FeId.to_string clientid.feid) (SessionId.to_string clientid.sid))
-              self.kvs
+            let spath = Path.of_string @@ Printf.sprintf "%s/frontend/%s/session/%s"
+                self.prefix (FeId.to_string clientid.feid) (SessionId.to_string clientid.sid)
             in
+            let kvs = KVMap.filter (fun p _ -> not @@ Path.is_prefix ~affix:spath p) self.kvs in
             MVar.return () { self with frontends = FrontendMap.add clientid.feid fe' self.frontends; kvs }
 
     let get_frontend_session self feid sid =
@@ -418,7 +417,7 @@ module AdminSpace = struct
       let%lwt _ = Logs_lwt.debug (fun m -> m "[Yadm] %s: remove %s" (ClientId.to_string clientid) (Path.to_string path)) in
       let%lwt prefix = MVar.read admin >|= fun self -> self.prefix in
       if Astring.is_prefix ~affix:prefix (Path.to_string path) then
-        match String.split_on_char '/' @@ Astring.with_range ~first:(String.length prefix) (Path.to_string path) with
+        match String.split_on_char '/' @@ Astring.with_range ~first:(String.length prefix+1) (Path.to_string path) with
         | ["frontend"; feid] -> remove_frontend admin feid
         | ["backend"; beid]  -> remove_backend admin beid
         | ["backend"; beid; "storage"; stid] -> remove_storage admin beid stid
