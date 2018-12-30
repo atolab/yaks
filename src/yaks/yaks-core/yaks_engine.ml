@@ -200,28 +200,27 @@ module SEngine = struct
         self.stores
       |> StorageMap.bindings
 
-(*
-   StorageData of {stoid:IOBuf.t; rsn:int; resname:string; data:IOBuf.t}
-   StorageFinal of {stoid:IOBuf.t; rsn:int}
-   ReplyFinal 
-*)
     let remote_query_handler promise mlist sample =
       MVar.guarded mlist 
       @@ fun xs -> 
         match sample with 
-        | Zenoh.StorageData {stoid; rsn=_; resname; data} ->
+        | Zenoh.StorageData {stoid; rsn=_; resname; data} ->                    
           (match 
             let open Apero.Result.Infix in 
             let open Yaks_fe_sock_codec in       
-            decode_string stoid 
-            >>= fun (store_id, _) -> 
-              decode_value data 
-              >>= fun (value, _) -> Ok(store_id, Path.of_string(resname), value)
+            let _ = Logs.debug (fun m -> m ">>> Query Handler Received data for key: %s" resname) in 
+            let store_id = IOBuf.hexdump ~separator:":" stoid in 
+            let _ = Logs.debug (fun m -> m ">>> Query Handler Received data for key: %s from storage %s" resname store_id) in          
+            decode_value data 
+            >>= fun (value, _) -> 
+              let _ = Logs.debug (fun m -> m ">>> Query Handler parsed data for key: %s" resname) in 
+              Ok(store_id, Path.of_string(resname), value)
           with 
           | Ok sample -> MVar.return () (sample::xs)
           | _ -> MVar.return () xs)
         | Zenoh.StorageFinal {stoid; rsn;} -> 
-          let%lwt _ = Logs_lwt.debug (fun m -> m "QUERY HANDLER RECIEVED FROM STORAGE [%-16s:%02i] FINAL\n%!" (IOBuf.hexdump stoid) rsn) in
+          let store_id = IOBuf.hexdump ~separator:":" stoid in 
+          let%lwt _ = Logs_lwt.debug (fun m -> m "QUERY HANDLER RECIEVED FROM STORAGE [%-16s:%02i] FINAL\n%!" (store_id) rsn) in
           MVar.return () xs          
         | Zenoh.ReplyFinal -> 
           let%lwt _ = Logs_lwt.debug (fun m -> m "QUERY HANDLER RECIEVED GLOBAL FINAL\n%!") in
@@ -236,27 +235,32 @@ module SEngine = struct
     let issue_remote_query engine selector =      
       MVar.read engine 
       >>= fun self -> 
-        let path = Selector.get_path selector in 
+        let path = Selector.path selector in 
         let p,r = Lwt.wait () in 
         let mlist = MVar.create [] in 
-        let query =  (Option.get_or_default (Selector.get_query selector) "") in
+        let query =  (Option.get_or_default (Selector.predicate selector) "") in
         let%lwt () = Zenoh.query path query (remote_query_handler r mlist) self.zenoh in
         let open Lwt.Infix in 
         p >|= consolidate_query_result
 
     let serve_remote_query engine selector =
+      let%lwt _ = Logs_lwt.debug (fun m -> m "[YE]: serving remote query for  %s" (Selector.to_string selector)) in
       MVar.read engine 
       >>= fun self ->
-      match Selector.get_query selector with
+      match Selector.predicate selector with
       | Some q when Apero.Astring.get q 0 = '!' ->
-        let%lwt _ = Logs_lwt.debug (fun m -> m "[YE]: get %s from evals" (Selector.to_string selector)) in
+        let%lwt _ = Logs_lwt.debug (fun m -> m "[YE]: Remote query -- get %s from evals" (Selector.to_string selector)) in
         get_on_evals engine selector
       | _ ->
-        let%lwt _ = Logs_lwt.debug (fun m -> m "[YE]: get %s from remote storages" (Selector.to_string selector)) in        
-        get_stores_for_selector self selector
-        |> List.map (fun (_,store) -> Storage.get store selector)
-        |> Apero.LwtM.flatten
-        >|= List.concat
+        let%lwt _ = Logs_lwt.debug (fun m -> m "[YE]: Remote query -- get %s from local storages" (Selector.to_string selector)) in        
+        let%lwt ts = 
+          get_stores_for_selector self selector
+          |> List.map (fun (_,store) -> Storage.get store selector)
+          |> Apero.LwtM.flatten
+          >|= List.concat
+        in 
+          let%lwt _ = Logs_lwt.debug (fun m -> m "[YE]: sending %d tuples" (List.length ts)) in
+          Lwt.return ts
 
     let query_handler engine resname predicate  =       
       match Selector.of_string_opt  (resname ^ predicate) with 
@@ -267,7 +271,7 @@ module SEngine = struct
             (fun (path,value) -> 
               let spath = Path.to_string path in 
               let buf = Result.get  (encode_value value (IOBuf.create ~grow:4096 4096)) in 
-              (spath, buf)) kvs in 
+              (spath, IOBuf.flip buf)) kvs in 
           Lwt.return evs 
       | _ -> 
         let%lwt _ = Logs_lwt.debug (fun m -> m "Unable to resolve query for %s?%s" resname predicate) in 
@@ -417,24 +421,37 @@ module SEngine = struct
     let get engine access_id selector =
       MVar.read engine 
       >>= fun self ->
-      match Selector.get_query selector with
+      match Selector.predicate selector with
       | Some q when Apero.Astring.get q 0 = '!' ->
         let%lwt _ = Logs_lwt.debug (fun m -> m "[YE]: get %s from evals" (Selector.to_string selector)) in
         get_on_evals engine selector
       | _ ->
         let%lwt _ = Logs_lwt.debug (fun m -> m "[YE]: get %s from storages" (Selector.to_string selector)) in
         let%lwt _ = check_access_for_selector self access_id selector in
-        match get_stores_for_selector self selector with 
+        let mstores = get_stores_for_selector self selector in
+        let%lwt _ = Logs_lwt.debug (fun m -> m "Fond %d matching stores" (List.length mstores)) in 
+        match mstores with 
         | [] -> 
           let%lwt _ = Logs_lwt.debug (fun m -> m "[YE]: Did not find matching local stores for get, query network...") in 
           issue_remote_query engine selector 
         | _ as xs -> 
+          let covers: bool =  xs 
+            |> List.map (fun (_, s) -> Selector.of_path (Storage.path s))
+            |> List.map (fun s -> Selector.of_string @@ (Selector.path s) ^ "**")
+            |> List.map (fun s -> Selector.covers s selector) 
+            |> List.fold_left (fun a b -> a && b) true 
+          in 
           let%lwt _ = 
-            Logs_lwt.debug (fun m -> m "[YE]: Found %d matching local stores for get, query network" (List.length xs)) in             
-          xs
-          |> List.map (fun (_,store) -> Storage.get store selector)
-          |> Apero.LwtM.flatten
-          >|= List.concat        
+            Logs_lwt.debug (fun m -> m "[YE]: Found %d matching (covering = %b) local stores for get, query network" (List.length xs) covers) in             
+          let%lwt local_get = xs
+            |> List.map (fun (_,store) -> Storage.get store selector)
+            |> Apero.LwtM.flatten
+            >|= List.concat in 
+          if covers then Lwt.return local_get
+          else 
+            let%lwt remote_get = issue_remote_query engine selector in 
+            Lwt.return (List.append remote_get local_get)              
+            
 
       (* TODO? If in the future we accept Storages with conflicting paths,
         there might be duplicate keys from different Storages in this result.
@@ -480,7 +497,6 @@ module SEngine = struct
         get_stores_for_path self path
         |> List.map (fun (_,store) -> Storage.remove store path) 
         |> Lwt.join
-
   end
 end
 

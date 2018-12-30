@@ -34,7 +34,7 @@ module Storage = struct
   let to_string s = s.as_string
 
   let is_covering_path s path = Path.is_prefix ~affix:s.path path
-  let is_covering_selector s sel = Selector.is_prefixed_by_path s.path sel || Path.to_string s.path = Selector.get_path sel
+  let is_covering_selector s sel = Selector.is_prefixed_by_path s.path sel || Path.to_string s.path = Selector.path sel
 
   let is_conflicting s path = Path.is_prefix ~affix:path s.path || Path.is_prefix ~affix:s.path path
 

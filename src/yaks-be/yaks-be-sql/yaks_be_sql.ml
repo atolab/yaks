@@ -35,7 +35,7 @@ module SQLBE = struct
                       (Selector.to_string selector) (storage_info.table_name)) in
         let open Lwt.Infix in
         let (col_names, typ) = storage_info.schema in
-        Caqti_driver.get C.conx storage_info.table_name typ ?condition:(Selector.get_query selector) ()
+        Caqti_driver.get C.conx storage_info.table_name typ ?condition:(Selector.predicate selector) ()
         >|= List.map (fun row -> storage_info.path, Value.SqlValue (row, Some col_names)) 
       else
         let%lwt _ = Logs_lwt.warn (fun m -> m "[SQL]: Can't get Selector %s in Storage with path %s - the exact Storage path is required"
@@ -108,10 +108,10 @@ module SQLBE = struct
     let to_sql_string s = "'"^s^"'"
 
     let get_kv_condition sub_selector = 
-      let sql_selector = Selector.get_path sub_selector
+      let sql_selector = Selector.path sub_selector
         |> Apero.Astring.replace '*' '%'
       in
-        match Selector.get_query sub_selector with
+        match Selector.predicate sub_selector with
         | Some q -> "k like '"^sql_selector^"' AND "^q
         | None   -> "k like '"^sql_selector^"'"
 
@@ -119,7 +119,7 @@ module SQLBE = struct
       let open Apero.LwtM.InfixM in
       let condition = get_kv_condition sub_selector in
       Caqti_driver.get_keys_kv_table C.conx storage_info.table_name ~condition
-          >|= List.filter (fun k -> Selector.is_matching_path (Path.of_string ~is_absolute:false k) sub_selector)
+          >|= List.filter (fun k -> Selector.is_matching_path (Path.of_string k) sub_selector)
           >|= fun l -> let _ = Logs_lwt.debug (fun m -> m "[SQL]: in %s found matching keys of %s : %s"
                     (storage_info.table_name) (Selector.to_string sub_selector) (String.concat " " l)) in l
 
@@ -135,7 +135,7 @@ module SQLBE = struct
           Caqti_driver.get C.conx storage_info.table_name typ ~condition ()
           (* NOTE: replacing '*' with '%' in LIKE clause gives more keys than we want (as % is similar to %%). We need to filter: *)
           >|= List.filter (fun row -> match row with
-            | k::_::_::[] -> Selector.is_matching_path (Path.of_string ~is_absolute:false k) sub_sel
+            | k::_::_::[] -> Selector.is_matching_path (Path.of_string k) sub_sel
             | _ -> let _ = Logs_lwt.warn (fun m -> m "[SQL]: get in KV table %s returned non k+v+e value: %s" storage_info.table_name (String.concat "," row)) in false
             )
           >|= List.map (fun row -> match row with
