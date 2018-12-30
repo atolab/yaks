@@ -128,8 +128,8 @@ module Engine = struct
     (*   Key/Value operations    *)
     (*****************************)
 
-    let admin_prefix_id = "/yaks/"^(Yid.to_string id)
-    let admin_prefix_local = "/yaks/local"
+    let admin_prefix_id = "/_admin_/"^(Yid.to_string id)
+    let admin_prefix_local = "/_admin_/local"
 
     let check_if_admin_selector sel =
       let pat = Selector.path sel in
