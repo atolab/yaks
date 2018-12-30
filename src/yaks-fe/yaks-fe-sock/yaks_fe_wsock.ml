@@ -3,19 +3,20 @@ open Apero_net
 open Websocket
 open Websocket_lwt
 open Lwt.Infix 
-open Yaks_types
+open Yaks_core
 open Yaks_fe_sock_processor
 open Yaks_fe_sock_codec 
 open Yaks_fe_sock_codes
 open Yaks_fe_sock_types
 
-module Make (YEngine : Yaks_engine.SEngine.S) (MVar: Apero.MVar) = struct 
+module Make (YEngine : Yaks_engine.Engine.S) (MVar: Apero.MVar) = struct 
 
   module Config = Apero_net.NetServiceWebSock.Config
   module P = Processor.Make(YEngine)
 
   type t = {
-    svc: Apero_net.NetServiceWebSock.t
+    feid: FeId.t
+  ; svc: Apero_net.NetServiceWebSock.t
   ; engine : YEngine.t
   ; config : Config.t }
 
@@ -26,6 +27,15 @@ module Make (YEngine : Yaks_engine.SEngine.S) (MVar: Apero.MVar) = struct
   }
 
   type state = state_t MVar.t
+
+  let sessionid_of_source (s:Connected_client.source) =
+    match s with
+    | Connected_client.TCP (ip,port) -> SessionId.of_string @@
+      Printf.sprintf "TCP:%s:%s" (Ipaddr.to_string ip) (string_of_int port)
+    | Connected_client.Domain_socket dom -> SessionId.of_string @@
+      "DOM:"^dom
+    | Connected_client.Vchan flow -> SessionId.of_string @@
+      Printf.sprintf "VCH:%s:%s" (string_of_int flow.domid) flow.port
 
   let send_frame client opcode content = 
     Connected_client.send client
@@ -58,22 +68,25 @@ module Make (YEngine : Yaks_engine.SEngine.S) (MVar: Apero.MVar) = struct
     (fun _ -> fallback path)
 
 
-let dispatch_message wbuf state engine client msg = 
+  let dispatch_message feid wbuf state engine client msg = 
+    let sid = sessionid_of_source @@ Connected_client.source client in
+    let (clientid: ClientId.t) = { feid; sid }  in
     match msg.header.mid with 
-    | OPEN -> P.process_open engine msg 
-    | CREATE -> P.process_create engine msg
-    | DELETE -> P.process_delete engine msg
-    | PUT -> P.process_put engine msg
-    | GET -> P.process_get engine msg 
+    | LOGIN -> P.process_login engine clientid msg 
+    | LOGOUT -> P.process_logout engine clientid msg
+    | WORKSPACE -> P.process_workspace engine clientid msg
+    | PUT -> P.process_put engine clientid msg
+    | GET -> P.process_get engine clientid msg 
+    | DELETE -> P.process_delete engine clientid msg
     | SUB ->       
       let push_sub buf sid ~fallback pvs = 
         let body = YNotification (Yaks_core.SubscriberId.to_string sid, pvs)  in                 
         let h = make_header NOTIFY [] Vle.zero Properties.empty in         
         let msg = make_message h body in         
         Lwt.catch (fun () -> send_msg buf client Frame.Opcode.Binary msg   >|= fun _ -> ()) (fun _ -> fallback sid)
-      in  P.process_sub engine msg (push_sub wbuf)
-    | UNSUB -> P.process_unsub engine msg
-    | EVAL -> P.process_eval engine msg (process_get_on_eval state client wbuf)
+      in  P.process_sub engine clientid msg (push_sub wbuf)
+    | UNSUB -> P.process_unsub engine clientid msg
+    | EVAL -> P.process_eval engine clientid msg (process_get_on_eval state client wbuf)
     | VALUES ->
       MVar.guarded state @@ (fun self ->
       (match WorkingMap.find_opt msg.header.corr_id self.pending_eval_results with 
@@ -82,11 +95,9 @@ let dispatch_message wbuf state engine client msg =
       | None ->
         MVar.return_lwt (P.process_error msg BAD_REQUEST) self)
       )
-
     | _ ->  P.process_error msg BAD_REQUEST
 
-
-  let handler state engine _ wbuf  client =     
+  let handler feid state engine _ wbuf  client =
     Connected_client.recv client 
     >>= fun fr ->
       let close code =
@@ -115,24 +126,24 @@ let dispatch_message wbuf state engine client msg =
           let buf = IOBuf.from_bytes @@ Lwt_bytes.of_string fr.content in 
           (match decode_message buf with 
           | Ok(msg, _) -> 
-            (* Note: return unit as soon as a message is read. 
+           (* Note: return unit as soon as a message is read. 
               The message is dispatched as another promise.
               This is to allow the engine to not block on a GET request that might require to be resolved
               by an incoming VALUES message from an API (in case an Eval matches the GET).
             *) 
-            let _ = dispatch_message wbuf state engine client msg >>= send_msg wbuf client fr.opcode in
+            let _ = dispatch_message feid wbuf state engine client msg >>= send_msg wbuf client fr.opcode in
             Lwt.return_unit
           | Error _ -> close 1000)        
         | _ -> close 1002
 
-  let create config engine =  
+  let create feid config engine =  
     let svc = NetServiceWebSock.make config in 
-    {svc; engine; config}
+    {feid; svc; engine; config}
 
   let start fe  = 
     let _ = Logs_lwt.debug (fun m -> m "[FEWS] WebSock-FE starting server at %s" (WebSockLocator.to_string @@ Config.locator fe.config)) in    
     let state = MVar.create { pending_eval_results=WorkingMap.empty } in
-    NetServiceWebSock.start fe.svc (handler state fe.engine) 
+    NetServiceWebSock.start fe.svc (handler fe.feid state fe.engine) 
   
   let stop fe = NetServiceWebSock.stop fe.svc
 end

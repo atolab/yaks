@@ -1,4 +1,6 @@
-module Make (YEngine : Yaks_engine.SEngine.S) (MVar: Apero.MVar) : sig
+open Yaks_core
+
+module Make (YEngine : Yaks_engine.Engine.S) (MVar: Apero.MVar) : sig
 
   module Config : sig 
     include module type of Apero_net.NetServiceTcp.TcpConfig
@@ -6,7 +8,7 @@ module Make (YEngine : Yaks_engine.SEngine.S) (MVar: Apero.MVar) : sig
 
   type t 
 
-  val create : Config.t -> YEngine.t -> t
+  val create : FeId.t -> Config.t -> YEngine.t -> t
 
   val start : t -> unit Lwt.t
 

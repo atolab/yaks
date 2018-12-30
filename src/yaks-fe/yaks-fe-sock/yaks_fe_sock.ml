@@ -1,13 +1,13 @@
 open Apero
 open Apero_net
 open Lwt.Infix
-open Yaks_types
+open Yaks_core
 open Yaks_fe_sock_codes
 open Yaks_fe_sock_types
 open Yaks_fe_sock_codec
 open Yaks_fe_sock_processor
 
-module Make (YEngine : Yaks_engine.SEngine.S) (MVar: Apero.MVar) = struct 
+module Make (YEngine : Yaks_engine.Engine.S) (MVar: Apero.MVar) = struct 
 
 
   module Config = NetServiceTcp.TcpConfig
@@ -76,13 +76,16 @@ module Make (YEngine : Yaks_engine.SEngine.S) (MVar: Apero.MVar) = struct
 
 
 
-  let dispatch_message state engine tx_sex  msg = 
+  let dispatch_message feid state engine tx_sex  msg = 
+    let sid = TxSession.id tx_sex |> NetService.Id.to_string |> SessionId.of_string in 
+    let (clientid: ClientId.t) = { feid; sid }  in
     match msg.header.mid with 
-    | OPEN -> P.process_open engine msg 
-    | CREATE -> P.process_create engine msg
-    | DELETE -> P.process_delete engine msg
-    | PUT -> P.process_put engine msg
-    | GET -> P.process_get engine msg 
+    | LOGIN -> P.process_login engine clientid msg 
+    | LOGOUT -> P.process_logout engine clientid msg
+    | WORKSPACE -> P.process_workspace engine clientid msg
+    | PUT -> P.process_put engine clientid msg
+    | GET -> P.process_get engine clientid msg 
+    | DELETE -> P.process_delete engine clientid msg
     | SUB -> 
       let sock = TxSession.socket tx_sex in 
       let buf = IOBuf.create Yaks_fe_sock_types.max_msg_size in 
@@ -91,12 +94,12 @@ module Make (YEngine : Yaks_engine.SEngine.S) (MVar: Apero.MVar) = struct
         let h = make_header NOTIFY [] Vle.zero Properties.empty in         
         let msg = make_message h body in         
         Lwt.catch (fun () -> writer buf sock msg >|= fun _ -> ()) (fun _ -> fallback sid)
-      in  P.process_sub engine msg (push_sub buf)
-    | UNSUB -> P.process_unsub engine msg
+      in  P.process_sub engine clientid msg (push_sub buf)
+    | UNSUB -> P.process_unsub engine clientid msg
     | EVAL ->
       let sock = TxSession.socket tx_sex in
       let buf = IOBuf.create Yaks_fe_sock_types.max_msg_size in 
-      P.process_eval engine msg (process_get_on_eval state sock buf)
+      P.process_eval engine clientid msg (process_get_on_eval state sock buf)
     | VALUES ->
       MVar.guarded state @@ (fun self ->
       (match WorkingMap.find_opt msg.header.corr_id self.pending_eval_results with 
@@ -122,10 +125,10 @@ module Make (YEngine : Yaks_engine.SEngine.S) (MVar: Apero.MVar) = struct
         let _ = (dispatcher tx_sex) msg >>= fun reply -> mwriter reply in
       Lwt.return_unit
 
-  let create (conf : Config.t) (engine: YEngine.t) = 
+  let create id (conf : Config.t) (engine: YEngine.t) = 
     let tcp_fe = TcpSocketFE.make conf in
     let state = MVar.create { pending_eval_results=WorkingMap.empty } in
-    let dispatcher = dispatch_message state engine in 
+    let dispatcher = dispatch_message id state engine in 
     let io_svc = fe_service conf dispatcher in (* TxSession.t -> unit -> unit Lwt.t*)
     {tcp_fe; io_svc}
 

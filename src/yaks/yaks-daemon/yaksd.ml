@@ -60,32 +60,32 @@ let add_rest_fe engine http_port =
   YEngine.add_frontend_TMP engine "REST" @@ Properties.singleton "port" (string_of_int http_port) >>= fun _ ->
   YRestFE.start restfe
 
-(* let add_socket_fe engine sock_port =
+let add_socket_fe engine sock_port =
   let module YSockFE = Yaks_fe_sock.Make (YEngine) (Apero.MVar_lwt) in
   let socket_addr = "tcp/0.0.0.0:"^(string_of_int sock_port) in
-  
   let socket_cfg = YSockFE.Config.make (Apero.Option.get @@ Apero_net.TcpLocator.of_string socket_addr) in 
-  let sockfe = YSockFE.create socket_cfg engine in 
-  YSockFE.start sockfe *)
+  let sockfe = YSockFE.create (FeId.of_string "TCP") socket_cfg engine in 
+  YEngine.add_frontend_TMP engine "TCP" @@ Properties.singleton "port" (string_of_int sock_port) >>= fun _ ->
+  YSockFE.start sockfe
 
-(* let add_websock_fe engine wsock_port = 
+let add_websock_fe engine wsock_port = 
   let module WSockFE = Yaks_fe_wsock.Make (YEngine) (Apero.MVar_lwt) in 
   let wsock_addr = "ws/0.0.0.0:"^(string_of_int wsock_port) in  
   let wsock_cfg = WSockFE.Config.make (Apero.Option.get @@ Apero_net.WebSockLocator.of_string wsock_addr) in 
-  let wsfe = WSockFE.create wsock_cfg engine in
-  WSockFE.start wsfe *)
+  let wsfe = WSockFE.create (FeId.of_string "WSOCK") wsock_cfg engine in
+  YEngine.add_frontend_TMP engine "WSOCK" @@ Properties.singleton "port" (string_of_int wsock_port) >>= fun _ ->
+  WSockFE.start wsfe
 
 let run_yaksd without_storage http_port sock_port wsock_port sql_url = 
-  (** **) let _ = ignore sock_port and _ = ignore wsock_port in
   try%lwt
     let engine = YEngine.make () in
     let mem_be = add_mem_be engine in
     let sql_be = add_sql_be engine sql_url in
     let def_store = add_default_storage engine without_storage >>= fun _ -> Lwt.return_unit in
     let rest_fe = add_rest_fe engine http_port in
-    (* let sock_fe = add_socket_fe engine sock_port in
-    let wsock_fe = add_websock_fe engine wsock_port in  *)
-    Lwt.join [mem_be; sql_be; def_store; rest_fe(*; sock_fe; wsock_fe*)]
+    let sock_fe = add_socket_fe engine sock_port in
+    let wsock_fe = add_websock_fe engine wsock_port in
+    Lwt.join [mem_be; sql_be; def_store; rest_fe; sock_fe; wsock_fe]
   with 
   | YException e  -> 
     Logs_lwt.err (fun m -> m "Exception %s raised:\n%s" (show_yerror e) (Printexc.get_backtrace ())) >> Lwt.return_unit
