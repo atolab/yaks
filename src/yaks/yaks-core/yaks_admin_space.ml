@@ -23,13 +23,16 @@ module AdminSpace = struct
 
     val create_subscriber : t -> ClientId.t -> Selector.t -> bool -> notify_subscriber -> SubscriberId.t Lwt.t  
     val remove_subscriber : t -> ClientId.t -> SubscriberId.t -> unit Lwt.t  
+    val notify_subscribers : t -> Path.t -> Value.t -> unit Lwt.t
+
+    val create_eval : t -> ClientId.t -> Path.t -> get_on_eval -> unit Lwt.t
+    val remove_eval : t -> ClientId.t -> Path.t -> unit Lwt.t
+    val get_on_evals : t -> ClientId.t -> Selector.t -> (Path.t * Value.t) list  Lwt.t
 
     val get_workspace_path : t -> ClientId.t -> WsId.t -> Path.t Lwt.t
 
     val get_storages_for_path : t -> Path.t -> Storage.t list Lwt.t
     val get_storages_for_selector : t -> Selector.t -> Storage.t list Lwt.t
-
-    val notify_subscribers : t -> Path.t -> Value.t -> unit Lwt.t
 
     (* TODO: Temporary operations that should be replaced by put/get/remove usage *)
     val add_backend_TMP : t -> (module Backend) -> unit Lwt.t
@@ -59,7 +62,6 @@ module AdminSpace = struct
      ; ws : Path.t WsMap.t
      ; lastWsid: WsId.t
      ; subs : subscriber SubscriberMap.t
-     ; evals : get_on_eval EvalMap.t
      }
 
     type frontend =
@@ -77,6 +79,7 @@ module AdminSpace = struct
       ; prefix : string   (* prefix used in admin space: "/_admin_/yid" *)
       ; frontends : frontend FrontendMap.t
       ; backends : backend BackendMap.t
+      ; evals : get_on_eval EvalMap.t
       ; kvs : Value.t KVMap.t
       }
 
@@ -97,6 +100,7 @@ module AdminSpace = struct
         ; prefix
         ; frontends = FrontendMap.empty
         ; backends = BackendMap.empty
+        ; evals = EvalMap.empty
         ; kvs
         }
 
@@ -260,7 +264,7 @@ module AdminSpace = struct
           if SessionMap.mem clientid.sid fe.sessions then
             MVar.return_lwt (Lwt.fail @@ YException (`InternalError (`Msg ("Already existing session: "^sid)))) self
           else
-            let s = { properties; ws=WsMap.empty; lastWsid=WsId.zero ;subs=SubscriberMap.empty; evals=EvalMap.empty } in
+            let s = { properties; ws=WsMap.empty; lastWsid=WsId.zero ;subs=SubscriberMap.empty } in
             let fe' = {fe with sessions = SessionMap.add clientid.sid s fe.sessions} in
             let kvs = KVMap.add
               (Path.of_string @@ Printf.sprintf "%s/frontend/%s/session/%s" self.prefix feid sid)
@@ -368,7 +372,45 @@ module AdminSpace = struct
       MVar.read admin >|= (fun self ->
       FrontendMap.iter (fun _ fe -> iter_frontend fe) self.frontends)
 
- 
+    (*****************************)
+    (*     evals management      *)
+    (*****************************)
+    let create_eval admin (clientid:ClientId.t) path get_on_eval =
+      Logs_lwt.debug (fun m -> m "[Yadm] %s: create_eval %s" (ClientId.to_string clientid) (Path.to_string path)) >>
+      MVar.guarded admin 
+      @@ fun self ->
+        let kvs = KVMap.add
+          (Path.of_string @@ Printf.sprintf "%s/eval/%s"
+            self.prefix (Path.to_string path))
+          (Value.PropertiesValue (Properties.singleton "session" (Printf.sprintf "%s/frontend/%s/session/%s" self.prefix (FeId.to_string clientid.feid) (SessionId.to_string clientid.sid))))
+          self.kvs
+        in
+        MVar.return () { self with evals = EvalMap.add path get_on_eval self.evals; kvs }
+
+    let remove_eval admin (clientid:ClientId.t) path =
+      Logs_lwt.debug (fun m -> m "[Yadm] %s: remove_eval %s" (ClientId.to_string clientid) (Path.to_string path)) >>
+      MVar.guarded admin 
+      @@ fun self ->
+        let kvs = KVMap.remove
+          (Path.of_string @@ Printf.sprintf "%s/eval/%s"
+            self.prefix (Path.to_string path))
+          self.kvs
+        in
+        MVar.return () { self with evals = EvalMap.remove path self.evals; kvs}
+
+    let get_on_evals admin (clientid:ClientId.t) sel =
+      let fallback path =
+        remove_eval admin clientid path >>= fun _ ->
+        Lwt.return @@ Value.StringValue
+          (Printf.sprintf "Error calling get(%s) on eval(%s): Eval implementer was removed"
+          (Selector.to_string sel) (Path.to_string path))
+      in
+      let call_eval path (get_on_eval:get_on_eval) = get_on_eval path sel ~fallback
+      in
+      MVar.read admin >>= fun self ->
+      let evals = EvalMap.filter (fun path _ -> Selector.is_matching_path path sel) self.evals in
+      EvalMap.mapi call_eval evals |> EvalMap.bindings |> List.map (fun (p,v) -> v >|= (fun v -> (p,v))) |> LwtM.flatten
+
 
     (*****************************)
     (* get/put/remove operations *)
