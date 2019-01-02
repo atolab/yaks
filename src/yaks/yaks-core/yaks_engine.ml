@@ -40,12 +40,8 @@ module Engine = struct
 
     module YAdminSpace = Yaks_admin_space.AdminSpace.Make(MVar)
 
-    module EvalMap = Map.Make (Path)
-
     type state =
-      { admin : YAdminSpace.t 
-      ; evals : get_on_eval EvalMap.t
-      }
+      { admin : YAdminSpace.t }
 
     type t = state MVar.t
 
@@ -54,9 +50,7 @@ module Engine = struct
     let make () =
       let _ = Logs_lwt.debug (fun m -> m "Creating Engine\n") in 
       MVar.create 
-        { admin = YAdminSpace.make id
-        ; evals = EvalMap.empty
-        }
+        { admin = YAdminSpace.make id }
 
     
     let to_absolute_path engine clientid ?workspace path =
@@ -111,17 +105,7 @@ module Engine = struct
       (* TODO: access control *)
       let%lwt pat = to_absolute_path engine clientid ?workspace path in
       let%lwt _ = Logs_lwt.debug (fun m -> m "[Yeng]: eval %s" (Path.to_string pat)) in
-      (MVar.guarded engine 
-      @@ fun self ->         
-        let evals' = EvalMap.add pat get_on_eval self.evals in 
-        MVar.return () {self with evals = evals'} )
-
-    let remove_eval engine path =
-      (* Note: this function is called via remove function which ensure the path is absolute *)
-      (MVar.guarded engine 
-      @@ fun self ->         
-        let evals' = EvalMap.remove path self.evals in 
-        MVar.return () {self with evals = evals'} )
+      MVar.read engine >>= fun self -> YAdminSpace.create_eval self.admin clientid pat get_on_eval
 
 
     (*****************************)
@@ -155,20 +139,6 @@ module Engine = struct
       else
         None
 
-
-    let get_on_evals engine sel =
-      let fallback path =
-        remove_eval engine path >>= fun _ ->
-        Lwt.return @@ Value.StringValue
-          (Printf.sprintf "Error calling get(%s) on eval(%s): Access was removed"
-          (Selector.to_string sel) (Path.to_string path))
-      in
-      let call_eval path (get_on_eval:get_on_eval) = get_on_eval path sel ~fallback
-      in
-      MVar.read engine >>= fun self ->
-      let evals = EvalMap.filter (fun path _ -> Selector.is_matching_path path sel) self.evals in
-      EvalMap.mapi call_eval evals |> EvalMap.bindings |> List.map (fun (p,v) -> v >|= (fun v -> (p,v))) |> LwtM.flatten
-
     let get engine client ?quorum ?workspace sel =
       (* TODO: access control *)
       (* TODO: transport with quorum *)
@@ -180,7 +150,8 @@ module Engine = struct
         match Selector.properties sel with
         | Some _ ->
           let%lwt _ = Logs_lwt.debug (fun m -> m "[Yeng]: get %s with properties => forward to evals" (Selector.to_string sel)) in
-          get_on_evals engine sel
+          MVar.read engine >>= fun self ->
+          YAdminSpace.get_on_evals self.admin client sel
         | None ->
           let%lwt _ = Logs_lwt.debug (fun m -> m "[Yeng]: get %s => query storages" (Selector.to_string sel)) in
           MVar.read engine >>= fun self ->
@@ -229,15 +200,10 @@ module Engine = struct
       match check_if_admin_path path with
       | Some path -> MVar.read engine >>= fun self -> YAdminSpace.remove self.admin client path
       | None ->
-        match EvalMap.find_opt path self.evals with
-        | Some _ ->
-          let%lwt _ = Logs_lwt.debug (fun m -> m "[Yeng]: remove %s (eval)" (Path.to_string path)) in
-          (MVar.guarded engine 
-          @@ fun self ->         
-            let evals' = EvalMap.remove path self.evals in 
-            MVar.return () {self with evals = evals'} )
-        | None ->
+        (* NOTE: the engine doesnt know if the path to remove is an eval or belongs to some storages... *)
+        (* Therefore, it tries to remove the path as an eval anyway, since it doesn't harm if it's not an eval *)
           let%lwt _ = Logs_lwt.debug (fun m -> m "[Yeng]: remove %s" (Path.to_string path)) in
+          YAdminSpace.remove_eval self.admin client path >>= fun () ->
           YAdminSpace.get_storages_for_path self.admin path
           >>= Lwt_list.iter_p (fun store -> Storage.remove store path)
 
