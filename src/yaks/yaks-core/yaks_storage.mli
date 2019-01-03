@@ -7,7 +7,7 @@ module Storage : sig
 
   type t 
 
-  val make : Path.t -> properties ->
+  val make : Selector.t -> properties ->
     (unit -> unit Lwt.t) ->
     (Selector.t -> (Path.t * Value.t) list Lwt.t) ->
     (Path.t -> Value.t -> unit Lwt.t) ->
@@ -18,7 +18,7 @@ module Storage : sig
 
   val id : t -> Id.t
   val alias : t -> string option
-  val path : t -> Path.t
+  val selector : t -> Selector.t
   val properties : t -> properties
 
   val to_string : t -> string
@@ -28,9 +28,6 @@ module Storage : sig
    stored by [s]) *)
   val is_covering_selector : t -> Selector.t -> bool
   (** [is_covering_selector s sel] tests if [s] covers the Selector [sel] (i.e. if [sel] might match some path stored by [s]) *)
-
-  val is_conflicting : t -> Path.t -> bool
-  (** [is_conflicting s path] tests if [s]' path and [path] have an intersection *)
 
   val get : t -> Selector.t -> (Path.t * Value.t) list Lwt.t
 

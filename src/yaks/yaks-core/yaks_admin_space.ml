@@ -146,15 +146,15 @@ module AdminSpace = struct
 
 
     let create_storage admin ?beid stid properties =
-      (* get "path" from properties *)
-      let%lwt path = match Properties.find_opt "path" properties with
-        | None -> Lwt.fail @@ YException (`InternalError (`Msg ("create_storage "^stid^" without 'path' in properties")))
-        | Some p -> (match Path.of_string_opt p with 
-          | None -> Lwt.fail @@ YException (`InternalError (`Msg ("create_storage "^stid^" with invalid 'path': "^p)))
-          | Some p' -> Lwt.return p')
+      (* get "selector" from properties *)
+      let%lwt selector = match Properties.find_opt "selector" properties with
+        | None -> Lwt.fail @@ YException (`InternalError (`Msg ("create_storage "^stid^" without 'selector' in properties")))
+        | Some s -> (match Selector.of_string_opt s with 
+          | None -> Lwt.fail @@ YException (`InternalError (`Msg ("create_storage "^stid^" with invalid 'selector': "^s)))
+          | Some s' -> Lwt.return s')
       in
       let storageId = StorageId.of_string stid in
-      Logs_lwt.debug (fun m -> m "[Yadm] create_storage %s on %s" stid (Path.to_string path)) >>
+      Logs_lwt.debug (fun m -> m "[Yadm] create_storage %s on %s" stid (Selector.to_string selector)) >>
       MVar.guarded admin
       @@ fun self ->
       (* get backend from beid or a compatible one if beid is not set *)
@@ -177,7 +177,7 @@ module AdminSpace = struct
         (* create storage and add it to self state *)
         let module BE = (val be.beModule: Backend) in
         let%lwt _ = Logs_lwt.debug (fun m -> m "[Yadm]: create_storage %s using Backend %s" stid (BE.to_string)) in
-        let%lwt storage = BE.create_storage path properties in
+        let%lwt storage = BE.create_storage selector properties in
         let be' = { be with storages = StorageMap.add storageId storage be.storages } in
         let kvs = KVMap.add
           (Path.of_string @@ Printf.sprintf "%s/backend/%s/storage/%s" self.prefix (BeId.to_string beid') stid)
@@ -196,9 +196,15 @@ module AdminSpace = struct
         | None -> Lwt.fail @@ YException (`InternalError (`Msg ("No backend with id: "^beid)))
         | Some be -> Lwt.return be
       in
-      let be' = { be with storages = StorageMap.remove stid' be.storages } in
-      let kvs = KVMap.remove (Path.of_string @@ Printf.sprintf "%s/backend/%s/storage/%s" self.prefix beid stid) self.kvs in
-      MVar.return () { self with backends = BackendMap.add beid' be' self.backends; kvs}
+      match StorageMap.find_opt stid' be.storages with
+      | Some s ->
+        Storage.dispose s >>
+        let be' = { be with storages = StorageMap.remove stid' be.storages } in
+        let kvs = KVMap.remove (Path.of_string @@ Printf.sprintf "%s/backend/%s/storage/%s" self.prefix beid stid) self.kvs in
+        MVar.return () { self with backends = BackendMap.add beid' be' self.backends; kvs}
+      | None -> 
+        Logs_lwt.debug (fun m -> m "[Yadm] storage %s/%s not found... ignore remove request" beid stid) >>
+        MVar.return () self
 
 
     let get_storages_for_path admin path =

@@ -8,7 +8,7 @@ module type Backend = sig
   val properties : properties
   val to_string : string
 
-  val create_storage : Path.t -> properties -> Storage.t Lwt.t
+  val create_storage : Selector.t -> properties -> Storage.t Lwt.t
 end
 
 module type BackendFactory  = sig 
