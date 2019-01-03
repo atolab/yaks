@@ -65,8 +65,8 @@ module MainMemoryBE = struct
         (fun _ -> Lwt.return (Lwt.return_unit, SMap.empty))        
 
 
-    let create_storage path props =
-      Lwt.return @@ Storage.make path props dispose get put update remove
+    let create_storage selector props =
+      Lwt.return @@ Storage.make selector props dispose get put update remove
   end
 end 
 

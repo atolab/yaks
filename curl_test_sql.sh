@@ -27,13 +27,13 @@ GET $URL_ADMIN/**
 echo ">"; read
 
 # Create memory storage
-PUT $URL_ADMIN/backend/Memory/storage/s1 '{"path":"/is/test/mem"}' 
+PUT $URL_ADMIN/backend/Memory/storage/s1 '{"selector":"/is/test/mem/**"}' 
 
 # Create SQL storage on legacy table "test"
-PUT $URL_ADMIN/backend/SQL/storage/s2 '{"path":"/is/test/db/leg-table","is.yaks.backend.sql.table":"test"}' 
+PUT $URL_ADMIN/backend/SQL/storage/s2 '{"selector":"/is/test/db/leg-table","is.yaks.backend.sql.table":"test"}' 
 
 # Create "auto" storage (using kind=dbms) on on a new key/value
-PUT $URL_ADMIN/backend/auto/storage/s3 '{"path":"/is/test/db/new-table","is.yaks.backend.kind":"dbms","is.yaks.backend.sql.on_dispose":"drop"}'
+PUT $URL_ADMIN/backend/auto/storage/s3 '{"selector":"/is/test/db/new-table/**","is.yaks.backend.kind":"dbms","is.yaks.backend.sql.on_dispose":"drop"}'
 
 # Get all from admin space
 GET $URL_ADMIN/**
@@ -66,4 +66,11 @@ GET $URL_BASE/is/test/db/new-table/A/*
 echo "==== Tests on legacy table (/is/test/db/leg-table)"
 GET $URL_BASE/is/test/db/leg-table
 echo ">"; read
+
+####### DISPOSE ALL #######
+echo "==== DISPOSE ALL"
+DEL $URL_ADMIN/backend/Memory/storage/s1
+DEL $URL_ADMIN/backend/SQL/storage/s2
+DEL $URL_ADMIN/backend/SQL/storage/s3
+GET $URL_ADMIN/**
 

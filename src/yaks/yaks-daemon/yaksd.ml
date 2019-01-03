@@ -9,7 +9,7 @@ let max_buf_len = 64 * 1024
 
 
 let without_storage = Arg.(value & flag & info ["w"; "without-storage"] ~docv:"true|false"
-                             ~doc:"If true, disable the creation at startup of a default memory storage with '//' as path")
+                             ~doc:"If true, disable the creation at startup of a default memory storage with '/**' as selector")
 let http_port = Arg.(value & opt int 8000 & info ["h"; "http-port"] ~docv:"PORT"
                        ~doc:"HTTP port used by the REST front-end")
 let sock_port = Arg.(value & opt int 7887 & info ["s"; "sock-port"] ~docv:"PORT"
@@ -49,7 +49,7 @@ let add_sql_be engine sql_url =
 let add_default_storage engine without_storage =
   if not without_storage then 
     let path = "/_admin_/local/backend/Memory/storage/default" in
-    let props = Properties.singleton "path" "/" in
+    let props = Properties.singleton "selector" "/**" in
     YEngine.put engine local_client_id (Path.of_string path) (Value.PropertiesValue props)
   else Lwt.return_unit
 
