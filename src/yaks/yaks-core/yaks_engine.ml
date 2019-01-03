@@ -151,7 +151,8 @@ module Engine = struct
         | Some _ ->
           let%lwt _ = Logs_lwt.debug (fun m -> m "[Yeng]: get %s with properties => forward to evals" (Selector.to_string sel)) in
           MVar.read engine >>= fun self ->
-          YAdminSpace.get_on_evals self.admin client sel
+          YAdminSpace.get_on_evals self.admin client 1 sel
+          >|= List.map (fun (p,values) -> p, (List.hd values))    (* TODO: implement quorum reconciliation *)
         | None ->
           let%lwt _ = Logs_lwt.debug (fun m -> m "[Yeng]: get %s => query storages" (Selector.to_string sel)) in
           MVar.read engine >>= fun self ->

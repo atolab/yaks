@@ -27,7 +27,7 @@ module AdminSpace = struct
 
     val create_eval : t -> ClientId.t -> Path.t -> get_on_eval -> unit Lwt.t
     val remove_eval : t -> ClientId.t -> Path.t -> unit Lwt.t
-    val get_on_evals : t -> ClientId.t -> Selector.t -> (Path.t * Value.t) list  Lwt.t
+    val get_on_evals : t -> ClientId.t -> int -> Selector.t -> (Path.t * Value.t list) list  Lwt.t
 
     val get_workspace_path : t -> ClientId.t -> WsId.t -> Path.t Lwt.t
 
@@ -58,11 +58,12 @@ module AdminSpace = struct
       }
 
     type session =
-     { properties: properties
-     ; ws : Path.t WsMap.t
-     ; lastWsid: WsId.t
-     ; subs : subscriber SubscriberMap.t
-     }
+      { properties: properties
+      ; ws : Path.t WsMap.t
+      ; lastWsid: WsId.t
+      ; subs : subscriber SubscriberMap.t
+      ; evals : get_on_eval EvalMap.t
+      }
 
     type frontend =
       { properties : properties
@@ -79,7 +80,6 @@ module AdminSpace = struct
       ; prefix : string   (* prefix used in admin space: "/_admin_/yid" *)
       ; frontends : frontend FrontendMap.t
       ; backends : backend BackendMap.t
-      ; evals : get_on_eval EvalMap.t
       ; kvs : Value.t KVMap.t
       }
 
@@ -100,7 +100,6 @@ module AdminSpace = struct
         ; prefix
         ; frontends = FrontendMap.empty
         ; backends = BackendMap.empty
-        ; evals = EvalMap.empty
         ; kvs
         }
 
@@ -270,7 +269,7 @@ module AdminSpace = struct
           if SessionMap.mem clientid.sid fe.sessions then
             MVar.return_lwt (Lwt.fail @@ YException (`InternalError (`Msg ("Already existing session: "^sid)))) self
           else
-            let s = { properties; ws=WsMap.empty; lastWsid=WsId.zero ;subs=SubscriberMap.empty } in
+            let s = { properties; ws=WsMap.empty; lastWsid=WsId.zero; subs=SubscriberMap.empty; evals=EvalMap.empty } in
             let fe' = {fe with sessions = SessionMap.add clientid.sid s fe.sessions} in
             let kvs = KVMap.add
               (Path.of_string @@ Printf.sprintf "%s/frontend/%s/session/%s" self.prefix feid sid)
@@ -345,7 +344,7 @@ module AdminSpace = struct
         let subid = SubscriberId.next_id () in
         let sub = {selector; is_push; notifier} in
         let s' = { s with subs = SubscriberMap.add subid sub s.subs } in
-        let fe' = {fe with sessions = SessionMap.add clientid.sid s' fe.sessions} in
+        let fe' = { fe with sessions = SessionMap.add clientid.sid s' fe.sessions } in
         let kvs = KVMap.add
           (Path.of_string @@ Printf.sprintf "%s/frontend/%s/session/%s/subscriber/%s"
             self.prefix (FeId.to_string clientid.feid) (SessionId.to_string clientid.sid) (SubscriberId.to_string subid))
@@ -359,7 +358,7 @@ module AdminSpace = struct
       @@ fun self ->
         let%lwt (fe, s) = get_frontend_session self clientid.feid clientid.sid in
         let s' = { s with subs = SubscriberMap.remove subid s.subs } in
-        let fe' = {fe with sessions = SessionMap.add clientid.sid s' fe.sessions} in
+        let fe' = { fe with sessions = SessionMap.add clientid.sid s' fe.sessions } in
         let kvs = KVMap.remove
           (Path.of_string @@ Printf.sprintf "%s/frontend/%s/session/%s/subscriber/%s"
             self.prefix (FeId.to_string clientid.feid) (SessionId.to_string clientid.sid) (SubscriberId.to_string subid))
@@ -385,37 +384,50 @@ module AdminSpace = struct
       Logs_lwt.debug (fun m -> m "[Yadm] %s: create_eval %s" (ClientId.to_string clientid) (Path.to_string path)) >>
       MVar.guarded admin 
       @@ fun self ->
+        let%lwt (fe, s) = get_frontend_session self clientid.feid clientid.sid in
+        let s' = { s with evals = EvalMap.add path get_on_eval s.evals } in
+        let fe' = {fe with sessions = SessionMap.add clientid.sid s' fe.sessions} in
         let kvs = KVMap.add
-          (Path.of_string @@ Printf.sprintf "%s/eval/%s"
-            self.prefix (Path.to_string path))
-          (Value.PropertiesValue (Properties.singleton "session" (Printf.sprintf "%s/frontend/%s/session/%s" self.prefix (FeId.to_string clientid.feid) (SessionId.to_string clientid.sid))))
+          (Path.of_string @@ Printf.sprintf "%s/frontend/%s/session/%s/eval/%s"
+            self.prefix (FeId.to_string clientid.feid) (SessionId.to_string clientid.sid) (Path.to_string path))
+          empty_props_value
           self.kvs
         in
-        MVar.return () { self with evals = EvalMap.add path get_on_eval self.evals; kvs }
+        MVar.return () { self with frontends = FrontendMap.add clientid.feid fe' self.frontends; kvs}
 
     let remove_eval admin (clientid:ClientId.t) path =
       Logs_lwt.debug (fun m -> m "[Yadm] %s: remove_eval %s" (ClientId.to_string clientid) (Path.to_string path)) >>
       MVar.guarded admin 
       @@ fun self ->
+        let%lwt (fe, s) = get_frontend_session self clientid.feid clientid.sid in
+        let s' = { s with evals = EvalMap.remove path s.evals } in
+        let fe' = { fe with sessions = SessionMap.add clientid.sid s' fe.sessions } in
         let kvs = KVMap.remove
-          (Path.of_string @@ Printf.sprintf "%s/eval/%s"
-            self.prefix (Path.to_string path))
+          (Path.of_string @@ Printf.sprintf "%s/frontend/%s/session/%s/eval/%s"
+            self.prefix (FeId.to_string clientid.feid) (SessionId.to_string clientid.sid) (Path.to_string path))
           self.kvs
         in
-        MVar.return () { self with evals = EvalMap.remove path self.evals; kvs}
+        MVar.return () { self with frontends = FrontendMap.add clientid.feid fe' self.frontends; kvs}
 
-    let get_on_evals admin (clientid:ClientId.t) sel =
+    let get_on_evals admin (clientid:ClientId.t) quorum sel =
       let fallback path =
         remove_eval admin clientid path >>= fun _ ->
         Lwt.return @@ Value.StringValue
           (Printf.sprintf "Error calling get(%s) on eval(%s): Eval implementer was removed"
           (Selector.to_string sel) (Path.to_string path))
       in
-      let call_eval path (get_on_eval:get_on_eval) = get_on_eval path sel ~fallback
+      let add_eval p e m = if EvalMap.mem p m then EvalMap.add p (e::EvalMap.find p m) m else EvalMap.add p (e::[]) m in
+      let fold_session s m = EvalMap.fold (fun p e m -> if Selector.is_matching_path p sel then add_eval p e m else m) s.evals m in
+      let fold_frontend f m = SessionMap.fold (fun _ s m -> fold_session s m) f.sessions m in
+      let rec call_evals path evals quorum = match quorum with
+        | 0 -> []
+        | _ -> ((List.hd evals) path sel ~fallback)::(call_evals path (List.tl evals) (quorum-1))   (* TODO: call a random eval instead of the 1st in list *)
       in
       MVar.read admin >>= fun self ->
-      let evals = EvalMap.filter (fun path _ -> Selector.is_matching_path path sel) self.evals in
-      EvalMap.mapi call_eval evals |> EvalMap.bindings |> List.map (fun (p,v) -> v >|= (fun v -> (p,v))) |> LwtM.flatten
+        FrontendMap.fold (fun _ fe m -> fold_frontend fe m) self.frontends EvalMap.empty |>
+        EvalMap.bindings |>
+        List.map (fun (p,l) -> call_evals p l (max quorum @@ List.length l) |> LwtM.flatten >>= fun l' -> Lwt.return (p,l'))
+        |> LwtM.flatten
 
 
     (*****************************)

@@ -25,7 +25,7 @@ module AdminSpace : sig
 
     val create_eval : t -> ClientId.t -> Path.t -> get_on_eval -> unit Lwt.t
     val remove_eval : t -> ClientId.t -> Path.t -> unit Lwt.t
-    val get_on_evals : t -> ClientId.t -> Selector.t -> (Path.t * Value.t) list  Lwt.t
+    val get_on_evals : t -> ClientId.t -> int -> Selector.t -> (Path.t * Value.t list) list  Lwt.t
 
     val get_workspace_path : t -> ClientId.t -> WsId.t -> Path.t Lwt.t
 
