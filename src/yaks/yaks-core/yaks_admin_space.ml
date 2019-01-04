@@ -411,7 +411,7 @@ module AdminSpace = struct
 
     let get_on_evals admin (clientid:ClientId.t) quorum sel =
       let fallback path =
-        remove_eval admin clientid path >>= fun _ ->
+        remove_eval admin local_client path >>= fun _ ->
         Lwt.return @@ Value.StringValue
           (Printf.sprintf "Error calling get(%s) on eval(%s): Eval implementer was removed"
           (Selector.to_string sel) (Path.to_string path))
