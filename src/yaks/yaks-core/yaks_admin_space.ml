@@ -77,7 +77,7 @@ module AdminSpace = struct
 
     type state =
       { yid : Uuid.t  
-      ; prefix : string   (* prefix used in admin space: "/_admin_/yid" *)
+      ; prefix : string   (* prefix used in admin space: "/@/yid" *)
       ; frontends : frontend FrontendMap.t
       ; backends : backend BackendMap.t
       ; kvs : Value.t KVMap.t
@@ -90,7 +90,7 @@ module AdminSpace = struct
     let empty_props_value = Value.PropertiesValue Properties.empty
 
     let make yid =
-      let prefix = "/_admin_/"^(Uuid.to_string yid) in
+      let prefix = "/@/"^(Uuid.to_string yid) in
       let _ = Logs_lwt.debug (fun m -> m "Create Yaks %s admin space\n" prefix) in
       let kvs = KVMap.empty
         |> KVMap.add (Path.of_string prefix) empty_props_value

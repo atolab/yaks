@@ -29,7 +29,9 @@ module Engine = struct
     val subscribe : t -> ClientId.t -> ?workspace:WsId.t -> Selector.t -> bool -> notify_subscriber -> SubscriberId.t Lwt.t  
     val unsubscribe : t -> ClientId.t -> SubscriberId.t -> unit Lwt.t  
 
-    val eval : t -> ClientId.t -> ?workspace:WsId.t -> Path.t -> get_on_eval -> unit Lwt.t
+    val register_eval : t -> ClientId.t -> ?workspace:WsId.t -> Path.t -> get_on_eval -> unit Lwt.t
+    val unregister_eval : t -> ClientId.t -> ?workspace:WsId.t -> Path.t -> unit Lwt.t
+    val eval : t -> ClientId.t -> ?multiplicity:int -> ?workspace:WsId.t -> Selector.t -> (Path.t * Value.t) list  Lwt.t
 
     (* TODO: Temporary operations that should be replaced by put/get/remove usage *)
     val add_backend_TMP : t -> (module Backend) -> unit Lwt.t
@@ -101,28 +103,45 @@ module Engine = struct
     (****************************)
     (*     Eval management      *)
     (****************************)
-    let eval engine clientid ?workspace path get_on_eval =
+    let register_eval engine clientid ?workspace path get_on_eval =
       (* TODO: access control *)
       let%lwt pat = to_absolute_path engine clientid ?workspace path in
-      let%lwt _ = Logs_lwt.debug (fun m -> m "[Yeng]: eval %s" (Path.to_string pat)) in
+      let%lwt _ = Logs_lwt.debug (fun m -> m "[Yeng]: register_eval %s" (Path.to_string pat)) in
       MVar.read engine >>= fun self -> YAdminSpace.create_eval self.admin clientid pat get_on_eval
+
+    let unregister_eval engine clientid ?workspace path =
+      (* TODO: access control *)
+      let%lwt pat = to_absolute_path engine clientid ?workspace path in
+      let%lwt _ = Logs_lwt.debug (fun m -> m "[Yeng]: unregister_eval %s" (Path.to_string pat)) in
+      MVar.read engine >>= fun self -> YAdminSpace.remove_eval self.admin clientid pat
+
+    let eval engine client ?multiplicity ?workspace sel =
+      (* TODO: access control *)
+      (* TODO: transport with multiplicity *)
+      let _ = ignore multiplicity in
+      let%lwt sel = to_absolute_selector engine client ?workspace sel in
+      let%lwt _ = Logs_lwt.debug (fun m -> m "[Yeng]: eval %s" (Selector.to_string sel)) in
+      MVar.read engine >>= fun self ->
+      YAdminSpace.get_on_evals self.admin client 1 sel
+      >|= List.map (fun (p,values) -> p, (List.hd values))    (* TODO: implement multiplicity *)
 
 
     (*****************************)
     (*   Key/Value operations    *)
     (*****************************)
-
-    let admin_prefix_id = "/_admin_/"^(Yid.to_string id)
-    let admin_prefix_local = "/_admin_/local"
+    let admin_prefix_id = "/@/"^(Yid.to_string id)
+    let admin_prefix_local = "/@/local"
 
     let check_if_admin_selector sel =
       let pat = Selector.path sel in
       if Astring.is_prefix ~affix:admin_prefix_local pat then
+        (* if path starts with /@/local, convert to /@/my_yid *)
         Astring.with_range ~first:(String.length admin_prefix_local) pat
         |> Astring.append admin_prefix_id
         |> Selector.of_string
         |> Option.return
       else if Astring.is_prefix ~affix:admin_prefix_id pat then
+        (* if path starts with /@/my_yid *)
         Some sel
       else
         None
@@ -130,11 +149,13 @@ module Engine = struct
     let check_if_admin_path path =
       let pat = Path.to_string path in
       if Astring.is_prefix ~affix:admin_prefix_local pat then
+        (* if path starts with /@/local, convert to /@/my_yid *)
         Astring.with_range ~first:(String.length admin_prefix_local) pat
         |> Astring.append admin_prefix_id
         |> Path.of_string
         |> Option.return
       else if Astring.is_prefix ~affix:admin_prefix_id pat then
+        (* if path starts with /@/my_yid *)
         Some path
       else
         None
@@ -147,19 +168,12 @@ module Engine = struct
       match check_if_admin_selector sel with
       | Some sel -> MVar.read engine >>= fun self -> YAdminSpace.get self.admin client sel
       | None ->
-        match Selector.properties sel with
-        | Some _ ->
-          let%lwt _ = Logs_lwt.debug (fun m -> m "[Yeng]: get %s with properties => forward to evals" (Selector.to_string sel)) in
-          MVar.read engine >>= fun self ->
-          YAdminSpace.get_on_evals self.admin client 1 sel
-          >|= List.map (fun (p,values) -> p, (List.hd values))    (* TODO: implement quorum reconciliation *)
-        | None ->
-          let%lwt _ = Logs_lwt.debug (fun m -> m "[Yeng]: get %s => query storages" (Selector.to_string sel)) in
-          MVar.read engine >>= fun self ->
-          YAdminSpace.get_storages_for_selector self.admin sel
-          >>= fun storages -> List.map (fun store -> Storage.get store sel) storages
-          |> Apero.LwtM.flatten
-          >|= List.concat
+        let%lwt _ = Logs_lwt.debug (fun m -> m "[Yeng]: get %s => query storages" (Selector.to_string sel)) in
+        MVar.read engine >>= fun self ->
+        YAdminSpace.get_storages_for_selector self.admin sel
+        >>= fun storages -> List.map (fun store -> Storage.get store sel) storages
+        |> Apero.LwtM.flatten
+        >|= List.concat
         (* TODO? If in the future we accept Storages with conflicting paths,
           there might be duplicate keys from different Storages in this result.
           Shall we remove duplicates?? *)
@@ -201,12 +215,9 @@ module Engine = struct
       match check_if_admin_path path with
       | Some path -> MVar.read engine >>= fun self -> YAdminSpace.remove self.admin client path
       | None ->
-        (* NOTE: the engine doesnt know if the path to remove is an eval or belongs to some storages... *)
-        (* Therefore, it tries to remove the path as an eval anyway, since it doesn't harm if it's not an eval *)
-          let%lwt _ = Logs_lwt.debug (fun m -> m "[Yeng]: remove %s" (Path.to_string path)) in
-          YAdminSpace.remove_eval self.admin client path >>= fun () ->
-          YAdminSpace.get_storages_for_path self.admin path
-          >>= Lwt_list.iter_p (fun store -> Storage.remove store path)
+        let%lwt _ = Logs_lwt.debug (fun m -> m "[Yeng]: remove %s" (Path.to_string path)) in
+        YAdminSpace.get_storages_for_path self.admin path
+        >>= Lwt_list.iter_p (fun store -> Storage.remove store path)
 
 
     let add_backend_TMP engine be = 

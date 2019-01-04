@@ -60,10 +60,10 @@ module Make (YEngine : Yaks_engine.Engine.S) (MVar: Apero.MVar) = struct
       Lwt.fail @@ Exception e 
 
 
-  let process_get_on_eval (s:state) sock buf (path:Path.t) selector ~fallback =
-    let _ = Logs_lwt.debug (fun m -> m "[FES] send GET(%s) for eval %s" (Selector.to_string selector) (Path.to_string path)) in
+  let process_eval (s:state) sock buf (path:Path.t) selector ~fallback =
+    let _ = Logs_lwt.debug (fun m -> m "[FES] send EVAL(%s) for eval registered with %s" (Selector.to_string selector) (Path.to_string path)) in
     let (body:payload) = YSelector (selector) in
-    let h = make_header GET [] Vle.zero Properties.empty in
+    let h = make_header EVAL [] Vle.zero Properties.empty in
     let msg = make_message h body in
     Lwt.catch (
       fun () ->
@@ -96,10 +96,13 @@ module Make (YEngine : Yaks_engine.Engine.S) (MVar: Apero.MVar) = struct
         Lwt.catch (fun () -> writer buf sock msg >|= fun _ -> ()) (fun _ -> fallback sid)
       in  P.process_sub engine clientid msg (push_sub buf)
     | UNSUB -> P.process_unsub engine clientid msg
-    | EVAL ->
+    | REG_EVAL ->
       let sock = TxSession.socket tx_sex in
       let buf = IOBuf.create Yaks_fe_sock_types.max_msg_size in 
-      P.process_eval engine clientid msg (process_get_on_eval state sock buf)
+      P.process_reg_eval engine clientid msg (process_eval state sock buf)
+    | UNREG_EVAL ->
+      P.process_unreg_eval engine clientid msg
+    | EVAL -> P.process_eval engine clientid msg 
     | VALUES ->
       MVar.guarded state @@ (fun self ->
       (match WorkingMap.find_opt msg.header.corr_id self.pending_eval_results with 
@@ -108,7 +111,9 @@ module Make (YEngine : Yaks_engine.Engine.S) (MVar: Apero.MVar) = struct
       | None ->
         MVar.return_lwt (P.process_error msg BAD_REQUEST) self)
       )
-    | _ ->  P.process_error msg BAD_REQUEST
+    | _ -> 
+      let _ = Logs_lwt.warn (fun m -> m "[FES] received unexpectged message with mid %d" (message_id_to_int msg.header.mid)) in
+      P.process_error msg BAD_REQUEST
 
 
   let fe_service config  dispatcher tx_sex = 
