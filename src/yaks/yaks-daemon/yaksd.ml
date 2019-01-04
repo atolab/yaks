@@ -48,7 +48,7 @@ let add_sql_be engine sql_url =
 
 let add_default_storage engine without_storage =
   if not without_storage then 
-    let path = "/_admin_/local/backend/Memory/storage/default" in
+    let path = "/@/local/backend/Memory/storage/default" in
     let props = Properties.singleton "selector" "/**" in
     YEngine.put engine local_client_id (Path.of_string path) (Value.PropertiesValue props)
   else Lwt.return_unit

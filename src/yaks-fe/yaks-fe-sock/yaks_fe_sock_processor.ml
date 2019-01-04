@@ -16,7 +16,9 @@ module Processor = struct
     val process_delete : YEngine.t -> ClientId.t -> message -> message Lwt.t
     val process_sub : YEngine.t -> ClientId.t -> message -> notify_subscriber -> message Lwt.t    
     val process_unsub : YEngine.t -> ClientId.t -> message -> message Lwt.t
-    val process_eval : YEngine.t -> ClientId.t -> message -> get_on_eval -> message Lwt.t
+    val process_reg_eval : YEngine.t -> ClientId.t -> message -> get_on_eval -> message Lwt.t
+    val process_unreg_eval : YEngine.t -> ClientId.t -> message -> message Lwt.t
+    val process_eval : YEngine.t -> ClientId.t -> message -> message Lwt.t
     val process_values : message -> Value.t Lwt.u -> message Lwt.t
     val process_error :  message -> error_code -> message Lwt.t
   end
@@ -137,14 +139,36 @@ module Processor = struct
       | None -> Lwt.return @@ reply_with_ok msg Properties.empty 
 
 
-    let process_eval engine clientid msg get_on_eval =
-      let%lwt _ = Logs_lwt.debug (fun m -> m "FES: processing EVAL") in
+    let process_reg_eval engine clientid msg get_on_eval =
+      let%lwt _ = Logs_lwt.debug (fun m -> m "FES: processing REG_EVAL") in
       match get_path_payload msg with
       | Some p ->
         let workspace = workspace_from_props msg.header.properties in
         Lwt.try_bind
-          (fun () -> YEngine.eval engine clientid ?workspace p get_on_eval)
+          (fun () -> YEngine.register_eval engine clientid ?workspace p get_on_eval)
           (fun () -> Lwt.return @@ reply_with_ok msg Properties.empty)
+          (fun ex -> Lwt.return @@ ex_to_reply msg ex)
+      | None -> Lwt.return @@ reply_with_error msg BAD_REQUEST
+
+    let process_unreg_eval engine clientid msg =
+      let%lwt _ = Logs_lwt.debug (fun m -> m "FES: processing UNREG_EVAL") in
+      match get_path_payload msg with
+      | Some p ->
+        let workspace = workspace_from_props msg.header.properties in
+        Lwt.try_bind
+          (fun () -> YEngine.unregister_eval engine clientid ?workspace p)
+          (fun () -> Lwt.return @@ reply_with_ok msg Properties.empty)
+          (fun ex -> Lwt.return @@ ex_to_reply msg ex)
+      | None -> Lwt.return @@ reply_with_error msg BAD_REQUEST
+
+    let process_eval engine clientid msg =
+      let%lwt _ = Logs_lwt.debug (fun m -> m "FES: processing EVAL") in
+      match get_selector_payload msg with
+      | Some s ->
+        let workspace = workspace_from_props msg.header.properties in
+        Lwt.try_bind
+          (fun () -> YEngine.eval engine clientid ?workspace s)
+          (fun pvs -> Lwt.return @@ reply_with_values msg pvs)
           (fun ex -> Lwt.return @@ ex_to_reply msg ex)
       | None -> Lwt.return @@ reply_with_error msg BAD_REQUEST
 

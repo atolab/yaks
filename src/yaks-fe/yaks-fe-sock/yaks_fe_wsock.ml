@@ -86,7 +86,8 @@ module Make (YEngine : Yaks_engine.Engine.S) (MVar: Apero.MVar) = struct
         Lwt.catch (fun () -> send_msg buf client Frame.Opcode.Binary msg   >|= fun _ -> ()) (fun _ -> fallback sid)
       in  P.process_sub engine clientid msg (push_sub wbuf)
     | UNSUB -> P.process_unsub engine clientid msg
-    | EVAL -> P.process_eval engine clientid msg (process_get_on_eval state client wbuf)
+    | REG_EVAL -> P.process_reg_eval engine clientid msg (process_get_on_eval state client wbuf)
+    | UNREG_EVAL -> P.process_unreg_eval engine clientid msg
     | VALUES ->
       MVar.guarded state @@ (fun self ->
       (match WorkingMap.find_opt msg.header.corr_id self.pending_eval_results with 
