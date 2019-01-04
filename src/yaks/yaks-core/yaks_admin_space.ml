@@ -410,6 +410,7 @@ module AdminSpace = struct
         MVar.return () { self with frontends = FrontendMap.add clientid.feid fe' self.frontends; kvs}
 
     let get_on_evals admin (clientid:ClientId.t) quorum sel =
+      let _ = ignore clientid in
       let fallback path =
         remove_eval admin local_client path >>= fun _ ->
         Lwt.return @@ Value.StringValue
