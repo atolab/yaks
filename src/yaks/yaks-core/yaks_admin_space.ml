@@ -245,9 +245,9 @@ module AdminSpace = struct
       MVar.read admin >|= (fun self ->
         BackendMap.fold (fun _ backend l -> (get_matching_storages backend)::l) self.backends [] |> List.concat)
 
-    let get_storages_for_selector admin selector =
+    let get_storages_for_selector admin _ =
       let get_matching_storages backend =
-        StorageMap.filter (fun _ (store, _) -> Storage.is_covering_selector store selector) backend.storages
+        StorageMap.filter (fun _ (_, _) -> true (*Storage.is_covering_selector store selector*)) backend.storages    (* @TODO: test Selectors intersection *)
         |> StorageMap.bindings |> List.map (fun (_,(s, _)) -> s)
       in
       MVar.read admin >|= (fun self ->
