@@ -12,7 +12,7 @@ module Engine = struct
   module type S = sig 
     type t 
 
-    val make : unit -> t
+    val make : Zenoh.t option -> t
 
     val id : Yid.t
 
@@ -43,17 +43,18 @@ module Engine = struct
     module YAdminSpace = Yaks_admin_space.AdminSpace.Make(MVar)
 
     type state =
-      { admin : YAdminSpace.t }
+      { admin : YAdminSpace.t 
+      ; zenoh : Zenoh.t option }
 
     type t = state MVar.t
 
     let id = Yid.make ()
 
-    let make () =
+    let make zenoh =
       let _ = Logs_lwt.debug (fun m -> m "Creating Engine\n") in 
       MVar.create 
-        { admin = YAdminSpace.make id }
-
+        { admin = YAdminSpace.make id zenoh 
+        ; zenoh }
     
     let to_absolute_path engine clientid ?workspace path =
       if Path.is_relative path then
@@ -178,6 +179,16 @@ module Engine = struct
           there might be duplicate keys from different Storages in this result.
           Shall we remove duplicates?? *)
 
+    let distribute_update path value zenoh =
+      let res = Path.to_string path in
+      let buf = IOBuf.create ~grow:8192 8192 in 
+      let open Yaks_fe_sock_codec in
+      match (encode_value value buf) with 
+      | Ok buf -> 
+        let buf' = IOBuf.flip buf in 
+        Zenoh.write buf' res zenoh 
+      | Error e -> Lwt.fail @@ Exception e 
+
     let put engine client ?quorum ?workspace path value =
       (* TODO: access control *)
       (* TODO: transport with quorum *)
@@ -189,9 +200,12 @@ module Engine = struct
       match check_if_admin_path path with
       | Some path -> MVar.read engine >>= fun self -> YAdminSpace.put self.admin client path value
       | None ->
-        let _ = Lwt.return @@ YAdminSpace.notify_subscribers self.admin path value in
-        YAdminSpace.get_storages_for_path self.admin path
-        >>= Lwt_list.iter_p (fun store -> Storage.put store path value)
+        let _ = YAdminSpace.notify_subscribers self.admin path value in
+        let _ = YAdminSpace.get_storages_for_path self.admin path
+        >>= Lwt_list.iter_p (fun store -> Storage.put store path value) in 
+        let open Apero.Option.Infix in 
+        let _ = self.zenoh >|= fun zenoh -> (distribute_update path value zenoh) in
+        Lwt.return_unit
 
     let update engine client ?quorum ?workspace path value =
       (* TODO: access control *)

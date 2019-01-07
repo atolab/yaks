@@ -8,7 +8,7 @@ module AdminSpace : sig
 
   module type S = sig 
     type t
-    val make : Yid.t -> t
+    val make : Yid.t -> Zenoh.t option -> t
 
     val login : t -> ClientId.t -> properties -> unit Lwt.t
     val logout : t -> ClientId.t -> unit Lwt.t

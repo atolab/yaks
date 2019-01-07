@@ -10,7 +10,7 @@ module AdminSpace = struct
 
   module type S = sig 
     type t
-    val make : Yid.t -> t
+    val make : Yid.t -> Zenoh.t option -> t
 
     val login : t -> ClientId.t -> properties -> unit Lwt.t
     val logout : t -> ClientId.t -> unit Lwt.t
@@ -55,6 +55,7 @@ module AdminSpace = struct
       { selector : Selector.t
       ; is_push : bool
       ; notifier : notify_subscriber
+      ; zenoh_sub : Zenoh.sub option
       }
 
     type session =
@@ -81,6 +82,7 @@ module AdminSpace = struct
       ; frontends : frontend FrontendMap.t
       ; backends : backend BackendMap.t
       ; kvs : Value.t KVMap.t
+      ; zenoh: Zenoh.t option 
       }
 
     type t = state MVar.t
@@ -89,7 +91,7 @@ module AdminSpace = struct
 
     let empty_props_value = Value.PropertiesValue Properties.empty
 
-    let make yid =
+    let make yid zenoh =
       let prefix = "/@/"^(Uuid.to_string yid) in
       let _ = Logs_lwt.debug (fun m -> m "Create Yaks %s admin space\n" prefix) in
       let kvs = KVMap.empty
@@ -101,6 +103,7 @@ module AdminSpace = struct
         ; frontends = FrontendMap.empty
         ; backends = BackendMap.empty
         ; kvs
+        ; zenoh
         }
 
 
@@ -336,27 +339,20 @@ module AdminSpace = struct
     (*******************************)
     (*   Subscriptions management  *)
     (*******************************)
-    let create_subscriber admin (clientid:ClientId.t) selector is_push notifier =
-      Logs_lwt.debug (fun m -> m "[Yadm] %s: create_subscriber %s" (ClientId.to_string clientid) (Selector.to_string selector)) >>
-      MVar.guarded admin 
-      @@ fun self ->
-        let%lwt (fe, s) = get_frontend_session self clientid.feid clientid.sid in
-        let subid = SubscriberId.next_id () in
-        let sub = {selector; is_push; notifier} in
-        let s' = { s with subs = SubscriberMap.add subid sub s.subs } in
-        let fe' = { fe with sessions = SessionMap.add clientid.sid s' fe.sessions } in
-        let kvs = KVMap.add
-          (Path.of_string @@ Printf.sprintf "%s/frontend/%s/session/%s/subscriber/%s"
-            self.prefix (FeId.to_string clientid.feid) (SessionId.to_string clientid.sid) (SubscriberId.to_string subid))
-          (Value.StringValue (Selector.to_string selector)) self.kvs
-        in
-        MVar.return subid { self with frontends = FrontendMap.add clientid.feid fe' self.frontends; kvs}
 
-    let remove_subscriber admin (clientid:ClientId.t) subid =
+     let remove_subscriber admin (clientid:ClientId.t) subid =
       Logs_lwt.debug (fun m -> m "[Yadm] %s: remove_subscriber %s" (ClientId.to_string clientid) (SubscriberId.to_string subid)) >>
       MVar.guarded admin 
       @@ fun self ->
         let%lwt (fe, s) = get_frontend_session self clientid.feid clientid.sid in
+        let open Apero.Option.Infix in         
+        let _ = self.zenoh 
+        >>= fun zenoh -> 
+          (SubscriberMap.find_opt subid s.subs) 
+            >>= fun sub_info -> 
+              sub_info.zenoh_sub 
+              >|= fun zsub -> Zenoh.unsubscribe zsub zenoh
+        in 
         let s' = { s with subs = SubscriberMap.remove subid s.subs } in
         let fe' = { fe with sessions = SessionMap.add clientid.sid s' fe.sessions } in
         let kvs = KVMap.remove
@@ -366,6 +362,43 @@ module AdminSpace = struct
         in
         MVar.return () { self with frontends = FrontendMap.add clientid.feid fe' self.frontends; kvs}
 
+    let create_zenoh_subscriber admin zenoh subid selector is_push notifier  =
+      let sub_mode = if is_push then Zenoh.push_mode else Zenoh.pull_mode in 
+      let listener buf path = 
+        let open Yaks_fe_sock_codec in 
+        match decode_value buf with 
+        | Ok (value, _) -> 
+          notifier subid ~fallback:(remove_subscriber admin local_client) [(Path.of_string path, value)]
+        | Error e -> 
+          let%lwt _ = Logs_lwt.warn (fun m -> m "Error while decoding value received for subscription: \n%s" @@ Atypes.show_error e) 
+          in Lwt.return_unit
+        in
+        Zenoh.subscribe (Selector.to_string selector) listener ~mode:sub_mode zenoh
+
+      (* let sub = Zenoh.su *)
+    let create_subscriber admin (clientid:ClientId.t) selector is_push notifier =
+      Logs_lwt.debug (fun m -> m "[Yadm] %s: create_subscriber %s" (ClientId.to_string clientid) (Selector.to_string selector)) >>
+      MVar.guarded admin 
+      @@ fun self ->
+        let%lwt (fe, s) = get_frontend_session self clientid.feid clientid.sid in
+        let subid = SubscriberId.next_id () in
+        let%lwt zenoh_sub = match self.zenoh with 
+          | Some zenoh -> 
+            let%lwt zsub = create_zenoh_subscriber admin zenoh subid selector is_push notifier in
+            Lwt.return @@ Some zsub
+          | None -> Lwt.return None 
+        in 
+        let sub = {selector; is_push; notifier; zenoh_sub} in
+        let s' = { s with subs = SubscriberMap.add subid sub s.subs } in
+        let fe' = { fe with sessions = SessionMap.add clientid.sid s' fe.sessions } in
+        let kvs = KVMap.add
+          (Path.of_string @@ Printf.sprintf "%s/frontend/%s/session/%s/subscriber/%s"
+            self.prefix (FeId.to_string clientid.feid) (SessionId.to_string clientid.sid) (SubscriberId.to_string subid))
+          (Value.StringValue (Selector.to_string selector)) self.kvs
+        in
+        MVar.return subid { self with frontends = FrontendMap.add clientid.feid fe' self.frontends; kvs}
+
+   
     let notify_subscribers admin path value =
       let iter_session s = SubscriberMap.iter
         (fun sid sub -> 
