@@ -161,20 +161,82 @@ module Engine = struct
       else
         None
 
+     let remote_query_handler promise mlist sample =
+      MVar.guarded mlist 
+      @@ fun xs -> 
+        match sample with 
+        | Zenoh.StorageData {stoid; rsn=_; resname; data} ->                    
+          (match 
+            let open Apero.Result.Infix in 
+            let open Yaks_fe_sock_codec in       
+            let _ = Logs.debug (fun m -> m ">>> Query Handler Received data for key: %s" resname) in 
+            let store_id = IOBuf.hexdump ~separator:":" stoid in 
+            let _ = Logs.debug (fun m -> m ">>> Query Handler Received data for key: %s from storage %s" resname store_id) in          
+            decode_value data 
+            >>= fun (value, _) -> 
+              let _ = Logs.debug (fun m -> m ">>> Query Handler parsed data for key: %s" resname) in 
+              Ok(store_id, Path.of_string(resname), value)
+          with 
+          | Ok sample -> MVar.return () (sample::xs)
+          | _ -> MVar.return () xs)
+        | Zenoh.StorageFinal {stoid; rsn;} -> 
+          let store_id = IOBuf.hexdump ~separator:":" stoid in 
+          let%lwt _ = Logs_lwt.debug (fun m -> m "QUERY HANDLER RECIEVED FROM STORAGE [%-16s:%02i] FINAL\n%!" (store_id) rsn) in
+          MVar.return () xs          
+        | Zenoh.ReplyFinal -> 
+          let%lwt _ = Logs_lwt.debug (fun m -> m "QUERY HANDLER RECIEVED GLOBAL FINAL\n%!") in
+          Lwt.wakeup_later promise xs;
+          MVar.return () xs
+
+          
+    let consolidate_query_result (qrs:(string * Path.t * Value.t) list) = 
+      List.map (fun (_,p,v) -> (p,v)) qrs
+      
+    let issue_remote_query zenoh selector =                  
+      let path = Selector.path selector in 
+      let p,r = Lwt.wait () in 
+      let mlist = MVar.create [] in 
+      let query =  (Option.get_or_default (Selector.predicate selector) "") in
+      let%lwt () = Zenoh.query path query (remote_query_handler r mlist) zenoh in
+      let open Lwt.Infix in 
+      p >|= consolidate_query_result
+
     let get engine client ?quorum ?workspace sel =
       (* TODO: access control *)
       (* TODO: transport with quorum *)
       let _ = ignore quorum in
+      
       let%lwt sel = to_absolute_selector engine client ?workspace sel in
       match check_if_admin_selector sel with
       | Some sel -> MVar.read engine >>= fun self -> YAdminSpace.get self.admin client sel
       | None ->
         let%lwt _ = Logs_lwt.debug (fun m -> m "[Yeng]: get %s => query storages" (Selector.to_string sel)) in
         MVar.read engine >>= fun self ->
-        YAdminSpace.get_storages_for_selector self.admin sel
-        >>= fun storages -> List.map (fun store -> Storage.get store sel) storages
-        |> Apero.LwtM.flatten
-        >|= List.concat
+        let%lwt storages = YAdminSpace.get_storages_for_selector self.admin sel in 
+        match storages with 
+        | [] -> 
+          (match self.zenoh with 
+          | Some zenoh -> issue_remote_query zenoh sel 
+          | None -> Lwt.return [])
+        | _ -> 
+          let covers: bool =  storages
+            |> List.map (fun s -> Storage.is_covering_selector s sel)            
+            |> List.fold_left (fun a b -> a || b) false
+          in
+          let local_get = List.map (fun store -> Storage.get store sel) storages
+              |> Apero.LwtM.flatten
+              >|= List.concat
+          in 
+          if covers then local_get
+          else 
+            match self.zenoh with 
+            | Some zenoh -> 
+              let%lwt lget = local_get in 
+              let%lwt rget = issue_remote_query zenoh sel in 
+              Lwt.return (List.append rget lget)              
+            | None -> local_get 
+              
+
         (* TODO? If in the future we accept Storages with conflicting paths,
           there might be duplicate keys from different Storages in this result.
           Shall we remove duplicates?? *)
