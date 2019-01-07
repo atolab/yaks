@@ -63,7 +63,7 @@ module AdminSpace = struct
       ; ws : Path.t WsMap.t
       ; lastWsid: WsId.t
       ; subs : subscriber SubscriberMap.t
-      ; evals : eval_function EvalMap.t
+      ; evals : (eval_function * Zenoh.storage option) EvalMap.t
       }
 
     type frontend =
@@ -160,7 +160,8 @@ module AdminSpace = struct
       | _ -> Lwt.return_unit
     
     let incomin_storage_query_handler storage resname predicate = 
-      match Selector.of_string_opt  (resname ^ predicate) with 
+      let s = if predicate = "" then resname else resname ^"?"^predicate in 
+      match Selector.of_string_opt s with 
       | Some selector ->  
         let open Yaks_fe_sock_codec in 
           let%lwt kvs = Storage.get storage selector in 
@@ -454,21 +455,6 @@ module AdminSpace = struct
     (*****************************)
     (*     evals management      *)
     (*****************************)
-    let create_eval admin (clientid:ClientId.t) path eval =
-      Logs_lwt.debug (fun m -> m "[Yadm] %s: create_eval %s" (ClientId.to_string clientid) (Path.to_string path)) >>
-      MVar.guarded admin 
-      @@ fun self ->
-        let%lwt (fe, s) = get_frontend_session self clientid.feid clientid.sid in
-        let s' = { s with evals = EvalMap.add path eval s.evals } in
-        let fe' = {fe with sessions = SessionMap.add clientid.sid s' fe.sessions} in
-        let kvs = KVMap.add
-          (Path.of_string @@ Printf.sprintf "%s/frontend/%s/session/%s/eval/%s"
-            self.prefix (FeId.to_string clientid.feid) (SessionId.to_string clientid.sid) (Path.to_string path))
-          empty_props_value
-          self.kvs
-        in
-        MVar.return () { self with frontends = FrontendMap.add clientid.feid fe' self.frontends; kvs}
-
     let remove_eval admin (clientid:ClientId.t) path =
       Logs_lwt.debug (fun m -> m "[Yadm] %s: remove_eval %s" (ClientId.to_string clientid) (Path.to_string path)) >>
       MVar.guarded admin 
@@ -497,13 +483,64 @@ module AdminSpace = struct
       let rec call_evals path evals quorum = match quorum with
         | 0 -> []
         | _ -> ((List.hd evals) path sel ~fallback)::(call_evals path (List.tl evals) (quorum-1))   (* TODO: call a random eval instead of the 1st in list *)
-      in
+      in      
       MVar.read admin >>= fun self ->
-        FrontendMap.fold (fun _ fe m -> fold_frontend fe m) self.frontends EvalMap.empty |>
-        EvalMap.bindings |>
-        List.map (fun (p,l) -> call_evals p l (max quorum @@ List.length l) |> LwtM.flatten >>= fun l' -> Lwt.return (p,l'))
+        
+        FrontendMap.fold (fun _ fe m -> fold_frontend fe m) self.frontends EvalMap.empty 
+        |> EvalMap.bindings         
+        |> List.map (fun (p, es) -> (p, List.map (fun (e, _) -> e) es))         
+        |> List.map (fun (p,l) -> call_evals p l (max quorum @@ List.length l) |> LwtM.flatten >>= fun l' -> Lwt.return (p,l'))
         |> LwtM.flatten
 
+    let incoming_eval_data_handler _ _ = Lwt.return_unit (* Eval will never get value "put" *)
+
+    let incomin_eval_query_handler evaluator resname predicate = 
+      let s = if predicate = "" then resname else resname ^"?"^predicate in 
+      match Selector.of_string_opt s with 
+      | Some selector ->  
+        let open Yaks_fe_sock_codec in 
+          let%lwt kvss = evaluator selector in 
+          let kvs = List.map (fun (k, vs) -> (k, List.hd vs)) kvss in 
+          let evs = List.map 
+            (fun (path,value) -> 
+              let spath = Path.to_string path in 
+              let buf = Result.get  (encode_value value (IOBuf.create ~grow:4096 4096)) in 
+              (spath, IOBuf.flip buf)) kvs in 
+          Lwt.return evs 
+      | _ -> 
+        let%lwt _ = Logs_lwt.debug (fun m -> m "[YAdm]: Unable to run eval for %s?%s" resname predicate) in 
+        Lwt.return []
+    
+    let create_zenoh_eval zenoh selector evaluator = 
+      Zenoh.storage (Selector.to_string selector) incoming_eval_data_handler (incomin_eval_query_handler evaluator) zenoh 
+      (* NB:
+          - Currently an eval is represented with a storage, once zenoh will support something like evals, we'll
+            transition to that abstraction to avoid bu construction the progagation of spurious values. 
+          - The quorum for remotely resolved eval is currently 1       
+      *)
+
+    let create_eval admin (clientid:ClientId.t) path eval =
+      Logs_lwt.debug (fun m -> m "[Yadm] %s: create_eval %s" (ClientId.to_string clientid) (Path.to_string path)) >>
+      MVar.guarded admin 
+      @@ fun self ->
+        let%lwt (fe, s) = get_frontend_session self clientid.feid clientid.sid in
+          let%lwt zenoh_eval = match self.zenoh with 
+          | Some zenoh -> 
+            let%lwt ze = create_zenoh_eval zenoh (Selector.of_path path) (call_evals admin clientid 1) in 
+            Lwt.return @@ Some ze
+          | None -> Lwt.return None
+        in 
+        let s' = { s with evals = EvalMap.add path (eval, zenoh_eval) s.evals } in
+        let fe' = {fe with sessions = SessionMap.add clientid.sid s' fe.sessions} in
+        let kvs = KVMap.add
+          (Path.of_string @@ Printf.sprintf "%s/frontend/%s/session/%s/eval/%s"
+            self.prefix (FeId.to_string clientid.feid) (SessionId.to_string clientid.sid) (Path.to_string path))
+          empty_props_value
+          self.kvs
+        in
+        MVar.return () { self with frontends = FrontendMap.add clientid.feid fe' self.frontends; kvs}
+
+        
 
     (*****************************)
     (* get/put/remove operations *)
