@@ -73,7 +73,7 @@ module AdminSpace = struct
 
     type backend =
       { beModule : (module Backend)
-      ; storages : Storage.t StorageMap.t
+      ; storages : (Storage.t * Zenoh.storage option) StorageMap.t
       }
 
     type state =
@@ -118,7 +118,7 @@ module AdminSpace = struct
     let add_backend_TMP admin be =
       let module BE = (val be: Backend) in
       let id = BeId.to_string BE.id in
-      let backend = { beModule=be; storages=StorageMap.empty } in
+      let backend = { beModule = be; storages = StorageMap.empty } in
       Logs_lwt.debug (fun m -> m "[Yadm] add_backend : %s" id) >>
       MVar.guarded admin
       @@ fun self ->
@@ -145,7 +145,37 @@ module AdminSpace = struct
         let _ = Logs_lwt.debug (fun m -> m "[Yadm]:    try Backend %s (%s)" (BeId.to_string beid) BE.to_string) in
         Properties.not_conflicting properties BE.properties) backends
       |> BackendMap.choose_opt
+    
+    let incoming_storage_data_handler storage (sample:IOBuf.t) (key:string) = 
+      let open Yaks_fe_sock_codec in 
+      match decode_value sample with 
+      | Ok (v, _) -> 
+        (match Path.of_string_opt key with 
+        | Some path -> 
+          let%lwt _ = Logs_lwt.warn (fun m -> m "[YAdm]: Inserting remote update for key %s" key) in 
+          Storage.put storage path v  
+        | _ -> 
+          let%lwt _ = Logs_lwt.warn (fun m -> m "[YAdm]: Received data for key %s which I cannot store" key) 
+          in Lwt.return_unit)      
+      | _ -> Lwt.return_unit
+    
+    let incomin_storage_query_handler storage resname predicate = 
+      match Selector.of_string_opt  (resname ^ predicate) with 
+      | Some selector ->  
+        let open Yaks_fe_sock_codec in 
+          let%lwt kvs = Storage.get storage selector in 
+          let evs = List.map 
+            (fun (path,value) -> 
+              let spath = Path.to_string path in 
+              let buf = Result.get  (encode_value value (IOBuf.create ~grow:4096 4096)) in 
+              (spath, IOBuf.flip buf)) kvs in 
+          Lwt.return evs 
+      | _ -> 
+        let%lwt _ = Logs_lwt.debug (fun m -> m "[YAdm]: Unable to resolve query for %s?%s" resname predicate) in 
+        Lwt.return []
 
+    let create_zenoh_storage zenoh selector storage = 
+      Zenoh.storage (Selector.to_string selector) (incoming_storage_data_handler storage) (incomin_storage_query_handler storage) zenoh 
 
     let create_storage admin ?beid stid properties =
       (* get "selector" from properties *)
@@ -180,7 +210,13 @@ module AdminSpace = struct
         let module BE = (val be.beModule: Backend) in
         let%lwt _ = Logs_lwt.debug (fun m -> m "[Yadm]: create_storage %s using Backend %s" stid (BE.to_string)) in
         let%lwt storage = BE.create_storage selector properties in
-        let be' = { be with storages = StorageMap.add storageId storage be.storages } in
+        let%lwt zenoh_storage =  
+          match self.zenoh with 
+          | Some zenoh ->
+            create_zenoh_storage zenoh selector storage  >|= fun storage -> Some storage            
+          | None -> Lwt.return None 
+        in
+        let be' = { be with storages = StorageMap.add storageId (storage, zenoh_storage) be.storages } in
         let kvs = KVMap.add
           (Path.of_string @@ Printf.sprintf "%s/backend/%s/storage/%s" self.prefix (BeId.to_string beid') stid)
           (Value.PropertiesValue properties) self.kvs
@@ -199,10 +235,15 @@ module AdminSpace = struct
         | Some be -> Lwt.return be
       in
       match StorageMap.find_opt stid' be.storages with
-      | Some s ->
-        Storage.dispose s >>
+      | Some (storage, zenoh_storage) ->
+        Storage.dispose storage >>
         let be' = { be with storages = StorageMap.remove stid' be.storages } in
         let kvs = KVMap.remove (Path.of_string @@ Printf.sprintf "%s/backend/%s/storage/%s" self.prefix beid stid) self.kvs in
+        let open Apero.Option.Infix in 
+        let _ = self.zenoh 
+        >>= fun zenoh -> 
+          zenoh_storage >|= fun storage ->  Zenoh.unstore storage zenoh 
+        in 
         MVar.return () { self with backends = BackendMap.add beid' be' self.backends; kvs}
       | None -> 
         Logs_lwt.debug (fun m -> m "[Yadm] storage %s/%s not found... ignore remove request" beid stid) >>
@@ -211,16 +252,16 @@ module AdminSpace = struct
 
     let get_storages_for_path admin path =
       let get_matching_storages backend =
-        StorageMap.filter (fun _ store -> Storage.is_covering_path store path) backend.storages
-        |> StorageMap.bindings |> List.map (fun (_,s) -> s)
+        StorageMap.filter (fun _ (store, _) -> Storage.is_covering_path store path) backend.storages
+        |> StorageMap.bindings |> List.map (fun (_,(s, _)) -> s)
       in
       MVar.read admin >|= (fun self ->
         BackendMap.fold (fun _ backend l -> (get_matching_storages backend)::l) self.backends [] |> List.concat)
 
     let get_storages_for_selector admin selector =
       let get_matching_storages backend =
-        StorageMap.filter (fun _ store -> Storage.is_covering_selector store selector) backend.storages
-        |> StorageMap.bindings |> List.map (fun (_,s) -> s)
+        StorageMap.filter (fun _ (store, _) -> Storage.is_covering_selector store selector) backend.storages
+        |> StorageMap.bindings |> List.map (fun (_,(s, _)) -> s)
       in
       MVar.read admin >|= (fun self ->
         BackendMap.fold (fun _ backend l -> (get_matching_storages backend)::l) self.backends [] |> List.concat)
