@@ -82,7 +82,8 @@ module AdminSpace = struct
       ; frontends : frontend FrontendMap.t
       ; backends : backend BackendMap.t
       ; kvs : Value.t KVMap.t
-      ; zenoh: Zenoh.t option 
+      ; zenoh : Zenoh.t option
+      ; mutable zenoh_storage : Zenoh.storage option             
       }
 
     type t = state MVar.t
@@ -91,22 +92,7 @@ module AdminSpace = struct
 
     let empty_props_value = Value.PropertiesValue Properties.empty
 
-    let make yid zenoh =
-      let prefix = "/@/"^(Uuid.to_string yid) in
-      let _ = Logs_lwt.debug (fun m -> m "Create Yaks %s admin space\n" prefix) in
-      let kvs = KVMap.empty
-        |> KVMap.add (Path.of_string prefix) empty_props_value
-      in
-      MVar.create
-        { yid
-        ; prefix
-        ; frontends = FrontendMap.empty
-        ; backends = BackendMap.empty
-        ; kvs
-        ; zenoh
-        }
-
-
+    
     (**************************)
     (*   Backends management  *)
     (**************************)
@@ -159,7 +145,7 @@ module AdminSpace = struct
           in Lwt.return_unit)      
       | _ -> Lwt.return_unit
     
-    let incomin_storage_query_handler storage resname predicate = 
+    let incoming_storage_query_handler storage resname predicate = 
       let s = if predicate = "" then resname else resname ^"?"^predicate in 
       match Selector.of_string_opt s with 
       | Some selector ->  
@@ -176,7 +162,7 @@ module AdminSpace = struct
         Lwt.return []
 
     let create_zenoh_storage zenoh selector storage = 
-      Zenoh.storage (Selector.to_string selector) (incoming_storage_data_handler storage) (incomin_storage_query_handler storage) zenoh 
+      Zenoh.storage (Selector.to_string selector) (incoming_storage_data_handler storage) (incoming_storage_query_handler storage) zenoh 
 
     let create_storage admin ?beid stid properties =
       (* get "selector" from properties *)
@@ -494,7 +480,7 @@ module AdminSpace = struct
 
     let incoming_eval_data_handler _ _ = Lwt.return_unit (* Eval will never get value "put" *)
 
-    let incomin_eval_query_handler evaluator resname predicate = 
+    let incoming_eval_query_handler evaluator resname predicate = 
       let s = if predicate = "" then resname else resname ^"?"^predicate in 
       match Selector.of_string_opt s with 
       | Some selector ->  
@@ -512,7 +498,7 @@ module AdminSpace = struct
         Lwt.return []
     
     let create_zenoh_eval zenoh selector evaluator = 
-      Zenoh.storage (Selector.to_string selector) incoming_eval_data_handler (incomin_eval_query_handler evaluator) zenoh 
+      Zenoh.storage (Selector.to_string selector) incoming_eval_data_handler (incoming_eval_query_handler evaluator) zenoh 
       (* NB:
           - Currently an eval is represented with a storage, once zenoh will support something like evals, we'll
             transition to that abstraction to avoid bu construction the progagation of spurious values. 
@@ -596,6 +582,67 @@ module AdminSpace = struct
         | _ -> Lwt.fail @@ YException (`InvalidPath (`Msg ("Invalid path on admin space: "^(Path.to_string path))))
       else
         Lwt.fail @@ YException (`InternalError (`Msg ("put on remote Yaks admin not yet implemented")))
+
+
+    let incoming_admin_storage_data_handler admin (sample:IOBuf.t) (key:string) =
+      let open Yaks_fe_sock_codec in 
+      match decode_value sample with 
+      | Ok (v, _) -> 
+        (match Path.of_string_opt key with 
+        | Some path -> 
+          let%lwt _ = Logs_lwt.warn (fun m -> m "[YAdm]: Inserting remote update for key %s" key) in 
+          put admin local_client path v
+        | _ -> 
+          let%lwt _ = Logs_lwt.warn (fun m -> m "[YAdm]: Received data for key %s which I cannot store" key) 
+          in Lwt.return_unit)      
+      | _ -> Lwt.return_unit 
+
+    let incoming_adming_query_handler admin resname predicate = 
+      let s = if predicate = "" then resname else resname ^"?"^predicate in 
+      match Selector.of_string_opt s with 
+      | Some selector ->  
+        let open Yaks_fe_sock_codec in 
+          let%lwt kvs = get admin local_client selector in 
+          let evs = List.map 
+            (fun (path,value) -> 
+              let spath = Path.to_string path in 
+              let buf = Result.get  (encode_value value (IOBuf.create ~grow:4096 4096)) in 
+              (spath, IOBuf.flip buf)) kvs in 
+          Lwt.return evs 
+      | _ -> 
+        let%lwt _ = Logs_lwt.debug (fun m -> m "[YAdm]: Unable to resolve query for %s?%s" resname predicate) in 
+        Lwt.return []
+
+    let make yid zenoh =
+      let prefix = "/@/"^(Uuid.to_string yid) in
+      let _ = Logs_lwt.debug (fun m -> m "Create Yaks %s admin space\n" prefix) in
+      let kvs = KVMap.empty
+        |> KVMap.add (Path.of_string prefix) empty_props_value
+      in
+            
+      let admin =  MVar.create
+        { yid
+        ; prefix
+        ; frontends = FrontendMap.empty
+        ; backends = BackendMap.empty
+        ; kvs
+        ; zenoh
+        ; zenoh_storage = None
+        }
+      in 
+      let zenoh_storage_lwt = match zenoh with  
+      | Some z -> 
+        let selector = (prefix ^ "/**") in 
+        let%lwt s = Zenoh.storage selector (incoming_admin_storage_data_handler admin) (incoming_adming_query_handler admin) z in 
+        Lwt.return @@ Some s
+      | None -> Lwt.return None 
+      in 
+      let _  = 
+        MVar.guarded admin 
+        @@ fun self -> 
+          let%lwt zenoh_storage = zenoh_storage_lwt in 
+          MVar.return () {self with zenoh_storage}  
+      in admin 
 
   end
 
