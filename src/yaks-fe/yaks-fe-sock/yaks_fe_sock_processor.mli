@@ -16,7 +16,7 @@ module Processor : sig
     val process_delete : YEngine.t -> ClientId.t -> message -> message Lwt.t
     val process_sub : YEngine.t -> ClientId.t -> message -> notify_subscriber -> message Lwt.t    
     val process_unsub : YEngine.t -> ClientId.t -> message -> message Lwt.t
-    val process_reg_eval : YEngine.t -> ClientId.t -> message -> get_on_eval -> message Lwt.t
+    val process_reg_eval : YEngine.t -> ClientId.t -> message -> eval_function -> message Lwt.t
     val process_unreg_eval : YEngine.t -> ClientId.t -> message -> message Lwt.t
     val process_eval : YEngine.t -> ClientId.t -> message -> message Lwt.t
     val process_values : message -> Value.t Lwt.u -> message Lwt.t
