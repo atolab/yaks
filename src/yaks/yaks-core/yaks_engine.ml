@@ -227,12 +227,14 @@ module Engine = struct
               |> Apero.LwtM.flatten
               >|= List.concat
           in 
+          let%lwt _ = Logs_lwt.debug (fun m -> m "[Yeng]: Some storage Covers: %b" covers) in
           if covers then local_get
           else 
             match self.zenoh with 
             | Some zenoh -> 
               let%lwt lget = local_get in 
               let%lwt rget = issue_remote_query zenoh sel in 
+              let%lwt _ = Logs_lwt.debug (fun m -> m "[Yeng]: Local get returned %d values and remote get %d results" (List.length lget) (List.length rget)) in
               Lwt.return (List.append rget lget)              
             | None -> local_get 
               
