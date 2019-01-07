@@ -215,10 +215,12 @@ module Engine = struct
         let%lwt storages = YAdminSpace.get_storages_for_selector self.admin sel in 
         match storages with 
         | [] -> 
+          let%lwt _ = Logs_lwt.debug (fun m -> m "[Yeng]: No storage Matches, going remote...") in
           (match self.zenoh with 
           | Some zenoh -> issue_remote_query zenoh sel 
           | None -> Lwt.return [])
         | _ -> 
+          let%lwt _ = Logs_lwt.debug (fun m -> m "[Yeng]: Some storage Matches, going local+remote") in
           let covers: bool =  storages
             |> List.map (fun s -> Storage.is_covering_selector s sel)            
             |> List.fold_left (fun a b -> a || b) false
@@ -232,10 +234,14 @@ module Engine = struct
           else 
             match self.zenoh with 
             | Some zenoh -> 
-              let%lwt lget = local_get in 
-              let%lwt rget = issue_remote_query zenoh sel in 
-              let%lwt _ = Logs_lwt.debug (fun m -> m "[Yeng]: Local get returned %d values and remote get %d results" (List.length lget) (List.length rget)) in
-              Lwt.return (List.append rget lget)              
+              let rdata = issue_remote_query zenoh sel in
+              let ldata = local_get in 
+              Lwt.join [(rdata >>= fun _ -> Lwt.return_unit); (ldata >>= fun _ -> Lwt.return_unit)] 
+              >>= fun () -> 
+                rdata >>= fun rd ->
+                  ldata >>= fun ld -> 
+                    let%lwt _ = Logs_lwt.debug (fun m -> m "[Yeng]: Local get returned %d values and remote get %d results" (List.length ld) (List.length rd)) in
+                    Lwt.return @@ List.append rd ld               
             | None -> local_get 
               
 
