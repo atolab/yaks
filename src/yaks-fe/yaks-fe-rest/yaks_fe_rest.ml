@@ -142,7 +142,7 @@ module Make (YEngine : Yaks_engine.Engine.S) = struct
     let path = uri |> Uri.path  in
     let query = uri |> Uri.query in
     let headers = req |> Request.headers in
-    let%lwt _ = Logs_lwt.debug (fun m -> m "[FER] HTTP req: %s %s?%s with cookie: %s" 
+    let%lwt _ = Logs_lwt.debug (fun m -> m "[FER] HTTP req: %s %s?%s with cookies: %s" 
                                    (Code.string_of_method meth) path (query_to_string query)
                                    (Cookie.Cookie_hdr.extract headers
                                     |> List.find_opt (fun (key, _) -> Astring.is_prefix ~affix:key "is.yaks")
