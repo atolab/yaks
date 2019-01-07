@@ -9,7 +9,7 @@ module Engine : sig
   module type S = sig 
     type t 
 
-    val make : unit -> t
+    val make : Zenoh.t option -> t
 
     val id : Yid.t
 
