@@ -53,7 +53,7 @@ module Make (YEngine : Yaks_engine.Engine.S) (MVar: Apero.MVar) = struct
       let%lwt _ = Logs_lwt.err (fun m -> m "Failed in parsing message %s" (Apero.show_error e)) in
       Lwt.fail @@ Exception e
 
-  let process_get_on_eval (s:state) client buf (path:Path.t) selector ~fallback =
+  let process_eval (s:state) client buf (path:Path.t) selector ~fallback =
     let _ = Logs_lwt.debug (fun m -> m "[FEWS] send GET(%s) for eval %s" (Selector.to_string selector) (Path.to_string path)) in
     let (body:payload) = YSelector (selector) in
     let h = make_header GET [] Vle.zero Properties.empty in
@@ -86,7 +86,7 @@ module Make (YEngine : Yaks_engine.Engine.S) (MVar: Apero.MVar) = struct
         Lwt.catch (fun () -> send_msg buf client Frame.Opcode.Binary msg   >|= fun _ -> ()) (fun _ -> fallback sid)
       in  P.process_sub engine clientid msg (push_sub wbuf)
     | UNSUB -> P.process_unsub engine clientid msg
-    | REG_EVAL -> P.process_reg_eval engine clientid msg (process_get_on_eval state client wbuf)
+    | REG_EVAL -> P.process_reg_eval engine clientid msg (process_eval state client wbuf)
     | UNREG_EVAL -> P.process_unreg_eval engine clientid msg
     | VALUES ->
       MVar.guarded state @@ (fun self ->

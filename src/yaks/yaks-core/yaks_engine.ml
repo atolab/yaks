@@ -29,7 +29,7 @@ module Engine = struct
     val subscribe : t -> ClientId.t -> ?workspace:WsId.t -> Selector.t -> bool -> notify_subscriber -> SubscriberId.t Lwt.t  
     val unsubscribe : t -> ClientId.t -> SubscriberId.t -> unit Lwt.t  
 
-    val register_eval : t -> ClientId.t -> ?workspace:WsId.t -> Path.t -> get_on_eval -> unit Lwt.t
+    val register_eval : t -> ClientId.t -> ?workspace:WsId.t -> Path.t -> eval_function -> unit Lwt.t
     val unregister_eval : t -> ClientId.t -> ?workspace:WsId.t -> Path.t -> unit Lwt.t
     val eval : t -> ClientId.t -> ?multiplicity:int -> ?workspace:WsId.t -> Selector.t -> (Path.t * Value.t) list  Lwt.t
 
@@ -104,11 +104,11 @@ module Engine = struct
     (****************************)
     (*     Eval management      *)
     (****************************)
-    let register_eval engine clientid ?workspace path get_on_eval =
+    let register_eval engine clientid ?workspace path eval =
       (* TODO: access control *)
       let%lwt pat = to_absolute_path engine clientid ?workspace path in
       let%lwt _ = Logs_lwt.debug (fun m -> m "[Yeng]: register_eval %s" (Path.to_string pat)) in
-      MVar.read engine >>= fun self -> YAdminSpace.create_eval self.admin clientid pat get_on_eval
+      MVar.read engine >>= fun self -> YAdminSpace.create_eval self.admin clientid pat eval
 
     let unregister_eval engine clientid ?workspace path =
       (* TODO: access control *)
@@ -123,7 +123,7 @@ module Engine = struct
       let%lwt sel = to_absolute_selector engine client ?workspace sel in
       let%lwt _ = Logs_lwt.debug (fun m -> m "[Yeng]: eval %s" (Selector.to_string sel)) in
       MVar.read engine >>= fun self ->
-      YAdminSpace.get_on_evals self.admin client 1 sel
+      YAdminSpace.call_evals self.admin client 1 sel
       >|= List.map (fun (p,values) -> p, (List.hd values))    (* TODO: implement multiplicity *)
 
 

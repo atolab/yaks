@@ -23,9 +23,9 @@ module AdminSpace : sig
     val remove_subscriber : t -> ClientId.t -> SubscriberId.t -> unit Lwt.t
     val notify_subscribers : t -> Path.t -> Value.t -> unit Lwt.t
 
-    val create_eval : t -> ClientId.t -> Path.t -> get_on_eval -> unit Lwt.t
+    val create_eval : t -> ClientId.t -> Path.t -> eval_function -> unit Lwt.t
     val remove_eval : t -> ClientId.t -> Path.t -> unit Lwt.t
-    val get_on_evals : t -> ClientId.t -> int -> Selector.t -> (Path.t * Value.t list) list  Lwt.t
+    val call_evals : t -> ClientId.t -> int -> Selector.t -> (Path.t * Value.t list) list  Lwt.t
 
     val get_workspace_path : t -> ClientId.t -> WsId.t -> Path.t Lwt.t
 

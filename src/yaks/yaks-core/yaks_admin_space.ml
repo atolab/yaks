@@ -25,9 +25,9 @@ module AdminSpace = struct
     val remove_subscriber : t -> ClientId.t -> SubscriberId.t -> unit Lwt.t  
     val notify_subscribers : t -> Path.t -> Value.t -> unit Lwt.t
 
-    val create_eval : t -> ClientId.t -> Path.t -> get_on_eval -> unit Lwt.t
+    val create_eval : t -> ClientId.t -> Path.t -> eval_function -> unit Lwt.t
     val remove_eval : t -> ClientId.t -> Path.t -> unit Lwt.t
-    val get_on_evals : t -> ClientId.t -> int -> Selector.t -> (Path.t * Value.t list) list  Lwt.t
+    val call_evals : t -> ClientId.t -> int -> Selector.t -> (Path.t * Value.t list) list  Lwt.t
 
     val get_workspace_path : t -> ClientId.t -> WsId.t -> Path.t Lwt.t
 
@@ -63,7 +63,7 @@ module AdminSpace = struct
       ; ws : Path.t WsMap.t
       ; lastWsid: WsId.t
       ; subs : subscriber SubscriberMap.t
-      ; evals : get_on_eval EvalMap.t
+      ; evals : eval_function EvalMap.t
       }
 
     type frontend =
@@ -413,12 +413,12 @@ module AdminSpace = struct
     (*****************************)
     (*     evals management      *)
     (*****************************)
-    let create_eval admin (clientid:ClientId.t) path get_on_eval =
+    let create_eval admin (clientid:ClientId.t) path eval =
       Logs_lwt.debug (fun m -> m "[Yadm] %s: create_eval %s" (ClientId.to_string clientid) (Path.to_string path)) >>
       MVar.guarded admin 
       @@ fun self ->
         let%lwt (fe, s) = get_frontend_session self clientid.feid clientid.sid in
-        let s' = { s with evals = EvalMap.add path get_on_eval s.evals } in
+        let s' = { s with evals = EvalMap.add path eval s.evals } in
         let fe' = {fe with sessions = SessionMap.add clientid.sid s' fe.sessions} in
         let kvs = KVMap.add
           (Path.of_string @@ Printf.sprintf "%s/frontend/%s/session/%s/eval/%s"
@@ -442,7 +442,7 @@ module AdminSpace = struct
         in
         MVar.return () { self with frontends = FrontendMap.add clientid.feid fe' self.frontends; kvs}
 
-    let get_on_evals admin (clientid:ClientId.t) quorum sel =
+    let call_evals admin (clientid:ClientId.t) quorum sel =
       let _ = ignore clientid in
       let fallback path =
         remove_eval admin local_client path >>= fun _ ->
