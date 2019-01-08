@@ -10,15 +10,15 @@ module AdminSpace = struct
 
   module type S = sig 
     type t
-    val make : Yid.t -> Zenoh.t option -> t
+    val make : Zenoh.t option -> t
 
     val login : t -> ClientId.t -> properties -> unit Lwt.t
     val logout : t -> ClientId.t -> unit Lwt.t
 
     val add_workspace : t -> ClientId.t -> Path.t -> WsId.t Lwt.t
 
-    val get : t -> ClientId.t -> Selector.t -> (Path.t * Value.t) list  Lwt.t
-    val put : t -> ClientId.t -> Path.t -> Value.t -> unit Lwt.t
+    val get : t -> ClientId.t -> Selector.t -> (Path.t * timed_value) list  Lwt.t
+    val put : t -> ClientId.t -> Path.t -> timed_value -> unit Lwt.t
     val remove : t -> ClientId.t -> Path.t -> unit Lwt.t
 
     val create_subscriber : t -> ClientId.t -> Selector.t -> bool -> notify_subscriber -> SubscriberId.t Lwt.t  
@@ -77,11 +77,9 @@ module AdminSpace = struct
       }
 
     type state =
-      { yid : Uuid.t  
-      ; prefix : string   (* prefix used in admin space: "/@/yid" *)
-      ; frontends : frontend FrontendMap.t
+      { frontends : frontend FrontendMap.t
       ; backends : backend BackendMap.t
-      ; kvs : Value.t KVMap.t
+      ; kvs : timed_value KVMap.t
       ; zenoh : Zenoh.t option
       ; mutable zenoh_storage : Zenoh.storage option             
       }
@@ -92,12 +90,20 @@ module AdminSpace = struct
 
     let empty_props_value = Value.PropertiesValue Properties.empty
 
-    
+    let admin_prefix = "/@/"^(Uuid.to_string my_yid)
+
+    let kvmap_add path value time = KVMap.add path { time; value }
+
+    let now () = match Lwt.pick [HLC.update_with_clock ()] |> Lwt.poll with
+      | Some t -> t
+      | None -> failwith "Internal Error"
+
+
     (**************************)
     (*   Backends management  *)
     (**************************)
-    let add_backend admin beid properties =
-      let _ = ignore admin and _ = ignore beid and _ = ignore properties in
+    let add_backend admin beid properties time =
+      let _ = ignore admin and _ = ignore beid and _ = ignore properties and _ = ignore time in
       Lwt.fail @@ YException (`InternalError (`Msg ("add_backend not yet implemented")))
 
     (* TODO: Temporary operation that should be replaced by put/get/remove usage *)
@@ -111,9 +117,10 @@ module AdminSpace = struct
       if BackendMap.mem BE.id self.backends then
         MVar.return_lwt (Lwt.fail @@ YException (`Forbidden (`Msg ("Already existing backend: "^id)))) self
       else
-        let kvs = KVMap.add
-          (Path.of_string @@ Printf.sprintf "%s/backend/%s/" self.prefix id)
-          (Value.PropertiesValue BE.properties) self.kvs
+        let time = now () in
+        let kvs = kvmap_add
+          (Path.of_string @@ Printf.sprintf "%s/backend/%s/" admin_prefix id)
+          (Value.PropertiesValue BE.properties) time self.kvs
         in
         MVar.return () { self with backends = BackendMap.add BE.id backend self.backends; kvs }
 
@@ -133,13 +140,12 @@ module AdminSpace = struct
       |> BackendMap.choose_opt
     
     let incoming_storage_data_handler storage (sample:IOBuf.t) (key:string) = 
-      let open Yaks_fe_sock_codec in 
-      match decode_value sample with 
+      match decode_timed_value sample with
       | Ok (v, _) -> 
         (match Path.of_string_opt key with 
         | Some path -> 
           let%lwt _ = Logs_lwt.warn (fun m -> m "[YAdm]: Inserting remote update for key %s" key) in 
-          Storage.put storage path v  
+          Storage.put storage path v
         | _ -> 
           let%lwt _ = Logs_lwt.warn (fun m -> m "[YAdm]: Received data for key %s which I cannot store" key) 
           in Lwt.return_unit)      
@@ -149,14 +155,13 @@ module AdminSpace = struct
       let s = if predicate = "" then resname else resname ^"?"^predicate in 
       match Selector.of_string_opt s with 
       | Some selector ->  
-        let open Yaks_fe_sock_codec in 
-          let%lwt kvs = Storage.get storage selector in 
-          let evs = List.map 
-            (fun (path,value) -> 
-              let spath = Path.to_string path in 
-              let buf = Result.get  (encode_value value (IOBuf.create ~grow:4096 4096)) in 
-              (spath, IOBuf.flip buf)) kvs in 
-          Lwt.return evs 
+        let%lwt kvs = Storage.get storage selector in
+        let evs = List.map
+          (fun (path,value) ->
+            let spath = Path.to_string path in
+            let buf = Result.get  (encode_timed_value value (IOBuf.create ~grow:4096 4096)) in
+            (spath, IOBuf.flip buf)) kvs in
+        Lwt.return evs 
       | _ -> 
         let%lwt _ = Logs_lwt.debug (fun m -> m "[YAdm]: Unable to resolve query for %s?%s" resname predicate) in 
         Lwt.return []
@@ -164,7 +169,7 @@ module AdminSpace = struct
     let create_zenoh_storage zenoh selector storage = 
       Zenoh.storage (Selector.to_string selector) (incoming_storage_data_handler storage) (incoming_storage_query_handler storage) zenoh 
 
-    let create_storage admin ?beid stid properties =
+    let create_storage admin ?beid stid properties time =
       (* get "selector" from properties *)
       let%lwt selector = match Properties.find_opt "selector" properties with
         | None -> Lwt.fail @@ YException (`InternalError (`Msg ("create_storage "^stid^" without 'selector' in properties")))
@@ -193,7 +198,7 @@ module AdminSpace = struct
         Lwt.fail @@ YException (`InternalError (`Msg (
           Printf.sprintf "create_storage %s on %s failed: storage with same id already exists" stid (BeId.to_string beid'))))
       else
-        (* create storage and add it to self state *)
+        (* create storage (in backend and in Zenoh) and add it to self state *)
         let module BE = (val be.beModule: Backend) in
         let%lwt _ = Logs_lwt.debug (fun m -> m "[Yadm]: create_storage %s using Backend %s" stid (BE.to_string)) in
         let%lwt storage = BE.create_storage selector properties in
@@ -204,9 +209,9 @@ module AdminSpace = struct
           | None -> Lwt.return None 
         in
         let be' = { be with storages = StorageMap.add storageId (storage, zenoh_storage) be.storages } in
-        let kvs = KVMap.add
-          (Path.of_string @@ Printf.sprintf "%s/backend/%s/storage/%s" self.prefix (BeId.to_string beid') stid)
-          (Value.PropertiesValue properties) self.kvs
+        let kvs = kvmap_add
+          (Path.of_string @@ Printf.sprintf "%s/backend/%s/storage/%s" admin_prefix (BeId.to_string beid') stid)
+          (Value.PropertiesValue properties) time self.kvs
         in
         MVar.return () { self with backends = BackendMap.add beid' be' self.backends; kvs}
 
@@ -225,7 +230,7 @@ module AdminSpace = struct
       | Some (storage, zenoh_storage) ->
         Storage.dispose storage >>
         let be' = { be with storages = StorageMap.remove stid' be.storages } in
-        let kvs = KVMap.remove (Path.of_string @@ Printf.sprintf "%s/backend/%s/storage/%s" self.prefix beid stid) self.kvs in
+        let kvs = KVMap.remove (Path.of_string @@ Printf.sprintf "%s/backend/%s/storage/%s" admin_prefix beid stid) self.kvs in
         let open Apero.Option.Infix in 
         let _ = self.zenoh 
         >>= fun zenoh -> 
@@ -257,7 +262,7 @@ module AdminSpace = struct
     (***************************)
     (*   Frontends management  *)
     (***************************)
-    let add_frontend admin feid properties =
+    let add_frontend admin feid properties time =
       Logs_lwt.debug (fun m -> m "[Yadm] add_frontend %s" feid) >>
       MVar.guarded admin
       @@ fun self ->
@@ -265,13 +270,13 @@ module AdminSpace = struct
         MVar.return_lwt (Lwt.fail @@ YException (`InternalError (`Msg ("Already existing frontend with id: "^feid)))) self
       else
         let fe = { properties; sessions = SessionMap.empty } in
-        let kvs = KVMap.add
-          (Path.of_string @@ Printf.sprintf "%s/frontend/%s" self.prefix feid)
-          (Value.PropertiesValue properties) self.kvs
+        let kvs = kvmap_add
+          (Path.of_string @@ Printf.sprintf "%s/frontend/%s" admin_prefix feid)
+          (Value.PropertiesValue properties) time self.kvs
         in
         MVar.return () { self with frontends = FrontendMap.add (FeId.of_string feid) fe self.frontends; kvs}
 
-    let add_frontend_TMP = add_frontend
+    let add_frontend_TMP admin feid properties = add_frontend admin feid properties (now())
 
     let remove_frontend admin feid = 
       Logs_lwt.debug (fun m -> m "[Yadm] remove_frontend %s" feid) >>
@@ -281,7 +286,7 @@ module AdminSpace = struct
         let _ = Logs_lwt.warn (fun m -> m "[Yadm] remove non-existing frontend: %s" feid) in
         MVar.return () self
       else
-        let kvs = KVMap.remove (Path.of_string @@ Printf.sprintf "%s/frontend/%s" self.prefix feid) self.kvs in
+        let kvs = KVMap.remove (Path.of_string @@ Printf.sprintf "%s/frontend/%s" admin_prefix feid) self.kvs in
         MVar.return () { self with frontends = FrontendMap.remove (FeId.of_string feid) self.frontends; kvs}
 
 
@@ -302,9 +307,9 @@ module AdminSpace = struct
           else
             let s = { properties; ws=WsMap.empty; lastWsid=WsId.zero; subs=SubscriberMap.empty; evals=EvalMap.empty } in
             let fe' = {fe with sessions = SessionMap.add clientid.sid s fe.sessions} in
-            let kvs = KVMap.add
-              (Path.of_string @@ Printf.sprintf "%s/frontend/%s/session/%s" self.prefix feid sid)
-              (Value.PropertiesValue properties) self.kvs
+            let kvs = kvmap_add
+              (Path.of_string @@ Printf.sprintf "%s/frontend/%s/session/%s" admin_prefix feid sid)
+              (Value.PropertiesValue properties) (now()) self.kvs
             in
             MVar.return () { self with frontends = FrontendMap.add clientid.feid fe' self.frontends; kvs}
 
@@ -322,7 +327,7 @@ module AdminSpace = struct
           else
             let fe' = {fe with sessions = SessionMap.remove clientid.sid fe.sessions} in
             let spath = Path.of_string @@ Printf.sprintf "%s/frontend/%s/session/%s"
-                self.prefix (FeId.to_string clientid.feid) (SessionId.to_string clientid.sid)
+                admin_prefix (FeId.to_string clientid.feid) (SessionId.to_string clientid.sid)
             in
             let kvs = KVMap.filter (fun p _ -> not @@ Path.is_prefix ~affix:spath p) self.kvs in
             MVar.return () { self with frontends = FrontendMap.add clientid.feid fe' self.frontends; kvs }
@@ -350,10 +355,10 @@ module AdminSpace = struct
         let wsid = WsId.add s.lastWsid WsId.one in
         let s' = { s with ws = WsMap.add wsid path s.ws; lastWsid = wsid } in
         let fe' = {fe with sessions = SessionMap.add clientid.sid s' fe.sessions} in
-        let kvs = KVMap.add
+        let kvs = kvmap_add
           (Path.of_string @@ Printf.sprintf "%s/frontend/%s/session/%s/workspace/%s"
-            self.prefix (FeId.to_string clientid.feid) (SessionId.to_string clientid.sid) (WsId.to_string wsid))
-          (Value.StringValue (Path.to_string path)) self.kvs
+            admin_prefix (FeId.to_string clientid.feid) (SessionId.to_string clientid.sid) (WsId.to_string wsid))
+          (Value.StringValue (Path.to_string path)) (now()) self.kvs
         in
         MVar.return wsid { self with frontends = FrontendMap.add clientid.feid fe' self.frontends; kvs}
 
@@ -385,7 +390,7 @@ module AdminSpace = struct
         let fe' = { fe with sessions = SessionMap.add clientid.sid s' fe.sessions } in
         let kvs = KVMap.remove
           (Path.of_string @@ Printf.sprintf "%s/frontend/%s/session/%s/subscriber/%s"
-            self.prefix (FeId.to_string clientid.feid) (SessionId.to_string clientid.sid) (SubscriberId.to_string subid))
+            admin_prefix (FeId.to_string clientid.feid) (SessionId.to_string clientid.sid) (SubscriberId.to_string subid))
           self.kvs
         in
         MVar.return () { self with frontends = FrontendMap.add clientid.feid fe' self.frontends; kvs}
@@ -419,10 +424,10 @@ module AdminSpace = struct
         let sub = {selector; is_push; notifier; zenoh_sub} in
         let s' = { s with subs = SubscriberMap.add subid sub s.subs } in
         let fe' = { fe with sessions = SessionMap.add clientid.sid s' fe.sessions } in
-        let kvs = KVMap.add
+        let kvs = kvmap_add
           (Path.of_string @@ Printf.sprintf "%s/frontend/%s/session/%s/subscriber/%s"
-            self.prefix (FeId.to_string clientid.feid) (SessionId.to_string clientid.sid) (SubscriberId.to_string subid))
-          (Value.StringValue (Selector.to_string selector)) self.kvs
+            admin_prefix (FeId.to_string clientid.feid) (SessionId.to_string clientid.sid) (SubscriberId.to_string subid))
+          (Value.StringValue (Selector.to_string selector)) (now()) self.kvs
         in
         MVar.return subid { self with frontends = FrontendMap.add clientid.feid fe' self.frontends; kvs}
 
@@ -450,7 +455,7 @@ module AdminSpace = struct
         let fe' = { fe with sessions = SessionMap.add clientid.sid s' fe.sessions } in
         let kvs = KVMap.remove
           (Path.of_string @@ Printf.sprintf "%s/frontend/%s/session/%s/eval/%s"
-            self.prefix (FeId.to_string clientid.feid) (SessionId.to_string clientid.sid) (Path.to_string path))
+            admin_prefix (FeId.to_string clientid.feid) (SessionId.to_string clientid.sid) (Path.to_string path))
           self.kvs
         in
         MVar.return () { self with frontends = FrontendMap.add clientid.feid fe' self.frontends; kvs}
@@ -518,11 +523,10 @@ module AdminSpace = struct
         in 
         let s' = { s with evals = EvalMap.add path (eval, zenoh_eval) s.evals } in
         let fe' = {fe with sessions = SessionMap.add clientid.sid s' fe.sessions} in
-        let kvs = KVMap.add
+        let kvs = kvmap_add
           (Path.of_string @@ Printf.sprintf "%s/frontend/%s/session/%s/eval/%s"
-            self.prefix (FeId.to_string clientid.feid) (SessionId.to_string clientid.sid) (Path.to_string path))
-          empty_props_value
-          self.kvs
+            admin_prefix (FeId.to_string clientid.feid) (SessionId.to_string clientid.sid) (Path.to_string path))
+          empty_props_value (now())  self.kvs
         in
         MVar.return () { self with frontends = FrontendMap.add clientid.feid fe' self.frontends; kvs}
 
@@ -548,24 +552,24 @@ module AdminSpace = struct
             |> KVMap.filter (fun path _ -> Selector.is_matching_path path selector)
             |> KVMap.bindings)
 
-    let put admin (clientid:ClientId.t) path value =
+    let put admin (clientid:ClientId.t) path tvalue =
       let _ = ignore clientid in  (* will be used for access control*)
       let%lwt _ = Logs_lwt.debug (fun m -> m "[Yadm] %s: put %s" (ClientId.to_string clientid) (Path.to_string path)) in
-      let%lwt prefix = MVar.read admin >|= fun self -> self.prefix in
+      let time = tvalue.time in
       let%lwt properties = 
         let open Value in
-        match transcode value Properties_encoding with
+        match transcode tvalue.value Properties_encoding with
         | Ok PropertiesValue p -> Lwt.return p
         | Ok _ -> Lwt.fail @@ YException (`UnsupportedTranscoding (`Msg "Transcoding to Properties didn't return a PropertiesValie"))
         | Error e -> Lwt.fail @@ YException e
       in
-      if Astring.is_prefix ~affix:prefix (Path.to_string path) then
-        match String.split_on_char '/' @@ Astring.with_range ~first:(String.length prefix+1) (Path.to_string path) with
-        | ["frontend"; feid] -> add_frontend admin feid properties
+      if Astring.is_prefix ~affix:admin_prefix (Path.to_string path) then
+        match String.split_on_char '/' @@ Astring.with_range ~first:(String.length admin_prefix+1) (Path.to_string path) with
+        | ["frontend"; feid] -> add_frontend admin feid properties time
         | ["backend"; "auto"]  -> Lwt.fail @@ YException (`InvalidPath (`Msg ("Creation of backend/auto forbidden (reserved id)")))
-        | ["backend"; beid]  -> add_backend admin beid properties
-        | ["backend"; "auto"; "storage"; stid] -> create_storage admin stid properties
-        | ["backend"; beid; "storage"; stid] -> create_storage admin ~beid stid properties
+        | ["backend"; beid]  -> add_backend admin beid properties time
+        | ["backend"; "auto"; "storage"; stid] -> create_storage admin stid properties time
+        | ["backend"; beid; "storage"; stid] -> create_storage admin ~beid stid properties time
         | _ -> Lwt.fail @@ YException (`InvalidPath (`Msg ("Invalid path on admin space: "^(Path.to_string path))))
       else
         Lwt.fail @@ YException (`InternalError (`Msg ("put on remote Yaks admin not yet implemented")))
@@ -573,9 +577,8 @@ module AdminSpace = struct
     let remove admin (clientid:ClientId.t) path =
       let _ = ignore clientid in  (* will be used for access control*)
       let%lwt _ = Logs_lwt.debug (fun m -> m "[Yadm] %s: remove %s" (ClientId.to_string clientid) (Path.to_string path)) in
-      let%lwt prefix = MVar.read admin >|= fun self -> self.prefix in
-      if Astring.is_prefix ~affix:prefix (Path.to_string path) then
-        match String.split_on_char '/' @@ Astring.with_range ~first:(String.length prefix+1) (Path.to_string path) with
+      if Astring.is_prefix ~affix:admin_prefix (Path.to_string path) then
+        match String.split_on_char '/' @@ Astring.with_range ~first:(String.length admin_prefix+1) (Path.to_string path) with
         | ["frontend"; feid] -> remove_frontend admin feid
         | ["backend"; beid]  -> remove_backend admin beid
         | ["backend"; beid; "storage"; stid] -> remove_storage admin beid stid
@@ -585,8 +588,7 @@ module AdminSpace = struct
 
 
     let incoming_admin_storage_data_handler admin (sample:IOBuf.t) (key:string) =
-      let open Yaks_fe_sock_codec in 
-      match decode_value sample with 
+      match decode_timed_value sample with 
       | Ok (v, _) -> 
         (match Path.of_string_opt key with 
         | Some path -> 
@@ -601,29 +603,24 @@ module AdminSpace = struct
       let s = if predicate = "" then resname else resname ^"?"^predicate in 
       match Selector.of_string_opt s with 
       | Some selector ->  
-        let open Yaks_fe_sock_codec in 
-          let%lwt kvs = get admin local_client selector in 
-          let evs = List.map 
-            (fun (path,value) -> 
-              let spath = Path.to_string path in 
-              let buf = Result.get  (encode_value value (IOBuf.create ~grow:4096 4096)) in 
-              (spath, IOBuf.flip buf)) kvs in 
-          Lwt.return evs 
+        let%lwt kvs = get admin local_client selector in
+        let evs = List.map
+          (fun (path,value) ->
+            let spath = Path.to_string path in
+            let buf = Result.get  (encode_timed_value value (IOBuf.create ~grow:4096 4096)) in
+            (spath, IOBuf.flip buf)) kvs in
+        Lwt.return evs 
       | _ -> 
         let%lwt _ = Logs_lwt.debug (fun m -> m "[YAdm]: Unable to resolve query for %s?%s" resname predicate) in 
         Lwt.return []
 
-    let make yid zenoh =
-      let prefix = "/@/"^(Uuid.to_string yid) in
-      let _ = Logs_lwt.debug (fun m -> m "Create Yaks %s admin space\n" prefix) in
+    let make zenoh =
+      let _ = Logs_lwt.debug (fun m -> m "Create Yaks %s admin space\n" admin_prefix) in
       let kvs = KVMap.empty
-        |> KVMap.add (Path.of_string prefix) empty_props_value
+        |> kvmap_add (Path.of_string admin_prefix) empty_props_value (now())
       in
-            
       let admin =  MVar.create
-        { yid
-        ; prefix
-        ; frontends = FrontendMap.empty
+        { frontends = FrontendMap.empty
         ; backends = BackendMap.empty
         ; kvs
         ; zenoh
@@ -632,7 +629,7 @@ module AdminSpace = struct
       in 
       let zenoh_storage_lwt = match zenoh with  
       | Some z -> 
-        let selector = (prefix ^ "/**") in 
+        let selector = (admin_prefix ^ "/**") in
         let%lwt s = Zenoh.storage selector (incoming_admin_storage_data_handler admin) (incoming_adming_query_handler admin) z in 
         Lwt.return @@ Some s
       | None -> Lwt.return None 

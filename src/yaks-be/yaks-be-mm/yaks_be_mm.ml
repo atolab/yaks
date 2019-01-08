@@ -37,16 +37,16 @@ module MainMemoryBE = struct
 
 
 
-    let put (path:Path.t) (value:Value.t) =        
+    let put (path:Path.t) (value:timed_value) =
       (* Stores should potentailly convert the encoding for the value. 
              For the main memory, we keep the value in its original format 
              and just convert in the front-end when required *)        
       MVar.guarded mvar_self
         (fun self -> Lwt.return (Lwt.return_unit, SMap.add path value self))        
 
-    let try_update v d = match Value.update v d with
-      | Ok r -> r
-      | Error _ -> v 
+    let try_update tv d = match Value.update tv.value d.value with
+      | Ok r -> { time=tv.time; value=r }
+      | Error _ -> { time=tv.time; value=tv.value }
 
     let update path delta =       
       MVar.guarded mvar_self

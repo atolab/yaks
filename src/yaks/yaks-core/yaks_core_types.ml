@@ -1,7 +1,11 @@
 open Apero
+open Apero_time
 open Yaks_types
 
 module Yid = Uuid
+
+let my_yid = Yid.make ()
+(* NOTE: the unique identifier of the Yaks service is instanciated here to be used below for HLC module creation *)
 
 module FeId = Id.Make(
   struct
@@ -54,5 +58,24 @@ end
 
 
 type notify_subscriber =  SubscriberId.t -> fallback:(SubscriberId.t -> unit Lwt.t) -> (Path.t * Value.t) list -> unit Lwt.t
+
 type eval_function = Path.t -> Selector.t -> fallback:(Path.t -> Value.t Lwt.t) -> Value.t Lwt.t
 
+
+let hlc_counter_size = 8
+let hlc_max_drift = 0.1
+module HLC = (val hlc_create my_yid hlc_counter_size hlc_max_drift (module Clock_unix): Apero_time.HLC)
+
+type timed_value = { time:HLC.Timestamp.t; value:Value.t }
+
+
+let encode_timed_value tv buf = 
+  let open Apero.Result.Infix in
+  HLC.Timestamp.encode tv.time buf >>= fun buf ->
+  Yaks_fe_sock_codec.encode_value tv.value buf
+
+let decode_timed_value buf =
+  let open Apero.Result.Infix in
+  HLC.Timestamp.decode buf >>= fun (time, buf) ->
+  Yaks_fe_sock_codec.decode_value buf >>= fun (value, buf) ->
+  Result.ok ({time; value}, buf)
