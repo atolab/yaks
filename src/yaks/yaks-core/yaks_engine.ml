@@ -14,8 +14,6 @@ module Engine = struct
 
     val make : Zenoh.t option -> t
 
-    val id : Yid.t
-
     val login : t -> ClientId.t -> properties -> unit Lwt.t
     val logout : t -> ClientId.t -> unit Lwt.t   
 
@@ -38,9 +36,12 @@ module Engine = struct
     val add_frontend_TMP : t -> string -> properties -> unit Lwt.t
   end
 
+
   module Make (MVar: Apero.MVar) = struct
 
     module YAdminSpace = Yaks_admin_space.AdminSpace.Make(MVar)
+
+    module KVListMap = Map.Make(Path)
 
     type state =
       { admin : YAdminSpace.t 
@@ -48,12 +49,12 @@ module Engine = struct
 
     type t = state MVar.t
 
-    let id = Yid.make ()
+    let id = my_yid
 
     let make zenoh =
       let _ = Logs_lwt.debug (fun m -> m "Creating Engine\n") in 
       MVar.create 
-        { admin = YAdminSpace.make id zenoh 
+        { admin = YAdminSpace.make zenoh 
         ; zenoh }
     
     let to_absolute_path engine clientid ?workspace path =
@@ -188,9 +189,12 @@ module Engine = struct
           Lwt.wakeup_later promise xs;
           MVar.return () xs
 
-          
-    let consolidate_query_result (qrs:(string * Path.t * Value.t) list) = 
-      List.map (fun (_,p,v) -> (p,v)) qrs
+
+    let map_of_results = List.fold_left (
+      fun m (p,v) -> match KVListMap.find_opt p m with
+        | Some l -> KVListMap.add p (v::l) m
+        | None -> KVListMap.add p (v::[]) m)
+      KVListMap.empty 
       
     let issue_remote_query zenoh selector =                  
       let path = Selector.path selector in 
@@ -199,55 +203,64 @@ module Engine = struct
       let query =  (Option.get_or_default (Selector.predicate selector) "") in
       let%lwt () = Zenoh.query path query (remote_query_handler r mlist) zenoh in
       let open Lwt.Infix in 
-      p >|= consolidate_query_result
+      p >>= Lwt_list.map_p (
+        fun (_,p,v) ->                               (* Note:  Zenoh StorageIds is ignored (no need) *)
+        let%lwt time = HLC.update_with_clock () in   (* @TODO: replace will real time retrieved from query result, and also call HLC.update_with_timestamp for each !! *)
+        Lwt.return (p, { time; value=v }))
 
-    let get engine client ?quorum ?workspace sel =
+    let apply_quorum quorum kvlmap =
+      let _ = ignore quorum in
+      KVListMap.fold (fun p tvl res ->
+        (* @TODO: for each path return appropriate value depending time and quorum *)
+        let _ = Logs_lwt.debug (fun m -> m "[Yeng]: apply quorum %d on %d received values for %s" quorum (List.length tvl) (Path.to_string p)) in
+        let tv = List.hd tvl in
+        let _ = Logs_lwt.debug (fun m -> m "[Yeng]:   -> for %s choosed value with timestamp %a" (Path.to_string p) HLC.Timestamp.pp tv.time) in
+        (p,tv.value)::res)
+      kvlmap []
+
+    let get engine client ?(quorum=1) ?workspace sel =
       (* TODO: access control *)
       (* TODO: transport with quorum *)
-      let _ = ignore quorum in
-      
       let%lwt sel = to_absolute_selector engine client ?workspace sel in
-      match check_if_admin_selector sel with
-      | Some sel -> MVar.read engine >>= fun self -> YAdminSpace.get self.admin client sel
-      | None ->
-        let%lwt _ = Logs_lwt.debug (fun m -> m "[Yeng]: get %s => query storages" (Selector.to_string sel)) in
-        MVar.read engine >>= fun self ->
-        let%lwt storages = YAdminSpace.get_storages_for_selector self.admin sel in 
-        match storages with 
-        | [] -> 
-          let%lwt _ = Logs_lwt.debug (fun m -> m "[Yeng]: No storage Matches, going remote...") in
-          (match self.zenoh with 
-          | Some zenoh -> issue_remote_query zenoh sel 
-          | None -> Lwt.return [])
-        | _ -> 
-          let%lwt _ = Logs_lwt.debug (fun m -> m "[Yeng]: Some storage Matches, going local+remote") in
-          let covers: bool =  storages
-            |> List.map (fun s -> Storage.is_covering_selector s sel)            
-            |> List.fold_left (fun a b -> a || b) false
-          in
-          let local_get = List.map (fun store -> Storage.get store sel) storages
-              |> Apero.LwtM.flatten
-              >|= List.concat
-          in 
-          let%lwt _ = Logs_lwt.debug (fun m -> m "[Yeng]: Some storage Covers: %b" covers) in
-          if covers then local_get
-          else 
-            match self.zenoh with 
-            | Some zenoh -> 
-              let rdata = issue_remote_query zenoh sel in
-              let ldata = local_get in 
-              Lwt.join [(rdata >>= fun _ -> Lwt.return_unit); (ldata >>= fun _ -> Lwt.return_unit)] 
-              >>= fun () -> 
-                rdata >>= fun rd ->
-                  ldata >>= fun ld -> 
-                    let%lwt _ = Logs_lwt.debug (fun m -> m "[Yeng]: Local get returned %d values and remote get %d results" (List.length ld) (List.length rd)) in
-                    Lwt.return @@ List.append rd ld               
-            | None -> local_get 
-              
+      let timed_results = match check_if_admin_selector sel with
+        | Some sel -> MVar.read engine >>= fun self -> YAdminSpace.get self.admin client sel
+        | None ->
+          let%lwt _ = Logs_lwt.debug (fun m -> m "[Yeng]: get %s => query storages" (Selector.to_string sel)) in
+          MVar.read engine >>= fun self ->
+          let%lwt storages = YAdminSpace.get_storages_for_selector self.admin sel in
+          match storages with
+          | [] ->
+            let%lwt _ = Logs_lwt.debug (fun m -> m "[Yeng]: No storage Matches, going remote...") in
+            (match self.zenoh with
+            | Some zenoh -> issue_remote_query zenoh sel
+            | None -> Lwt.return [])
+          | _ ->
+            let%lwt _ = Logs_lwt.debug (fun m -> m "[Yeng]: Some storage Matches, going local+remote") in
+            let covers: bool =  storages
+              |> List.map (fun s -> Storage.is_covering_selector s sel)
+              |> List.fold_left (fun a b -> a || b) false
+            in
+            let local_get = List.map (fun store -> Storage.get store sel) storages
+                |> Apero.LwtM.flatten
+                >|= List.concat
+            in 
+            let%lwt _ = Logs_lwt.debug (fun m -> m "[Yeng]: Some storage Covers: %b" covers) in
+            if covers then local_get
+            else 
+              match self.zenoh with
+              | Some zenoh -> 
+                let rdata = issue_remote_query zenoh sel in
+                let ldata = local_get in 
+                Lwt.join [(rdata >>= fun _ -> Lwt.return_unit); (ldata >>= fun _ -> Lwt.return_unit)] 
+                >>= fun () ->
+                  rdata >>= fun rd ->
+                    ldata >>= fun ld -> 
+                      let%lwt _ = Logs_lwt.debug (fun m -> m "[Yeng]: Local get returned %d values and remote get %d results" (List.length ld) (List.length rd)) in
+                      Lwt.return @@ List.append rd ld
+              | None -> local_get
+        in
+        timed_results >|= map_of_results >|= apply_quorum quorum
 
-        (* TODO? If in the future we accept Storages with conflicting paths,
-          there might be duplicate keys from different Storages in this result.
-          Shall we remove duplicates?? *)
 
     let distribute_update path value zenoh =
       let res = Path.to_string path in
@@ -263,16 +276,17 @@ module Engine = struct
       (* TODO: access control *)
       (* TODO: transport with quorum *)
       let _ = ignore quorum in
+      let%lwt time = HLC.update_with_clock () in
       let%lwt path = to_absolute_path engine client ?workspace path in
-      let%lwt _ = Logs_lwt.debug (fun m -> m "[Yeng]: put %s" (Path.to_string path)) in
+      let%lwt _ = Logs_lwt.debug (fun m -> m "[Yeng]: put %s with timestamp %a" (Path.to_string path) HLC.Timestamp.pp time) in
       MVar.read engine 
       >>= fun self ->      
       match check_if_admin_path path with
-      | Some path -> MVar.read engine >>= fun self -> YAdminSpace.put self.admin client path value
+      | Some path -> MVar.read engine >>= fun self -> YAdminSpace.put self.admin client path { time; value }
       | None ->
         let _ = YAdminSpace.notify_subscribers self.admin path value in
         let _ = YAdminSpace.get_storages_for_path self.admin path
-        >>= Lwt_list.iter_p (fun store -> Storage.put store path value) in 
+        >>= Lwt_list.iter_p (fun store -> Storage.put store path { time; value }) in 
         let open Apero.Option.Infix in 
         let _ = self.zenoh >|= fun zenoh -> (distribute_update path value zenoh) in
         Lwt.return_unit
@@ -281,13 +295,14 @@ module Engine = struct
       (* TODO: access control *)
       (* TODO: transport with quorum *)
       let _ = ignore quorum in
+      let%lwt time = HLC.update_with_clock () in
       let%lwt path = to_absolute_path engine client ?workspace path in
-      let%lwt _ = Logs_lwt.debug (fun m -> m "[Yeng]: update %s" (Path.to_string path)) in
+      let%lwt _ = Logs_lwt.debug (fun m -> m "[Yeng]: update %s with timestamp %a" (Path.to_string path) HLC.Timestamp.pp time) in
       MVar.read engine 
       >>= fun self ->
       let _ = Lwt.return @@ YAdminSpace.notify_subscribers self.admin path value in
       YAdminSpace.get_storages_for_path self.admin path
-      >>= Lwt_list.iter_p (fun store -> Storage.update store path value)
+      >>= Lwt_list.iter_p (fun store -> Storage.update store path { time; value })
 
     let remove engine client ?quorum ?workspace path =
       (* TODO: access control *)

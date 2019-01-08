@@ -11,8 +11,6 @@ module Engine : sig
 
     val make : Zenoh.t option -> t
 
-    val id : Yid.t
-
     val login : t -> ClientId.t -> properties -> unit Lwt.t
     val logout : t -> ClientId.t -> unit Lwt.t   
 

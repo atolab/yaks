@@ -122,41 +122,47 @@ module SQLBE = struct
           Caqti_driver.get C.conx storage_info.table_name typ ~condition ()
           (* NOTE: replacing '*' with '%' in LIKE clause gives more keys than we want (as % is similar to %%). We need to filter: *)
           >|= List.filter (fun row -> match row with
-            | k::_::_::[] -> Selector.is_matching_path (Path.of_string k) sub_sel
-            | _ -> let _ = Logs_lwt.warn (fun m -> m "[SQL]: get in KV table %s returned non k+v+e value: %s" storage_info.table_name (String.concat "," row)) in false
+            | k::_::_::_::[] -> Selector.is_matching_path (Path.of_string k) sub_sel
+            | _ -> let _ = Logs_lwt.warn (fun m -> m "[SQL]: get in KV table %s returned non k+v+e+t value: %s" storage_info.table_name (String.concat "," row)) in false
             )
           >|= List.map (fun row -> match row with
-            | k::v::e::[] ->
+            | k::v::e::t::[] ->
               let encoding = Value.encoding_of_string e in
               (match Value.of_string v encoding with 
-              | Ok v -> Some (Path.of_string @@ (Path.to_string storage_info.keys_prefix)^k, v)
+              | Ok value ->
+                (match HLC.Timestamp.of_string t with
+                | Some time -> Some (Path.of_string @@ (Path.to_string storage_info.keys_prefix)^k, {time; value})
+                | None -> let _ = Logs_lwt.warn (fun m -> m "[SQL]: get in KV table %s failed to read timestamp in %s" storage_info.table_name (String.concat "," row)) in
+                  None
+                )
               | Error err ->
                 let _ = Logs_lwt.warn (fun m -> m "[SQL]: get in KV table %s returned a value for key %s that we failed to transcode: %s"
                           storage_info.table_name k (show_yerror err)) in
                 None)
-            | _ -> let _ = Logs_lwt.warn (fun m -> m "[SQL]: get in KV table %s returned non k+v+e value: %s" storage_info.table_name (String.concat "," row)) in
+            | _ -> let _ = Logs_lwt.warn (fun m -> m "[SQL]: get in KV table %s returned non k+v+e+t value: %s" storage_info.table_name (String.concat "," row)) in
                 None)
           >|= List.filter Option.is_some
           >|= List.map (fun o -> Option.get o)
 
-    let put_kv_table storage_info (path:Path.t) (value:Value.t) =
+    let put_kv_table storage_info (path:Path.t) (tv:timed_value) =
       let%lwt _ = Logs_lwt.debug (fun m -> m "[SQL]: put(%s) into kv table %s"
                     (Path.to_string path) (storage_info.table_name)) in
       let k = Astring.with_range ~first:(String.length @@ Path.to_string storage_info.keys_prefix) (Path.to_string path) |> to_sql_string in
-      let v = Value.to_string value |> to_sql_string in
-      let enc = Value.encoding_to_string @@ Value.encoding value |> to_sql_string in
-      Caqti_driver.put C.conx storage_info.table_name storage_info.schema (k::v::enc::[]) ()
+      let v = Value.to_string tv.value |> to_sql_string in
+      let enc = Value.encoding_to_string @@ Value.encoding tv.value |> to_sql_string in
+      let t = HLC.Timestamp.to_string tv.time |> to_sql_string in
+      Caqti_driver.put C.conx storage_info.table_name storage_info.schema (k::v::enc::t::[]) ()
 
     let update_kv_table storage_info path delta =
       let%lwt _ = Logs_lwt.debug (fun m -> m "[SQL]: put_delta(%s) into kv table %s"
                     (Path.to_string path) (storage_info.table_name)) in
       let open LwtM.InfixM in
       get_kv_table storage_info (Selector.of_path path)
-      >>= Lwt_list.iter_p (fun (p,v) -> 
-        match Value.update v delta with
-        | Ok value -> put_kv_table storage_info p value
+      >>= Lwt_list.iter_p (fun (p,tv) ->
+        match Value.update tv.value delta.value with
+        | Ok value -> put_kv_table storage_info p { time=delta.time; value }
         | Error e -> Logs_lwt.warn (
-          fun m -> m "[SQL]: put_delta on value %s failed: %s" (Value.to_string v) (show_yerror e)))
+          fun m -> m "[SQL]: put_delta on value %s failed: %s" (Value.to_string tv.value) (show_yerror e)))
 
     let remove_kv_table storage_info path = 
       let%lwt _ = Logs_lwt.debug (fun m -> m "[SQL]: remove(%s) from kv table %s"
@@ -169,7 +175,6 @@ module SQLBE = struct
     (*************************)
     (*   Common operations   *)
     (*************************)
-
     let dispose storage_info =
       match storage_info.on_dispose with
       | Drop -> 
@@ -199,7 +204,7 @@ module SQLBE = struct
           let is_kv_table = s = Caqti_driver.kv_table_schema in
           let%lwt _ = Logs_lwt.debug (fun m -> m "[SQL]: table %s found (kv table? %b)" table_name is_kv_table) in
           if not is_kv_table && not @@ Selector.is_path_unique selector then
-            Lwt.fail  @@ YException (`StoreError (`Msg (Printf.sprintf
+            Lwt.fail @@ YException (`StoreError (`Msg (Printf.sprintf
               "Invalid selector '%s' on legacy SQL table '%s': a storage on a legacy SQL table must not have wildcards in its selector" (Selector.to_string selector) table_name))) 
           else
             Lwt.return (s, is_kv_table)
@@ -223,13 +228,14 @@ module SQLBE = struct
           (update_kv_table storage_info)
           (remove_kv_table storage_info)
       else
-        Lwt.return @@
+        Lwt.fail @@ YException (`StoreError (`Msg "Creation of Storage on a legacy SQL table is temporarly not supported."))
+        (* Lwt.return @@
         Storage.make selector props
           (dispose storage_info)
           (get_sql_table storage_info)
           (put_sql_table storage_info)
           (update_sql_table storage_info)
-          (remove_sql_table storage_info)
+          (remove_sql_table storage_info) *)
   end
 end 
 

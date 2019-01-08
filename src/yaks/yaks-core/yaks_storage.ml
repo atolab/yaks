@@ -1,5 +1,6 @@
 open Apero
 open Yaks_types
+open Yaks_core_types
 open Yaks_core_properties
 
 module Storage = struct
@@ -11,9 +12,9 @@ module Storage = struct
     ; selector : Selector.t
     ; props : properties
     ; dispose : unit -> unit Lwt.t
-    ; get : Selector.t -> (Path.t * Value.t) list Lwt.t
-    ; put : Path.t -> Value.t -> unit Lwt.t 
-    ; put_delta : Path.t -> Value.t -> unit Lwt.t 
+    ; get : Selector.t -> (Path.t * timed_value) list Lwt.t
+    ; put : Path.t -> timed_value -> unit Lwt.t 
+    ; put_delta : Path.t -> timed_value -> unit Lwt.t 
     ; remove : Path.t -> unit Lwt.t
     ; as_string : string
     }

@@ -8,15 +8,15 @@ module AdminSpace : sig
 
   module type S = sig 
     type t
-    val make : Yid.t -> Zenoh.t option -> t
+    val make : Zenoh.t option -> t
 
     val login : t -> ClientId.t -> properties -> unit Lwt.t
     val logout : t -> ClientId.t -> unit Lwt.t
 
     val add_workspace : t -> ClientId.t -> Path.t -> WsId.t Lwt.t
 
-    val get : t -> ClientId.t -> Selector.t -> (Path.t * Value.t) list  Lwt.t
-    val put : t -> ClientId.t -> Path.t -> Value.t -> unit Lwt.t
+    val get : t -> ClientId.t -> Selector.t -> (Path.t * timed_value) list  Lwt.t
+    val put : t -> ClientId.t -> Path.t -> timed_value -> unit Lwt.t
     val remove : t -> ClientId.t -> Path.t -> unit Lwt.t
 
     val create_subscriber : t -> ClientId.t -> Selector.t -> bool -> notify_subscriber -> SubscriberId.t Lwt.t  
