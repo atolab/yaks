@@ -616,8 +616,14 @@ module AdminSpace = struct
 
     let make zenoh =
       let _ = Logs_lwt.debug (fun m -> m "Create Yaks %s admin space\n" admin_prefix) in
+      let time = now() in
       let kvs = KVMap.empty
-        |> kvmap_add (Path.of_string admin_prefix) empty_props_value (now())
+        |> kvmap_add (Path.of_string admin_prefix) empty_props_value time
+        |> fun kvs -> match zenoh with
+          | Some z -> kvmap_add
+            (Path.of_string @@ admin_prefix^"/transport/zenoh")
+            (Value.PropertiesValue (Zenoh.info z)) time kvs
+          | None -> kvs
       in
       let admin =  MVar.create
         { frontends = FrontendMap.empty
