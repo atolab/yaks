@@ -112,7 +112,7 @@ module Make (YEngine : Yaks_engine.Engine.S) (MVar: Apero.MVar) = struct
         MVar.return_lwt (P.process_error msg BAD_REQUEST) self)
       )
     | _ -> 
-      let _ = Logs_lwt.warn (fun m -> m "[FES] received unexpectged message with mid %d" (message_id_to_int msg.header.mid)) in
+      let _ = Logs_lwt.warn (fun m -> m "[FES] received unexpected message with mid %d" (message_id_to_int msg.header.mid)) in
       P.process_error msg BAD_REQUEST
 
 

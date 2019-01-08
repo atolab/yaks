@@ -24,10 +24,11 @@ module Make (YEngine : Yaks_engine.Engine.S) = struct
     }
 
 
-  (* Eventually we may replace the code to use directly the properties *)
   (**********************************)
   (*      helpers functions         *)
   (**********************************)
+
+  let http_header_eval = "is.yaks.eval"
 
   let query_to_string query =
     List.map (fun (n,v) -> Printf.sprintf "%s=%s" n (String.concat "," v)) query
@@ -42,8 +43,10 @@ module Make (YEngine : Yaks_engine.Engine.S) = struct
     Server.respond_string ~status:`Bad_request ~body:(
       "Welcome to YAKS REST API\n\n"^
       "Usage:\n\n"^
-      "POST /yaks/access?path=[string]&cacheSize=[int]\n"^
-      "   => creates an Access\n"
+      "GET /a/b/c\n"^
+      "   => get all the key/value for key '/a/b/c'\n"^
+      "GET /@/local/**\n"^
+      "   => get all keys/values from Admin Space\n"
     )
       ()
 
@@ -114,6 +117,13 @@ module Make (YEngine : Yaks_engine.Engine.S) = struct
       (fun () -> Server.respond_string ~status:`No_content ~body:"" ())
       (fun ex -> ex_to_response ex)
 
+  let eval fe clientid selector =
+    let%lwt _ = Logs_lwt.debug (fun m -> m "[FER] eval %s %s" (ClientId.to_string clientid) (Selector.to_string selector)) in
+    YEngine.eval fe.engine clientid selector
+    >>= fun (kvs) ->
+    Server.respond_string ~status:`OK ~body:(json_string_of_key_values kvs) ()
+
+
   let remove fe clientid path =
     let%lwt _ = Logs_lwt.debug (fun m -> m "[FER]   remove %s %s" (ClientId.to_string clientid) (Path.to_string path)) in
     YEngine.remove fe.engine clientid path
@@ -142,11 +152,9 @@ module Make (YEngine : Yaks_engine.Engine.S) = struct
     let path = uri |> Uri.path  in
     let query = uri |> Uri.query in
     let headers = req |> Request.headers in
-    let%lwt _ = Logs_lwt.debug (fun m -> m "[FER] HTTP req: %s %s?%s with cookies: %s" 
+    let%lwt _ = Logs_lwt.debug (fun m -> m "[FER] HTTP req: %s %s?%s with headers: %a" 
                                    (Code.string_of_method meth) path (query_to_string query)
-                                   (Cookie.Cookie_hdr.extract headers
-                                    |> List.find_opt (fun (key, _) -> Astring.is_prefix ~affix:key "is.yaks")
-                                    |> function | Some(k,v) -> k^"="^v | _ -> ""))
+                                   Header.pp_hum headers)
     in
     let (clientid:ClientId.t) = { feid = fe.cfg.id; sid = default_session_id } in
     try%lwt (
@@ -156,7 +164,10 @@ module Make (YEngine : Yaks_engine.Engine.S) = struct
         match meth with
         | `GET ->
           (match Selector.of_string_opt path with
-          | Some selector -> get fe clientid selector
+          | Some selector ->
+              (match Header.get headers http_header_eval with
+              | Some _ -> eval fe clientid selector
+              | None -> get fe clientid selector)
           | None -> invalid_selector path)
         | `PUT ->
           (match Path.of_string_opt path with
