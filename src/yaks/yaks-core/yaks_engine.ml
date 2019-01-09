@@ -168,15 +168,16 @@ module Engine = struct
         match sample with 
         | Zenoh.StorageData {stoid; rsn=_; resname; data} ->                    
           (match 
-            let open Apero.Result.Infix in 
-            let open Yaks_fe_sock_codec in       
             let _ = Logs.debug (fun m -> m ">>> Query Handler Received data for key: %s" resname) in 
             let store_id = IOBuf.hexdump ~separator:":" stoid in 
             let _ = Logs.debug (fun m -> m ">>> Query Handler Received data for key: %s from storage %s" resname store_id) in          
-            decode_value data 
-            >>= fun (value, _) -> 
+            match decode_timed_value data with
+            | Ok (value, _) -> 
               let _ = Logs.debug (fun m -> m ">>> Query Handler parsed data for key: %s" resname) in 
               Ok(store_id, Path.of_string(resname), value)
+            | Error e ->
+              let _ = Logs.err (fun m -> m ">>> Query Handler failed to parse data for key %s : %s" resname (Atypes.show_error e)) in 
+              Error e
           with 
           | Ok sample -> MVar.return () (sample::xs)
           | _ -> MVar.return () xs)
@@ -203,10 +204,7 @@ module Engine = struct
       let query =  (Option.get_or_default (Selector.predicate selector) "") in
       let%lwt () = Zenoh.query path query (remote_query_handler r mlist) zenoh in
       let open Lwt.Infix in 
-      p >>= Lwt_list.map_p (
-        fun (_,p,v) ->                               (* Note:  Zenoh StorageIds is ignored (no need) *)
-        let%lwt time = HLC.update_with_clock () in   (* @TODO: replace will real time retrieved from query result, and also call HLC.update_with_timestamp for each !! *)
-        Lwt.return (p, { time; value=v }))
+      p >>= Lwt_list.map_p (fun (_,p,v) -> Lwt.return (p, v))     (* Note:  Zenoh StorageIds is ignored (no need) *)
 
     let apply_quorum quorum kvlmap =
       let _ = ignore quorum in

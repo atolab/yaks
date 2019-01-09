@@ -599,19 +599,21 @@ module AdminSpace = struct
           in Lwt.return_unit)      
       | _ -> Lwt.return_unit 
 
-    let incoming_adming_query_handler admin resname predicate = 
-      let s = if predicate = "" then resname else resname ^"?"^predicate in 
-      match Selector.of_string_opt s with 
-      | Some selector ->  
+    let incoming_admin_query_handler admin resname predicate = 
+      let s = if predicate = "" then resname else resname ^"?"^predicate in
+      match Selector.of_string_opt s with
+      | Some selector ->
+        let%lwt _ = Logs_lwt.debug (fun m -> m "[YAdm]: handle remote query for %s" s) in
         let%lwt kvs = get admin local_client selector in
+        let%lwt _ = Logs_lwt.debug (fun m -> m "[YAdm]: remote query for %s : replying with %d keys" s (List.length kvs)) in
         let evs = List.map
           (fun (path,value) ->
             let spath = Path.to_string path in
             let buf = Result.get  (encode_timed_value value (IOBuf.create ~grow:4096 4096)) in
             (spath, IOBuf.flip buf)) kvs in
-        Lwt.return evs 
-      | _ -> 
-        let%lwt _ = Logs_lwt.debug (fun m -> m "[YAdm]: Unable to resolve query for %s?%s" resname predicate) in 
+        Lwt.return evs
+      | _ ->
+        let%lwt _ = Logs_lwt.debug (fun m -> m "[YAdm]: Unable to resolve query for %s?%s" resname predicate) in
         Lwt.return []
 
     let make zenoh =
@@ -636,7 +638,7 @@ module AdminSpace = struct
       let zenoh_storage_lwt = match zenoh with  
       | Some z -> 
         let selector = (admin_prefix ^ "/**") in
-        let%lwt s = Zenoh.storage selector (incoming_admin_storage_data_handler admin) (incoming_adming_query_handler admin) z in 
+        let%lwt s = Zenoh.storage selector (incoming_admin_storage_data_handler admin) (incoming_admin_query_handler admin) z in
         Lwt.return @@ Some s
       | None -> Lwt.return None 
       in 

@@ -131,6 +131,7 @@ module Make (YEngine : Yaks_engine.Engine.S) (MVar: Apero.MVar) = struct
       Lwt.return_unit
 
   let create id (conf : Config.t) (engine: YEngine.t) = 
+    let _ = Logs_lwt.debug (fun m -> m "[FES] SOCK-FE starting TCP socket on %s" (TcpLocator.to_string @@ Config.locator conf)) in
     let tcp_fe = TcpSocketFE.make conf in
     let state = MVar.create { pending_eval_results=WorkingMap.empty } in
     let dispatcher = dispatch_message id state engine in 
