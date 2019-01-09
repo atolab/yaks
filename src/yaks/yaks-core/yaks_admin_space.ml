@@ -149,7 +149,9 @@ module AdminSpace = struct
         | _ -> 
           let%lwt _ = Logs_lwt.warn (fun m -> m "[YAdm]: Received data for key %s which I cannot store" key) 
           in Lwt.return_unit)      
-      | _ -> Lwt.return_unit
+      | Error e ->
+        let%lwt _ = Logs_lwt.debug (fun m -> m "[YAdm]: Failed to decode timed_value to be stored for key %s: %s" key (Atypes.show_error e)) in
+        Lwt.return_unit
     
     let incoming_storage_query_handler storage resname predicate = 
       let s = if predicate = "" then resname else resname ^"?"^predicate in 
@@ -398,10 +400,9 @@ module AdminSpace = struct
     let create_zenoh_subscriber admin zenoh subid selector is_push notifier  =
       let sub_mode = if is_push then Zenoh.push_mode else Zenoh.pull_mode in 
       let listener buf path = 
-        let open Yaks_fe_sock_codec in 
-        match decode_value buf with 
-        | Ok (value, _) -> 
-          notifier subid ~fallback:(remove_subscriber admin local_client) [(Path.of_string path, value)]
+        match decode_timed_value buf with 
+        | Ok (tv, _) -> 
+          notifier subid ~fallback:(remove_subscriber admin local_client) [(Path.of_string path, tv.value)]
         | Error e -> 
           let%lwt _ = Logs_lwt.warn (fun m -> m "Error while decoding value received for subscription: \n%s" @@ Atypes.show_error e) 
           in Lwt.return_unit
