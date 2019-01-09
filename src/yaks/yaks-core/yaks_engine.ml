@@ -220,51 +220,59 @@ module Engine = struct
       (* TODO: access control *)
       (* TODO: transport with quorum *)
       let%lwt sel = to_absolute_selector engine client ?workspace sel in
-      let timed_results = match check_if_admin_selector sel with
-        | Some sel -> MVar.read engine >>= fun self -> YAdminSpace.get self.admin client sel
-        | None ->
-          let%lwt _ = Logs_lwt.debug (fun m -> m "[Yeng]: get %s => query storages" (Selector.to_string sel)) in
-          MVar.read engine >>= fun self ->
-          let%lwt storages = YAdminSpace.get_storages_for_selector self.admin sel in
-          match storages with
-          | [] ->
-            let%lwt _ = Logs_lwt.debug (fun m -> m "[Yeng]: No storage Matches, going remote...") in
-            (match self.zenoh with
-            | Some zenoh -> issue_remote_query zenoh sel
-            | None -> Lwt.return [])
-          | _ ->
-            let%lwt _ = Logs_lwt.debug (fun m -> m "[Yeng]: Some storage Matches, going local+remote") in
-            let covers: bool =  storages
-              |> List.map (fun s -> Storage.is_covering_selector s sel)
-              |> List.fold_left (fun a b -> a || b) false
-            in
-            let local_get = List.map (fun store -> Storage.get store sel) storages
-                |> Apero.LwtM.flatten
-                >|= List.concat
-            in 
-            let%lwt _ = Logs_lwt.debug (fun m -> m "[Yeng]: Some storage Covers: %b" covers) in
-            if covers then local_get
-            else 
-              match self.zenoh with
-              | Some zenoh -> 
-                let rdata = issue_remote_query zenoh sel in
-                let ldata = local_get in 
-                Lwt.join [(rdata >>= fun _ -> Lwt.return_unit); (ldata >>= fun _ -> Lwt.return_unit)] 
-                >>= fun () ->
-                  rdata >>= fun rd ->
-                    ldata >>= fun ld -> 
-                      let%lwt _ = Logs_lwt.debug (fun m -> m "[Yeng]: Local get returned %d values and remote get %d results" (List.length ld) (List.length rd)) in
-                      Lwt.return @@ List.append rd ld
-              | None -> local_get
+      (* @TODO: following is a temporary fix to correctly answer GET /@/** 
+         This needs to be replaced by a real admin Storage and 
+         YAdminSpace.get_storages_for_selector returning this Storage if selector intersect it
+      *)
+      let%lwt admin_results = if Astring.is_prefix ~affix:"/@/*" @@ Selector.path sel then
+        MVar.read engine >>= fun self -> YAdminSpace.get self.admin client sel
+        else
+          match check_if_admin_selector sel with
+          | Some sel -> MVar.read engine >>= fun self -> YAdminSpace.get self.admin client sel
+          | None -> Lwt.return []
+      in
+      let storages_results =
+        let%lwt _ = Logs_lwt.debug (fun m -> m "[Yeng]: get %s => query storages" (Selector.to_string sel)) in
+        MVar.read engine >>= fun self ->
+        let%lwt storages = YAdminSpace.get_storages_for_selector self.admin sel in
+        match storages with
+        | [] ->
+          let%lwt _ = Logs_lwt.debug (fun m -> m "[Yeng]: No storage Matches, going remote...") in
+          (match self.zenoh with
+          | Some zenoh -> issue_remote_query zenoh sel
+          | None -> Lwt.return [])
+        | _ ->
+          let%lwt _ = Logs_lwt.debug (fun m -> m "[Yeng]: Some storage Matches, going local+remote") in
+          let covers: bool =  storages
+            |> List.map (fun s -> Storage.is_covering_selector s sel)
+            |> List.fold_left (fun a b -> a || b) false
+          in
+          let local_get = List.map (fun store -> Storage.get store sel) storages
+              |> Apero.LwtM.flatten
+              >|= List.concat
+          in 
+          let%lwt _ = Logs_lwt.debug (fun m -> m "[Yeng]: Some storage Covers: %b" covers) in
+          if covers then local_get
+          else 
+            match self.zenoh with
+            | Some zenoh -> 
+              let rdata = issue_remote_query zenoh sel in
+              let ldata = local_get in 
+              Lwt.join [(rdata >>= fun _ -> Lwt.return_unit); (ldata >>= fun _ -> Lwt.return_unit)] 
+              >>= fun () ->
+                rdata >>= fun rd ->
+                  ldata >>= fun ld -> 
+                    let%lwt _ = Logs_lwt.debug (fun m -> m "[Yeng]: Local get returned %d values and remote get %d results" (List.length ld) (List.length rd)) in
+                    Lwt.return @@ List.append rd ld
+            | None -> local_get
         in
-        timed_results >|= map_of_results >|= apply_quorum quorum
+        storages_results >|= List.append admin_results >|= map_of_results >|= apply_quorum quorum
 
 
     let distribute_update path value zenoh =
       let res = Path.to_string path in
       let buf = IOBuf.create ~grow:8192 8192 in 
-      let open Yaks_fe_sock_codec in
-      match (encode_value value buf) with 
+      match (encode_timed_value value buf) with 
       | Ok buf -> 
         let buf' = IOBuf.flip buf in 
         Zenoh.write buf' res zenoh 
@@ -275,18 +283,19 @@ module Engine = struct
       (* TODO: transport with quorum *)
       let _ = ignore quorum in
       let%lwt time = HLC.update_with_clock () in
+      let tv = { time; value } in
       let%lwt path = to_absolute_path engine client ?workspace path in
       let%lwt _ = Logs_lwt.debug (fun m -> m "[Yeng]: put %s with timestamp %a" (Path.to_string path) HLC.Timestamp.pp time) in
       MVar.read engine 
       >>= fun self ->      
       match check_if_admin_path path with
-      | Some path -> MVar.read engine >>= fun self -> YAdminSpace.put self.admin client path { time; value }
+      | Some path -> MVar.read engine >>= fun self -> YAdminSpace.put self.admin client path tv
       | None ->
         let _ = YAdminSpace.notify_subscribers self.admin path value in
         let _ = YAdminSpace.get_storages_for_path self.admin path
-        >>= Lwt_list.iter_p (fun store -> Storage.put store path { time; value }) in 
+        >>= Lwt_list.iter_p (fun store -> Storage.put store path tv) in 
         let open Apero.Option.Infix in 
-        let _ = self.zenoh >|= fun zenoh -> (distribute_update path value zenoh) in
+        let _ = self.zenoh >|= fun zenoh -> (distribute_update path tv zenoh) in
         Lwt.return_unit
 
     let update engine client ?quorum ?workspace path value =
@@ -294,13 +303,14 @@ module Engine = struct
       (* TODO: transport with quorum *)
       let _ = ignore quorum in
       let%lwt time = HLC.update_with_clock () in
+      let tv = { time; value } in
       let%lwt path = to_absolute_path engine client ?workspace path in
       let%lwt _ = Logs_lwt.debug (fun m -> m "[Yeng]: update %s with timestamp %a" (Path.to_string path) HLC.Timestamp.pp time) in
       MVar.read engine 
       >>= fun self ->
       let _ = Lwt.return @@ YAdminSpace.notify_subscribers self.admin path value in
       YAdminSpace.get_storages_for_path self.admin path
-      >>= Lwt_list.iter_p (fun store -> Storage.update store path { time; value })
+      >>= Lwt_list.iter_p (fun store -> Storage.update store path tv)
 
     let remove engine client ?quorum ?workspace path =
       (* TODO: access control *)
