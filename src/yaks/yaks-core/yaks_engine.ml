@@ -76,6 +76,55 @@ module Engine = struct
       else Lwt.return selector
 
 
+    (*****************************)
+    (* Query on Zenoh management *)
+    (*****************************)
+    let map_of_results (results:(Path.t*'a) list)= List.fold_left (
+      fun m (p,v) -> match KVListMap.find_opt p m with
+        | Some l -> KVListMap.add p (v::l) m
+        | None -> KVListMap.add p (v::[]) m)
+      KVListMap.empty results
+
+     let remote_query_handler promise mlist decoder sample =
+      MVar.guarded mlist
+      @@ fun xs ->
+        match sample with
+        | Zenoh.StorageData {stoid; rsn=_; resname; data} ->
+          (match
+            let _ = Logs.debug (fun m -> m ">>> Query Handler Received data for key: %s" resname) in
+            let store_id = IOBuf.hexdump ~separator:":" stoid in
+            let _ = Logs.debug (fun m -> m ">>> Query Handler Received data for key: %s from storage %s" resname store_id) in
+            match decoder data with
+            | Ok (value, _) ->
+              let _ = Logs.debug (fun m -> m ">>> Query Handler parsed data for key: %s" resname) in
+              Ok(store_id, Path.of_string(resname), value)
+            | Error e ->
+              let _ = Logs.err (fun m -> m ">>> Query Handler failed to parse data for key %s : %s" resname (Atypes.show_error e)) in
+              Error e
+          with
+          | Ok sample -> MVar.return () (sample::xs)
+          | _ -> MVar.return () xs)
+        | Zenoh.StorageFinal {stoid; rsn;} ->
+          let store_id = IOBuf.hexdump ~separator:":" stoid in
+          let%lwt _ = Logs_lwt.debug (fun m -> m "QUERY HANDLER RECIEVED FROM STORAGE [%-16s:%02i] FINAL\n%!" (store_id) rsn) in
+          MVar.return () xs
+        | Zenoh.ReplyFinal ->
+          let%lwt _ = Logs_lwt.debug (fun m -> m "QUERY HANDLER RECIEVED GLOBAL FINAL\n%!") in
+          Lwt.wakeup_later promise xs;
+          MVar.return () xs
+
+
+    let issue_remote_query zenoh selector decoder =
+      let path = Selector.path selector in
+      let p,r = Lwt.wait () in
+      let mlist = MVar.create [] in
+      let query =  (Option.get_or_default (Selector.predicate selector) "") in
+      let%lwt () = Zenoh.query path query (remote_query_handler r mlist decoder) zenoh in
+      let open Lwt.Infix in
+      p >>= Lwt_list.map_p (fun (_,p,v) -> Lwt.return (p, v))     (* Note:  Zenoh StorageIds is ignored (no need) *)
+
+
+
     (********************)
     (*  login / logout  *)
     (********************)
@@ -117,15 +166,39 @@ module Engine = struct
       let%lwt _ = Logs_lwt.debug (fun m -> m "[Yeng]: unregister_eval %s" (Path.to_string pat)) in
       MVar.read engine >>= fun self -> YAdminSpace.remove_eval self.admin clientid pat
 
-    let eval engine client ?multiplicity ?workspace sel =
+    let apply_multiplicity multiplicity kvlmap =
+      (* TODO: implement multiplicity *)
+      let _ = ignore multiplicity in
+      KVListMap.fold (fun p vl res ->
+        let _ = Logs_lwt.debug (fun m -> m "[Yeng]: apply multiplicity %d on %d received values for %s" multiplicity (List.length vl) (Path.to_string p)) in
+        let v = List.hd vl in
+        (p,v)::res)
+      kvlmap []
+
+    let eval engine client ?(multiplicity=1) ?workspace sel =
       (* TODO: access control *)
       (* TODO: transport with multiplicity *)
       let _ = ignore multiplicity in
       let%lwt sel = to_absolute_selector engine client ?workspace sel in
       let%lwt _ = Logs_lwt.debug (fun m -> m "[Yeng]: eval %s" (Selector.to_string sel)) in
       MVar.read engine >>= fun self ->
-      YAdminSpace.call_evals self.admin client 1 sel
-      >|= List.map (fun (p,values) -> p, (List.hd values))    (* TODO: implement multiplicity *)
+      let local_evals = YAdminSpace.call_evals self.admin client 1 sel
+        >|= List.fold_left (fun l (p, vl) -> (List.map (fun v -> p,v) vl)::l) []
+        >|= List.concat
+      in
+      let remote_evals = match self.zenoh with
+            | Some zenoh ->
+              (* NB:
+                  - Currently an eval is represented with a storage, once zenoh will support something like evals, we'll
+                    transition to that abstraction to avoid bu construction the progagation of spurious values.
+                  - The Zenoh storage selector for eval is the eval's path prefixed with '/+'
+              *)
+              let sel' = Selector.add_prefix ~prefix:(Path.of_string "/+") sel in
+              issue_remote_query zenoh sel' Yaks_fe_sock_codec.decode_value
+            | None -> Lwt.return []
+      in
+      LwtM.flatten [local_evals; remote_evals] >|= List.concat
+      >|= map_of_results >|= apply_multiplicity multiplicity
 
 
     (*****************************)
@@ -162,50 +235,6 @@ module Engine = struct
       else
         None
 
-     let remote_query_handler promise mlist sample =
-      MVar.guarded mlist 
-      @@ fun xs -> 
-        match sample with 
-        | Zenoh.StorageData {stoid; rsn=_; resname; data} ->                    
-          (match 
-            let _ = Logs.debug (fun m -> m ">>> Query Handler Received data for key: %s" resname) in 
-            let store_id = IOBuf.hexdump ~separator:":" stoid in 
-            let _ = Logs.debug (fun m -> m ">>> Query Handler Received data for key: %s from storage %s" resname store_id) in          
-            match decode_timed_value data with
-            | Ok (value, _) -> 
-              let _ = Logs.debug (fun m -> m ">>> Query Handler parsed data for key: %s" resname) in 
-              Ok(store_id, Path.of_string(resname), value)
-            | Error e ->
-              let _ = Logs.err (fun m -> m ">>> Query Handler failed to parse data for key %s : %s" resname (Atypes.show_error e)) in 
-              Error e
-          with 
-          | Ok sample -> MVar.return () (sample::xs)
-          | _ -> MVar.return () xs)
-        | Zenoh.StorageFinal {stoid; rsn;} -> 
-          let store_id = IOBuf.hexdump ~separator:":" stoid in 
-          let%lwt _ = Logs_lwt.debug (fun m -> m "QUERY HANDLER RECIEVED FROM STORAGE [%-16s:%02i] FINAL\n%!" (store_id) rsn) in
-          MVar.return () xs          
-        | Zenoh.ReplyFinal -> 
-          let%lwt _ = Logs_lwt.debug (fun m -> m "QUERY HANDLER RECIEVED GLOBAL FINAL\n%!") in
-          Lwt.wakeup_later promise xs;
-          MVar.return () xs
-
-
-    let map_of_results = List.fold_left (
-      fun m (p,v) -> match KVListMap.find_opt p m with
-        | Some l -> KVListMap.add p (v::l) m
-        | None -> KVListMap.add p (v::[]) m)
-      KVListMap.empty 
-      
-    let issue_remote_query zenoh selector =                  
-      let path = Selector.path selector in 
-      let p,r = Lwt.wait () in 
-      let mlist = MVar.create [] in 
-      let query =  (Option.get_or_default (Selector.predicate selector) "") in
-      let%lwt () = Zenoh.query path query (remote_query_handler r mlist) zenoh in
-      let open Lwt.Infix in 
-      p >>= Lwt_list.map_p (fun (_,p,v) -> Lwt.return (p, v))     (* Note:  Zenoh StorageIds is ignored (no need) *)
-
     let apply_quorum quorum kvlmap =
       let _ = ignore quorum in
       KVListMap.fold (fun p tvl res ->
@@ -224,7 +253,7 @@ module Engine = struct
          This needs to be replaced by a real admin Storage and 
          YAdminSpace.get_storages_for_selector returning this Storage if selector intersect it
       *)
-      let%lwt admin_results = if Astring.is_prefix ~affix:"/@/*" @@ Selector.path sel then
+      let admin_results = if Astring.is_prefix ~affix:"/@/*" @@ Selector.path sel then
         MVar.read engine >>= fun self -> YAdminSpace.get self.admin client sel
         else
           match check_if_admin_selector sel with
@@ -239,7 +268,7 @@ module Engine = struct
         | [] ->
           let%lwt _ = Logs_lwt.debug (fun m -> m "[Yeng]: No storage Matches, going remote...") in
           (match self.zenoh with
-          | Some zenoh -> issue_remote_query zenoh sel
+          | Some zenoh -> issue_remote_query zenoh sel decode_timed_value
           | None -> Lwt.return [])
         | _ ->
           let%lwt _ = Logs_lwt.debug (fun m -> m "[Yeng]: Some storage Matches, going local+remote") in
@@ -256,7 +285,7 @@ module Engine = struct
           else 
             match self.zenoh with
             | Some zenoh -> 
-              let rdata = issue_remote_query zenoh sel in
+              let rdata = issue_remote_query zenoh sel decode_timed_value in
               let ldata = local_get in 
               Lwt.join [(rdata >>= fun _ -> Lwt.return_unit); (ldata >>= fun _ -> Lwt.return_unit)] 
               >>= fun () ->
@@ -266,7 +295,8 @@ module Engine = struct
                     Lwt.return @@ List.append rd ld
             | None -> local_get
         in
-        storages_results >|= List.append admin_results >|= map_of_results >|= apply_quorum quorum
+        LwtM.flatten [admin_results; storages_results] >|= List.concat
+        >|= map_of_results >|= apply_quorum quorum
 
 
     let distribute_update path value zenoh =
