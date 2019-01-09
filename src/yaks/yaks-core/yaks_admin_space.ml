@@ -155,6 +155,7 @@ module AdminSpace = struct
     
     let incoming_storage_query_handler storage resname predicate = 
       let s = if predicate = "" then resname else resname ^"?"^predicate in 
+      let%lwt _ = Logs_lwt.debug (fun m -> m "[YAdm]: Handling remote query on storage for %s?%s" resname predicate) in 
       match Selector.of_string_opt s with 
       | Some selector ->  
         let%lwt kvs = Storage.get storage selector in
@@ -165,7 +166,7 @@ module AdminSpace = struct
             (spath, IOBuf.flip buf)) kvs in
         Lwt.return evs 
       | _ -> 
-        let%lwt _ = Logs_lwt.debug (fun m -> m "[YAdm]: Unable to resolve query for %s?%s" resname predicate) in 
+        let%lwt _ = Logs_lwt.debug (fun m -> m "[YAdm]: Unable to resolve query for %s - not a Selector" s) in 
         Lwt.return []
 
     let create_zenoh_storage zenoh selector storage = 
@@ -487,6 +488,7 @@ module AdminSpace = struct
     let incoming_eval_data_handler _ _ = Lwt.return_unit (* Eval will never get value "put" *)
 
     let incoming_eval_query_handler evaluator resname predicate = 
+      let%lwt _ = Logs_lwt.debug (fun m -> m "[YAdm]: Handling remote query on eval for %s?%s" resname predicate) in 
       let s = if predicate = "" then resname else resname ^"?"^predicate in 
       match Selector.of_string_opt s with 
       | Some selector ->  
@@ -497,17 +499,18 @@ module AdminSpace = struct
             (fun (path,value) -> 
               let spath = Path.to_string path in 
               let buf = Result.get  (encode_value value (IOBuf.create ~grow:4096 4096)) in 
-              (spath, IOBuf.flip buf)) kvs in 
+              (spath, IOBuf.flip buf)) kvs in
           Lwt.return evs 
       | _ -> 
-        let%lwt _ = Logs_lwt.debug (fun m -> m "[YAdm]: Unable to run eval for %s?%s" resname predicate) in 
+        let%lwt _ = Logs_lwt.debug (fun m -> m "[YAdm]: Unable to run eval for %s - not a Selector" s) in 
         Lwt.return []
     
     let create_zenoh_eval zenoh selector evaluator = 
-      Zenoh.storage (Selector.to_string selector) incoming_eval_data_handler (incoming_eval_query_handler evaluator) zenoh 
+      Zenoh.storage ("/+"^(Selector.to_string selector)) incoming_eval_data_handler (incoming_eval_query_handler evaluator) zenoh 
       (* NB:
           - Currently an eval is represented with a storage, once zenoh will support something like evals, we'll
-            transition to that abstraction to avoid bu construction the progagation of spurious values. 
+            transition to that abstraction to avoid bu construction the progagation of spurious values.
+          - The Zenoh storage selector for eval is the eval's path prefixed with '/+'
           - The quorum for remotely resolved eval is currently 1       
       *)
 
