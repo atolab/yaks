@@ -1,13 +1,13 @@
-opam-version: "1.2"
-maintainer:   ["angelo@icorsaro.net" ]
-authors:      "Angelo Corsaro"
+opam-version: "2.0"
+maintainer:   ["contact@adlink-labs.tech"]
+authors:      ["Angelo Corsaro" "Julien Enoch" "Olivier Hecart" "Gabriele Baldoni"]
 homepage:     "https://github.com/atolab/yaks"
 bug-reports:  "https://github.com/atolab/yaks/issues/"
 dev-repo:     "https://github.com/atolab/yaks.git"
-tags:         ["org:yaks" "org:xapi-project"]
+tags:         ["org:adlink-technology"]
 
-version:"0.1"
-license: "EPL 2"
+version:"0.2.0"
+license: "Apache-2.0"
 
 build: [
  ["dune" "subst"] {pinned}
@@ -22,7 +22,7 @@ install: [
 depends: [
   "dune"
   "atdgen"
-  "apero_core" {>= "0.3.0"}
+  "apero_core" {>= "0.4.0"}
   "cmdliner"
   "fmt" 
   "logs" 
