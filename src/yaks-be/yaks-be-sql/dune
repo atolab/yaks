@@ -3,6 +3,6 @@
   (public_name     yaks-be-sql)
   (wrapped     false)
   (libraries       apero-core yaks-core lwt logs logs.lwt
-                   caqti caqti-lwt caqti-driver-postgresql caqti-driver-mariadb caqti-driver-sqlite3)
+                   caqti caqti-lwt caqti-driver-sqlite3)
   (preprocess
     (pps ppx_deriving.show lwt_ppx)))
