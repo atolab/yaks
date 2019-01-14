@@ -20,6 +20,7 @@ module Processor : sig
     val process_unreg_eval : YEngine.t -> ClientId.t -> message -> message Lwt.t
     val process_eval : YEngine.t -> ClientId.t -> message -> message Lwt.t
     val process_values : message -> Value.t Lwt.u -> message Lwt.t
+    val process_error_on_eval :  message -> Value.t Lwt.u -> message Lwt.t
     val process_error :  message -> error_code -> message Lwt.t
   end
 

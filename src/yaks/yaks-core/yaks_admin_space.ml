@@ -464,26 +464,31 @@ module AdminSpace = struct
 
     let call_evals admin (clientid:ClientId.t) quorum sel =
       let _ = ignore clientid in
-      let fallback path =
-        remove_eval admin local_client path >>= fun _ ->
+      let add_eval p e m = if EvalMap.mem p m then EvalMap.add p (e::EvalMap.find p m) m else EvalMap.add p (e::[]) m in
+      let remove_eval_fallback feid sid path =
+        remove_eval admin {feid; sid} path >>= fun _ ->
         Lwt.return @@ Value.StringValue
           (Printf.sprintf "Error calling get(%s) on eval(%s): Eval implementer was removed"
           (Selector.to_string sel) (Path.to_string path))
       in
-      let add_eval p e m = if EvalMap.mem p m then EvalMap.add p (e::EvalMap.find p m) m else EvalMap.add p (e::[]) m in
-      let fold_session s m = EvalMap.fold (fun p e m -> if Selector.is_matching_path p sel then add_eval p e m else m) s.evals m in
-      let fold_frontend f m = SessionMap.fold (fun _ s m -> fold_session s m) f.sessions m in
       let rec call_evals path evals quorum = match quorum with
         | 0 -> []
-        | _ -> ((List.hd evals) path sel ~fallback)::(call_evals path (List.tl evals) (quorum-1))   (* TODO: call a random eval instead of the 1st in list *)
-      in      
+        | _ -> ((List.hd evals) path sel)::(call_evals path (List.tl evals) (quorum-1))   (* TODO: call a random eval instead of the 1st in list *)
+      in
       MVar.read admin >>= fun self ->
-        
-        FrontendMap.fold (fun _ fe m -> fold_frontend fe m) self.frontends EvalMap.empty 
-        |> EvalMap.bindings         
-        |> List.map (fun (p, es) -> (p, List.map (fun (e, _) -> e) es))         
-        |> List.map (fun (p,l) -> call_evals p l (max quorum @@ List.length l) |> LwtM.flatten >>= fun l' -> Lwt.return (p,l'))
-        |> LwtM.flatten
+      FrontendMap.fold (fun feid fe m ->
+        SessionMap.fold (fun sid s m ->
+          EvalMap.fold (fun p ((eval:eval_function), _) m ->
+            if Selector.is_matching_path p sel then
+              add_eval p (eval ~fallback:(remove_eval_fallback feid sid)) m
+            else
+              m
+          ) s.evals m
+        ) fe.sessions m
+      ) self.frontends EvalMap.empty
+      |> EvalMap.bindings
+      |> List.map (fun (p,l) -> call_evals p l (max quorum @@ List.length l) |> LwtM.flatten >>= fun l' -> Lwt.return (p,l'))
+      |> LwtM.flatten
 
     let incoming_eval_data_handler _ _ = Lwt.return_unit (* Eval will never get value "put" *)
 
@@ -534,7 +539,6 @@ module AdminSpace = struct
         in
         MVar.return () { self with frontends = FrontendMap.add clientid.feid fe' self.frontends; kvs}
 
-        
 
     (*****************************)
     (* get/put/remove operations *)

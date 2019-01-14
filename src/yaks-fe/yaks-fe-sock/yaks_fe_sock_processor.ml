@@ -20,6 +20,7 @@ module Processor = struct
     val process_unreg_eval : YEngine.t -> ClientId.t -> message -> message Lwt.t
     val process_eval : YEngine.t -> ClientId.t -> message -> message Lwt.t
     val process_values : message -> Value.t Lwt.u -> message Lwt.t
+    val process_error_on_eval :  message -> Value.t Lwt.u -> message Lwt.t
     val process_error :  message -> error_code -> message Lwt.t
   end
 
@@ -188,6 +189,17 @@ module Processor = struct
       | None ->
         let%lwt _ = Logs_lwt.debug (fun m -> m "FES: processing VALUES - failed to decode body") in
         Lwt.return @@ reply_with_error msg BAD_REQUEST
+
+    let process_error_on_eval msg resolver =
+      let%lwt _ = Logs_lwt.debug (fun m -> m "FES: processing ERROR in response of EVAL") in
+      match get_error_info msg with
+      | Some errcode ->
+        let _ = Lwt.wakeup_later_exn resolver @@ YException (`InternalError (`Msg ("Received ERROR with code "^(error_code_to_string errcode)^"on eval "))) in
+        Lwt.return @@ reply_with_ok msg Properties.empty
+      | None ->
+        let%lwt _ = Logs_lwt.debug (fun m -> m "FES: processing ERROR - failed to decode body") in
+        Lwt.return @@ reply_with_error msg BAD_REQUEST
+
 
     let process_error msg code = Lwt.return @@ reply_with_error msg code 
   end

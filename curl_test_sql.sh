@@ -6,7 +6,14 @@ URL_ADMIN=$URL_BASE/@/local
 function GET ()
 {
     echo "GET $1"
-    curl $1
+    curl -g $1
+    echo ""
+}
+
+function EVAL ()
+{
+    echo "EVAL $1"
+    curl -g -H "is.yaks.eval;" $1
     echo ""
 }
 

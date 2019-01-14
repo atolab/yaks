@@ -163,7 +163,7 @@ module Make (YEngine : Yaks_engine.Engine.S) = struct
       else
         match meth with
         | `GET ->
-          (match Selector.of_string_opt path with
+          (match Selector.of_string_opt (path^"?"^((query_to_string query))) with
           | Some selector ->
               (match Header.get headers http_header_eval with
               | Some _ -> eval fe clientid selector

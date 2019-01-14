@@ -72,8 +72,20 @@ module Make (YEngine : Yaks_engine.Engine.S) (MVar: Apero.MVar) = struct
         writer buf sock msg >>= fun _ ->
         MVar.return_lwt promise { pending_eval_results = WorkingMap.add msg.header.corr_id resolver self.pending_eval_results }
       )
-    (fun _ -> fallback path)
-
+    (fun ex ->
+      match ex with
+      | YException err ->
+        (* Error message received from eval implementer. Forward it, don't call fallback *)
+        let _ = Logs_lwt.debug (fun m -> m "[FES] received ERROR calling EVAL(%s) for eval registered with %s: %s"
+          (Selector.to_string selector) (Path.to_string path) (show_yerror err))
+        in
+        Lwt.fail ex
+      | _ ->
+        (* Exception received trying to send message to eval implementer, probably gone... call fallback that will remove it *)
+        let _ = Logs_lwt.debug (fun m -> m "[FES] received unexpected exception calling EVAL(%s) for eval registered with %s: %s"
+          (Selector.to_string selector) (Path.to_string path) (Printexc.to_string ex))
+        in
+        fallback path)
 
 
   let dispatch_message feid state engine tx_sex  msg = 
@@ -108,6 +120,14 @@ module Make (YEngine : Yaks_engine.Engine.S) (MVar: Apero.MVar) = struct
       (match WorkingMap.find_opt msg.header.corr_id self.pending_eval_results with 
       | Some resolver ->
         MVar.return_lwt (P.process_values msg resolver) { pending_eval_results = WorkingMap.remove msg.header.corr_id self.pending_eval_results }
+      | None ->
+        MVar.return_lwt (P.process_error msg BAD_REQUEST) self)
+      )
+    | ERROR ->
+      MVar.guarded state @@ (fun self ->
+      (match WorkingMap.find_opt msg.header.corr_id self.pending_eval_results with 
+      | Some resolver ->
+        MVar.return_lwt (P.process_error_on_eval msg resolver) { pending_eval_results = WorkingMap.remove msg.header.corr_id self.pending_eval_results }
       | None ->
         MVar.return_lwt (P.process_error msg BAD_REQUEST) self)
       )
