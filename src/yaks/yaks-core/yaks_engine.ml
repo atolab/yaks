@@ -1,10 +1,10 @@
 open Apero
+open Apero.LwtM.InfixM
 open Yaks_common_errors
 open Yaks_types
 open Yaks_core_types
 open Yaks_be
 open Yaks_storage
-open Apero.LwtM.InfixM
 
 
 module Engine = struct 
@@ -12,7 +12,7 @@ module Engine = struct
   module type S = sig 
     type t 
 
-    val make : Zenoh.t option -> t
+    val make : ?id:string -> Zenoh.t option -> t
 
     val login : t -> ClientId.t -> properties -> unit Lwt.t
     val logout : t -> ClientId.t -> unit Lwt.t   
@@ -39,23 +39,38 @@ module Engine = struct
 
   module Make (MVar: Apero.MVar) = struct
 
+    module HLC = Apero_time.HLC.Make (Apero.MVar_lwt) (Apero_time.Clock_unix)
+
     module YAdminSpace = Yaks_admin_space.AdminSpace.Make(MVar)
 
     module KVListMap = Map.Make(Path)
 
     type state =
-      { admin : YAdminSpace.t 
-      ; zenoh : Zenoh.t option }
+      { yid: Yid.t
+      ; admin : YAdminSpace.t
+      ; zenoh : Zenoh.t option
+      ; hlc : HLC.t }
 
     type t = state MVar.t
 
-    let id = my_yid
-
-    let make zenoh =
-      let _ = Logs_lwt.debug (fun m -> m "Creating Engine\n") in 
+    let make ?id zenoh =
+      let yid =
+        let (log,id') =
+          match id with
+          | None -> "random id", Yid.make ()
+          | Some id -> match Yid.of_string id with 
+            | Some uuid -> "specified id", uuid 
+            | None -> ("generated id from '"^id^"'"), (Yid.make_from_alias id)
+        in
+        let _ = Logs_lwt.debug (fun m -> m "Starting Yaks with %s: %s" log (Yid.to_string id')) in
+        id'
+      in
+      let hlc = HLC.create yid in
       MVar.create 
-        { admin = YAdminSpace.make zenoh 
-        ; zenoh }
+        { yid
+        ; admin = YAdminSpace.make yid hlc zenoh 
+        ; zenoh
+        ; hlc }
     
     let to_absolute_path engine clientid ?workspace path =
       if Path.is_relative path then
@@ -200,47 +215,15 @@ module Engine = struct
       LwtM.flatten [local_evals; remote_evals] >|= List.concat
       >|= map_of_results >|= apply_multiplicity multiplicity
 
-
     (*****************************)
     (*   Key/Value operations    *)
     (*****************************)
-    let admin_prefix_id = "/@/"^(Yid.to_string id)
-    let admin_prefix_local = "/@/local"
-
-    let check_if_admin_selector sel =
-      let pat = Selector.path sel in
-      if Astring.is_prefix ~affix:admin_prefix_local pat then
-        (* if path starts with /@/local, convert to /@/my_yid *)
-        Astring.with_range ~first:(String.length admin_prefix_local) pat
-        |> Astring.append admin_prefix_id
-        |> Selector.of_string
-        |> Option.return
-      else if Astring.is_prefix ~affix:admin_prefix_id pat then
-        (* if path starts with /@/my_yid *)
-        Some sel
-      else
-        None
-
-    let check_if_admin_path path =
-      let pat = Path.to_string path in
-      if Astring.is_prefix ~affix:admin_prefix_local pat then
-        (* if path starts with /@/local, convert to /@/my_yid *)
-        Astring.with_range ~first:(String.length admin_prefix_local) pat
-        |> Astring.append admin_prefix_id
-        |> Path.of_string
-        |> Option.return
-      else if Astring.is_prefix ~affix:admin_prefix_id pat then
-        (* if path starts with /@/my_yid *)
-        Some path
-      else
-        None
-
     let apply_quorum quorum kvlmap =
       let _ = ignore quorum in
       KVListMap.fold (fun p tvl res ->
         (* @TODO: for each path return appropriate value depending time and quorum *)
         let _ = Logs_lwt.debug (fun m -> m "[Yeng]: apply quorum %d on %d received values for %s" quorum (List.length tvl) (Path.to_string p)) in
-        let tv = List.hd tvl in
+        let tv:TimedValue.t = List.hd tvl in
         let _ = Logs_lwt.debug (fun m -> m "[Yeng]:   -> for %s choosed value with timestamp %a" (Path.to_string p) HLC.Timestamp.pp tv.time) in
         (p,tv.value)::res)
       kvlmap []
@@ -253,10 +236,12 @@ module Engine = struct
          This needs to be replaced by a real admin Storage and 
          YAdminSpace.get_storages_for_selector returning this Storage if selector intersect it
       *)
-      let admin_results = if Astring.is_prefix ~affix:"/@/*" @@ Selector.path sel then
-        MVar.read engine >>= fun self -> YAdminSpace.get self.admin client sel
+      let admin_results =
+        MVar.read engine >>= fun self -> 
+        if Astring.is_prefix ~affix:"/@/*" @@ Selector.path sel then
+          YAdminSpace.get self.admin client sel
         else
-          match check_if_admin_selector sel with
+          match%lwt YAdminSpace.covers_selector self.admin sel with
           | Some sel -> MVar.read engine >>= fun self -> YAdminSpace.get self.admin client sel
           | None -> Lwt.return []
       in
@@ -268,7 +253,7 @@ module Engine = struct
         | [] ->
           let%lwt _ = Logs_lwt.debug (fun m -> m "[Yeng]: No storage Matches, going remote...") in
           (match self.zenoh with
-          | Some zenoh -> issue_remote_query zenoh sel decode_timed_value
+          | Some zenoh -> issue_remote_query zenoh sel TimedValue.decode
           | None -> Lwt.return [])
         | _ ->
           let%lwt _ = Logs_lwt.debug (fun m -> m "[Yeng]: Some storage Matches, going local+remote") in
@@ -285,7 +270,7 @@ module Engine = struct
           else 
             match self.zenoh with
             | Some zenoh -> 
-              let rdata = issue_remote_query zenoh sel decode_timed_value in
+              let rdata = issue_remote_query zenoh sel TimedValue.decode in
               let ldata = local_get in 
               Lwt.join [(rdata >>= fun _ -> Lwt.return_unit); (ldata >>= fun _ -> Lwt.return_unit)] 
               >>= fun () ->
@@ -302,7 +287,7 @@ module Engine = struct
     let distribute_update path value zenoh =
       let res = Path.to_string path in
       let buf = IOBuf.create ~grow:8192 8192 in 
-      match (encode_timed_value value buf) with 
+      match (TimedValue.encode value buf) with 
       | Ok buf -> 
         let buf' = IOBuf.flip buf in 
         Zenoh.write buf' res zenoh 
@@ -312,13 +297,13 @@ module Engine = struct
       (* TODO: access control *)
       (* TODO: transport with quorum *)
       let _ = ignore quorum in
-      let%lwt time = HLC.update_with_clock () in
-      let tv = { time; value } in
       let%lwt path = to_absolute_path engine client ?workspace path in
-      let%lwt _ = Logs_lwt.debug (fun m -> m "[Yeng]: put %s with timestamp %a" (Path.to_string path) HLC.Timestamp.pp time) in
       MVar.read engine 
       >>= fun self ->      
-      match check_if_admin_path path with
+      let%lwt time = HLC.new_timestamp self.hlc in
+      let tv: TimedValue.t = { time; value } in
+      let%lwt _ = Logs_lwt.debug (fun m -> m "[Yeng]: put %s with timestamp %a" (Path.to_string path) HLC.Timestamp.pp time) in
+      match%lwt YAdminSpace.covers_path self.admin path with
       | Some path -> MVar.read engine >>= fun self -> YAdminSpace.put self.admin client path tv
       | None ->
         let _ = YAdminSpace.notify_subscribers self.admin path value in
@@ -332,15 +317,15 @@ module Engine = struct
       (* TODO: access control *)
       (* TODO: transport with quorum *)
       let _ = ignore quorum in
-      let%lwt time = HLC.update_with_clock () in
-      let tv = { time; value } in
       let%lwt path = to_absolute_path engine client ?workspace path in
-      let%lwt _ = Logs_lwt.debug (fun m -> m "[Yeng]: update %s with timestamp %a" (Path.to_string path) HLC.Timestamp.pp time) in
       MVar.read engine 
       >>= fun self ->
-      let _ = Lwt.return @@ YAdminSpace.notify_subscribers self.admin path value in
-      YAdminSpace.get_storages_for_path self.admin path
-      >>= Lwt_list.iter_p (fun store -> Storage.update store path tv)
+        let%lwt time = HLC.new_timestamp self.hlc in
+        let tv: TimedValue.t = { time; value } in
+        let%lwt _ = Logs_lwt.debug (fun m -> m "[Yeng]: update %s with timestamp %a" (Path.to_string path) HLC.Timestamp.pp time) in
+        let _ = Lwt.return @@ YAdminSpace.notify_subscribers self.admin path value in
+        YAdminSpace.get_storages_for_path self.admin path
+        >>= Lwt_list.iter_p (fun store -> Storage.update store path tv)
 
     let remove engine client ?quorum ?workspace path =
       (* TODO: access control *)
@@ -349,7 +334,7 @@ module Engine = struct
       let%lwt path = to_absolute_path engine client ?workspace path in
       MVar.read engine 
       >>= fun self ->      
-      match check_if_admin_path path with
+      match%lwt YAdminSpace.covers_path self.admin path with
       | Some path -> MVar.read engine >>= fun self -> YAdminSpace.remove self.admin client path
       | None ->
         let%lwt _ = Logs_lwt.debug (fun m -> m "[Yeng]: remove %s" (Path.to_string path)) in

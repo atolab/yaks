@@ -10,9 +10,9 @@ module Storage : sig
 
   val make : Selector.t -> properties ->
     (unit -> unit Lwt.t) ->
-    (Selector.t -> (Path.t * timed_value) list Lwt.t) ->
-    (Path.t -> timed_value -> unit Lwt.t) ->
-    (Path.t -> timed_value -> unit Lwt.t) ->
+    (Selector.t -> (Path.t * TimedValue.t) list Lwt.t) ->
+    (Path.t -> TimedValue.t -> unit Lwt.t) ->
+    (Path.t -> TimedValue.t -> unit Lwt.t) ->
     (Path.t -> unit Lwt.t) -> t
 
   val dispose : t -> unit Lwt.t
@@ -30,10 +30,10 @@ module Storage : sig
   val is_covering_selector : t -> Selector.t -> bool
   (** [is_covering_selector s sel] tests if [s] covers the Selector [sel] (i.e. if [sel] might match some path stored by [s]) *)
 
-  val get : t -> Selector.t -> (Path.t * timed_value) list Lwt.t
+  val get : t -> Selector.t -> (Path.t * TimedValue.t) list Lwt.t
 
-  val put : t -> Path.t -> timed_value -> unit Lwt.t
-  val update : t -> Path.t -> timed_value -> unit Lwt.t
+  val put : t -> Path.t -> TimedValue.t -> unit Lwt.t
+  val update : t -> Path.t -> TimedValue.t -> unit Lwt.t
 
   val remove : t -> Path.t -> unit Lwt.t
 

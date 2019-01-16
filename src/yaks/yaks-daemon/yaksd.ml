@@ -7,7 +7,10 @@ let listen_address = Unix.inet_addr_any
 let backlog = 10
 let max_buf_len = 64 * 1024
 
-
+let yaks_id = Arg.(value & opt string "" & info ["y"; "yaks-id"] ~docv:"UUID|STRING"
+                             ~doc:("If set, use this string to generate the Yaks unique identifier. If the string has UUID format, Yaks just uses it as identifier. "^
+                                   "Otherwise, Yaks uses this string to generate an UUID in a determinstic way (i.e. a same string always generates the same UUID.
+                                   If this option is not set, Yaks generates a random UUID."))
 let without_storage = Arg.(value & flag & info ["w"; "without-storage"] ~docv:"true|false"
                              ~doc:"If true, disable the creation at startup of a default memory storage with '/**' as selector")
 let http_port = Arg.(value & opt int 8000 & info ["h"; "http-port"] ~docv:"PORT"
@@ -20,7 +23,6 @@ let wsock_port = Arg.(value & opt int 7888 & info ["x"; "wsock-port"] ~docv:"POR
 
 let sql_url = Arg.(value & opt string "" & info ["u"; "sql-url"] ~docv:"URL"
                        ~doc:"URL of the database used by the SQL backend")
-
 
 let zenoh_locator = Arg.(value & opt string "none" & info ["z"; "zenoh"] ~docv:"zenoh locator or none"
                        ~doc:"A locator for the zenoh service, none for standalone YAKS instances")
@@ -81,13 +83,13 @@ let add_websock_fe engine wsock_port =
   YEngine.add_frontend_TMP engine "WSOCK" @@ Properties.singleton "port" (string_of_int wsock_port) >>= fun _ ->
   WSockFE.start wsfe
 
-let run_yaksd without_storage http_port sock_port wsock_port sql_url zenoh_locator = 
+let run_yaksd yid without_storage http_port sock_port wsock_port sql_url zenoh_locator = 
   try%lwt
     let%lwt zenoh = 
       if zenoh_locator = "none" then Lwt.return None
       else let%lwt z = Zenoh.zopen zenoh_locator in Lwt.return (Some z)
-    in 
-    let engine = YEngine.make zenoh in
+    in
+    let engine = YEngine.make ?id:(if String.length yid > 0 then Some yid else None) zenoh in
     let mem_be = add_mem_be engine in
     let sql_be = add_sql_be engine sql_url in
     let def_store = add_default_storage engine without_storage >>= fun _ -> Lwt.return_unit in
@@ -102,12 +104,12 @@ let run_yaksd without_storage http_port sock_port wsock_port sql_url zenoh_locat
     Logs_lwt.err (fun m -> m "Exception %s raised:\n%s" (Printexc.to_string exn) (Printexc.get_backtrace ())) >> Lwt.return_unit
 
 
-let run without_storage http_port sock_port wsock_port sql_url zenoh_locator style_renderer level = 
+let run yid without_storage http_port sock_port wsock_port sql_url zenoh_locator style_renderer level = 
   setup_log style_renderer level; 
-  Lwt_main.run @@ run_yaksd without_storage http_port sock_port wsock_port sql_url zenoh_locator 
+  Lwt_main.run @@ run_yaksd yid without_storage http_port sock_port wsock_port sql_url zenoh_locator 
 
 
 let () =
   Printexc.record_backtrace true;
   let env = Arg.env_var "YAKSD_VERBOSITY" in
-  let _ = Term.(eval (const run $ without_storage $ http_port $ sock_port $ wsock_port $ sql_url $ zenoh_locator $ Fmt_cli.style_renderer () $ Logs_cli.level ~env (), Term.info "Yaks daemon")) in  ()
+  let _ = Term.(eval (const run $ yaks_id $ without_storage $ http_port $ sock_port $ wsock_port $ sql_url $ zenoh_locator $ Fmt_cli.style_renderer () $ Logs_cli.level ~env (), Term.info "Yaks daemon")) in  ()

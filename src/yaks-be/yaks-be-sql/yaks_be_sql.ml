@@ -131,7 +131,7 @@ module SQLBE = struct
               (match Value.of_string v encoding with 
               | Ok value ->
                 (match HLC.Timestamp.of_string t with
-                | Some time -> Some (Path.of_string @@ (Path.to_string storage_info.keys_prefix)^k, {time; value})
+                | Some time -> let tv: TimedValue.t = {time; value} in Some (Path.of_string @@ (Path.to_string storage_info.keys_prefix)^k, tv)
                 | None -> let _ = Logs_lwt.warn (fun m -> m "[SQL]: get in KV table %s failed to read timestamp in %s" storage_info.table_name (String.concat "," row)) in
                   None
                 )
@@ -144,7 +144,7 @@ module SQLBE = struct
           >|= List.filter Option.is_some
           >|= List.map (fun o -> Option.get o)
 
-    let put_kv_table storage_info (path:Path.t) (tv:timed_value) =
+    let put_kv_table storage_info (path:Path.t) (tv:TimedValue.t) =
       let%lwt _ = Logs_lwt.debug (fun m -> m "[SQL]: put(%s) into kv table %s"
                     (Path.to_string path) (storage_info.table_name)) in
       let k = Astring.with_range ~first:(String.length @@ Path.to_string storage_info.keys_prefix) (Path.to_string path) |> to_sql_string in
@@ -153,12 +153,12 @@ module SQLBE = struct
       let t = HLC.Timestamp.to_string tv.time |> to_sql_string in
       Caqti_driver.put C.conx storage_info.table_name storage_info.schema (k::v::enc::t::[]) ()
 
-    let update_kv_table storage_info path delta =
+    let update_kv_table storage_info path (delta:TimedValue.t) =
       let%lwt _ = Logs_lwt.debug (fun m -> m "[SQL]: put_delta(%s) into kv table %s"
                     (Path.to_string path) (storage_info.table_name)) in
       let open LwtM.InfixM in
       get_kv_table storage_info (Selector.of_path path)
-      >>= Lwt_list.iter_p (fun (p,tv) ->
+      >>= Lwt_list.iter_p (fun (p,(tv:TimedValue.t)) ->
         match Value.update tv.value delta.value with
         | Ok value -> put_kv_table storage_info p { time=delta.time; value }
         | Error e -> Logs_lwt.warn (

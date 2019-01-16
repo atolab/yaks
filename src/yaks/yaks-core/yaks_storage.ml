@@ -12,9 +12,9 @@ module Storage = struct
     ; selector : Selector.t
     ; props : properties
     ; dispose : unit -> unit Lwt.t
-    ; get : Selector.t -> (Path.t * timed_value) list Lwt.t
-    ; put : Path.t -> timed_value -> unit Lwt.t 
-    ; put_delta : Path.t -> timed_value -> unit Lwt.t 
+    ; get : Selector.t -> (Path.t * TimedValue.t) list Lwt.t
+    ; put : Path.t -> TimedValue.t -> unit Lwt.t 
+    ; put_delta : Path.t -> TimedValue.t -> unit Lwt.t 
     ; remove : Path.t -> unit Lwt.t
     ; as_string : string
     }

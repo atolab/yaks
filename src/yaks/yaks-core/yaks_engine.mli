@@ -9,7 +9,7 @@ module Engine : sig
   module type S = sig 
     type t 
 
-    val make : Zenoh.t option -> t
+    val make : ?id:string -> Zenoh.t option -> t
 
     val login : t -> ClientId.t -> properties -> unit Lwt.t
     val logout : t -> ClientId.t -> unit Lwt.t   
