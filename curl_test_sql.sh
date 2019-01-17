@@ -13,7 +13,7 @@ function GET ()
 function EVAL ()
 {
     echo "EVAL $1"
-    curl -g -H "is.yaks.eval;" $1
+    curl -H "is.yaks.eval;" $1
     echo ""
 }
 
