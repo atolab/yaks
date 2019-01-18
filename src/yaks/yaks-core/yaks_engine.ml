@@ -258,7 +258,7 @@ module Engine = struct
         | _ ->
           let%lwt _ = Logs_lwt.debug (fun m -> m "[Yeng]: Some storage Matches, going local+remote") in
           let covers: bool =  storages
-            |> List.map (fun s -> Storage.is_covering_selector s sel)
+            |> List.map (fun s -> Storage.covers_partially s sel)
             |> List.fold_left (fun a b -> a || b) false
           in
           let local_get = List.map (fun store -> Storage.get store sel) storages

@@ -34,8 +34,8 @@ module Storage = struct
 
   let to_string s = s.as_string
 
-  let is_covering_path s path = Selector.is_matching_path path s.selector
-  let is_covering_selector s sel = Selector.is_including_selector ~subsel:sel s.selector
+  let covers_fully s sel = Selector.includes ~subsel:sel s.selector
+  let covers_partially s sel = Selector.intersects sel s.selector
 
   let get t = t.get
   let put t = t.put

@@ -115,7 +115,7 @@ module SQLBE = struct
                     (Selector.to_string selector) (storage_info.table_name)) in
       let open LwtM.InfixM in
       let (_, typ) = storage_info.schema in
-      match Selector.remove_matching_prefix storage_info.keys_prefix selector with
+      match Selector.remaining_after_match storage_info.keys_prefix selector with
       | None -> Lwt.return []
       | Some sub_sel ->
         let condition = get_kv_condition sub_sel in
@@ -212,12 +212,7 @@ module SQLBE = struct
           let%lwt _ = Logs_lwt.debug (fun m -> m "[SQL]: table %s not found - create it as key/value table" table_name) in
           Caqti_driver.create_kv_table C.conx table_name props >>= fun r -> Lwt.return (r, true)
       in
-      let keys_prefix = Path.of_string @@
-        let selpat = Selector.path selector in
-        match Astring.find (fun c -> c = '*') selpat with
-        | Some i -> Astring.with_index_range ~last:(i-1) selpat
-        | None -> selpat
-      in
+      let keys_prefix = Selector.get_prefix selector in
       let storage_info = { selector; keys_prefix; props; table_name; schema; on_dispose } in
       if is_kv_table then
         Lwt.return @@

@@ -24,11 +24,14 @@ module Storage : sig
 
   val to_string : t -> string
 
-  val is_covering_path : t -> Path.t -> bool
-  (** [is_covering_path s p] tests if [s] covers the Path [p] (i.e. if [p] is
-   stored by [s]) *)
-  val is_covering_selector : t -> Selector.t -> bool
-  (** [is_covering_selector s sel] tests if [s] covers the Selector [sel] (i.e. if [sel] might match some path stored by [s]) *)
+  val covers_fully : t -> Selector.t -> bool
+  (** [covers_fully s sel] tests if [s] fully covers the Selector [sel]
+      (i.e. if each Path matching [sel] also matches the selector of [s]).
+      Note: to test with a Path use { Selector.of_path } *)
+  val covers_partially : t -> Selector.t -> bool
+  (** [covers_partially s sel] tests if [s] partially covers the Selector [sel]
+      (i.e. if it exists at least 1 Path matching [sel] that also matches the selector of [s]).
+      Note: to test with a Path use { Selector.of_path } *)
 
   val get : t -> Selector.t -> (Path.t * TimedValue.t) list Lwt.t
 
