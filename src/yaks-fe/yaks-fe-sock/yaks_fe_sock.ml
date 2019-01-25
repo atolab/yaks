@@ -61,8 +61,10 @@ module Make (YEngine : Yaks_engine.Engine.S) (MVar: Apero.MVar) = struct
           writer (IOBuf.clear buf) sock msg
         | None -> Lwt.return r)
     | Error e -> 
-      let%lwt _ = Logs_lwt.err (fun m -> m "Failed in encoding messge: %s" (Apero.show_error e)) in
-      Lwt.fail @@ Exception e 
+      let%lwt _ = Logs_lwt.err (fun m -> m "Failed in encoding %s message: %s" (message_id_to_string msg.header.mid) (Apero.show_error e)) in
+      let header = make_header ERROR [] msg.header.corr_id Properties.empty in
+      let errormsg = make_message header  @@ YErrorInfo (Vle.of_int @@ error_code_to_int INTERNAL_SERVER_ERROR) in
+      writer (IOBuf.clear buf) sock errormsg
 
 
   let process_eval (s:state) sock buf (path:Path.t) selector ~fallback =
