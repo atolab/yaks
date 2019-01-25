@@ -43,18 +43,23 @@ module Make (YEngine : Yaks_engine.Engine.S) (MVar: Apero.MVar) = struct
       let%lwt _ = Logs_lwt.err (fun m -> m "Failed in parsing message %s" (Apero.show_error e)) in
       Lwt.fail @@ Exception e
 
-  let writer buf sock msg = 
-    match encode_message msg buf with 
-    | Ok buf ->
+
+  let rec writer buf sock msg =
+    match encode_message_split msg buf with
+    | Ok (buf, remain_msg) ->
       let lbuf = IOBuf.create 16 in 
       let fbuf = (IOBuf.flip buf) in       
       (match encode_vle (Vle.of_int @@ IOBuf.limit fbuf) lbuf with 
-       | Ok lbuf -> 
-         let%lwt _ = Logs_lwt.debug (fun m -> m "Sending message to socket") in
-         Net.send_vec sock [IOBuf.flip lbuf; fbuf]
-       | Error e -> 
-         let%lwt _ = Logs_lwt.err (fun m -> m "Failed in writing message: %s" (Apero.show_error e)) in
-         Lwt.fail @@ Exception e )     
+      | Ok lbuf -> 
+        let%lwt _ = Logs_lwt.debug (fun m -> m "Sending message to socket: %d bytes" (IOBuf.limit fbuf)) in
+        Net.send_vec sock [IOBuf.flip lbuf; fbuf]
+      | Error e -> 
+        let%lwt _ = Logs_lwt.err (fun m -> m "Failed in writing message: %s" (Apero.show_error e)) in
+        Lwt.fail @@ Exception e )
+      >>= fun r -> (match remain_msg with
+        | Some msg -> 
+          writer (IOBuf.clear buf) sock msg
+        | None -> Lwt.return r)
     | Error e -> 
       let%lwt _ = Logs_lwt.err (fun m -> m "Failed in encoding messge: %s" (Apero.show_error e)) in
       Lwt.fail @@ Exception e 
