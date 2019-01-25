@@ -95,7 +95,8 @@ module Make (YEngine : Yaks_engine.Engine.S) = struct
     let%lwt _ = Logs_lwt.debug (fun m -> m "[FER] get %s %s" (ClientId.to_string clientid) (Selector.to_string selector)) in
     YEngine.get fe.engine clientid selector
     >>= fun (kvs) -> 
-    Server.respond_string ~status:`OK ~body:(json_string_of_key_values kvs) ()    
+    let headers = Header.init () |> fun h -> Header.add h "Access-Control-Allow-Origin" "*" in 
+    Server.respond_string ~headers ~status:`OK ~body:(json_string_of_key_values kvs) ()    
 
 
   let put fe clientid path value =
