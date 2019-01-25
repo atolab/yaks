@@ -6,7 +6,7 @@ bug-reports:  "https://github.com/atolab/yaks/issues/"
 dev-repo:     "https://github.com/atolab/yaks.git"
 tags:         ["org:adlink-technology"]
 
-version:"0.2.0"
+version:"0.2.1"
 license: "Apache-2.0"
 
 build: [
@@ -23,9 +23,9 @@ install: [
 depends: [
   "dune"
   "atdgen"
-  "yaks-core"    {>= "0.2.0"}
-  "yaks-fe-rest" {>= "0.2.0"}
-  "yaks-be-mm"   {>= "0.2.0"}
+  "yaks-core"    {>= "0.2.1"}
+  "yaks-fe-rest" {>= "0.2.1"}
+  "yaks-be-mm"   {>= "0.2.1"}
 ]
 
 available: [ocaml-version >= "4.03.0"]

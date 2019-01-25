@@ -6,7 +6,7 @@ bug-reports:  "https://github.com/atolab/yaks/issues/"
 dev-repo:     "https://github.com/atolab/yaks.git"
 tags:         ["org:adlink-technology"]
 
-version:"0.2.0"
+version:"0.2.1"
 license: "Apache-2.0"
 
 build: [
@@ -23,8 +23,8 @@ install: [
 depends: [
   "dune"
   "lwt" {>= "4.0.0"}
-  "yaks-core"  {>= "0.2.0"}
-  "apero-core" {>= "0.4.0"}  
+  "yaks-core"  {>= "0.2.1"}
+  "apero-core" {>= "0.4.1"}
   "cohttp-lwt-unix" {>= "1.0.2"}
 ]
 
