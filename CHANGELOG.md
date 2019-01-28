@@ -1,4 +1,6 @@
 # **YAKS Changelog**
+## **v0.2.2**
+ - Fix *eval* behaviour when called remotelly via Zenoh
 
 ## **v0.2.1**
  - Added -y option to yaksd.exe (allows to specify the Yaks ID).
