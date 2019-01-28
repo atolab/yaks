@@ -513,9 +513,11 @@ module AdminSpace = struct
           (Printf.sprintf "Error calling get(%s) on eval(%s): Eval implementer was removed"
           (Selector.to_string sel) (Path.to_string path))
       in
-      let rec call_evals path evals quorum = match quorum with
+      let rec call_evals path evals quorum = 
+        let sel' = Selector.of_path ?predicate:(Selector.predicate sel) ?properties:(Selector.properties sel) ?fragment:(Selector.fragment sel) path in
+        match quorum with
         | 0 -> []
-        | _ -> ((List.hd evals) path sel)::(call_evals path (List.tl evals) (quorum-1))   (* TODO: call a random eval instead of the 1st in list *)
+        | _ -> ((List.hd evals) path sel')::(call_evals path (List.tl evals) (quorum-1))   (* TODO: call a random eval instead of the 1st in list *)
       in
       MVar.read admin >>= fun self ->
       FrontendMap.fold (fun feid fe m ->
@@ -532,25 +534,33 @@ module AdminSpace = struct
       |> List.map (fun (p,l) -> call_evals p l (max quorum @@ List.length l) |> LwtM.flatten >>= fun l' -> Lwt.return (p,l'))
       |> LwtM.flatten
 
-    let incoming_eval_data_handler _ _ = Lwt.return_unit (* Eval will never get value "put" *)
+    let incoming_eval_data_handler _ resname =
+      let%lwt _ = Logs_lwt.warn (fun m -> m "[YAdm]: Received pushed data for eval %s - Ignore it!!" resname) in
+      Lwt.return_unit (* Eval should never get value "put" *)
 
     let incoming_eval_query_handler evaluator resname predicate = 
-      let%lwt _ = Logs_lwt.debug (fun m -> m "[YAdm]: Handling remote query on eval for %s?%s" resname predicate) in 
-      let s = if predicate = "" then resname else resname ^"?"^predicate in 
-      match Selector.of_string_opt s with 
-      | Some selector ->  
-        let open Yaks_fe_sock_codec in 
-          let%lwt kvss = evaluator selector in 
-          let kvs = List.map (fun (k, vs) -> (k, List.hd vs)) kvss in 
-          let evs = List.map 
-            (fun (path,value) -> 
-              let spath = Path.to_string path in 
-              let buf = Result.get  (encode_value value (IOBuf.create ~grow:4096 4096)) in 
-              (spath, IOBuf.flip buf)) kvs in
-          Lwt.return evs 
-      | _ -> 
-        let%lwt _ = Logs_lwt.debug (fun m -> m "[YAdm]: Unable to run eval for %s - not a Selector" s) in 
+      let%lwt _ = Logs_lwt.debug (fun m -> m "[YAdm]: Handling remote Zenoh query on eval for '%s' '%s'" resname predicate) in
+      if Astring.is_prefix ~affix:"/+" resname then
+        let resname = Astring.with_range ~first:2 resname in
+        let s = if String.length predicate = 0 then resname else resname ^"?"^predicate in
+        match Selector.of_string_opt s with
+        | Some selector ->
+          let open Yaks_fe_sock_codec in
+            let%lwt kvss = evaluator selector in
+            let kvs = List.map (fun (k, vs) -> (k, List.hd vs)) kvss in
+            let evs = List.map
+              (fun (path,value) ->
+                let spath = Path.to_string path in
+                let buf = Result.get  (encode_value value (IOBuf.create ~grow:4096 4096)) in
+                (spath, IOBuf.flip buf)) kvs in
+            Lwt.return evs 
+        | _ -> 
+          let%lwt _ = Logs_lwt.debug (fun m -> m "[YAdm]: Unable to run eval for %s - not a Selector" s) in
+          Lwt.return []
+      else
+        let%lwt _ = Logs_lwt.debug (fun m -> m "[YAdm]: Internal error the Zenoh resource name for eval doesn't start with /+ : %s" resname) in
         Lwt.return []
+
     
     let create_zenoh_eval zenoh selector evaluator = 
       Zenoh.storage ("/+"^(Selector.to_string selector)) incoming_eval_data_handler (incoming_eval_query_handler evaluator) zenoh 

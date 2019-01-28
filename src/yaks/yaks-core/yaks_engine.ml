@@ -133,7 +133,8 @@ module Engine = struct
       let path = Selector.path selector in
       let p,r = Lwt.wait () in
       let mlist = MVar.create [] in
-      let query =  (Option.get_or_default (Selector.predicate selector) "") in
+      let query = Selector.optional_part selector in
+      let _ = Logs_lwt.debug (fun m -> m "[Yeng]: Send Zenoh query for '%s' '%s'" path query) in
       let%lwt () = Zenoh.query path query (remote_query_handler r mlist decoder) zenoh in
       let open Lwt.Infix in
       p >>= Lwt_list.map_p (fun (_,p,v) -> Lwt.return (p, v))     (* Note:  Zenoh StorageIds is ignored (no need) *)

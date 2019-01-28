@@ -70,7 +70,7 @@ module Make (YEngine : Yaks_engine.Engine.S) (MVar: Apero.MVar) = struct
   let process_eval (s:state) sock buf (path:Path.t) selector ~fallback =
     let _ = Logs_lwt.debug (fun m -> m "[FES] send EVAL(%s) for eval registered with %s" (Selector.to_string selector) (Path.to_string path)) in
     let (body:payload) = YSelector (selector) in
-    let h = make_header EVAL [] Vle.zero Properties.empty in
+    let h = make_header EVAL [] (Random.int64 Int64.max_int) Properties.empty in
     let msg = make_message h body in
     Lwt.catch (
       fun () ->
@@ -110,7 +110,7 @@ module Make (YEngine : Yaks_engine.Engine.S) (MVar: Apero.MVar) = struct
       let buf = IOBuf.create Yaks_fe_sock_types.max_msg_size in 
       let push_sub buf sid ~fallback pvs = 
         let body = YNotification (Yaks_core.SubscriberId.to_string sid, pvs)  in                 
-        let h = make_header NOTIFY [] Vle.zero Properties.empty in         
+        let h = make_header NOTIFY [] (Random.int64 Int64.max_int) Properties.empty in
         let msg = make_message h body in         
         Lwt.catch (fun () -> writer buf sock msg >|= fun _ -> ()) (fun _ -> fallback sid)
       in  P.process_sub engine clientid msg (push_sub buf)
