@@ -1,4 +1,8 @@
 # **YAKS Changelog**
+## **v0.2.3**
+ - Fix *get* behaviour when the selector is not fully covered by a local storage. Now it also issues a remote query via Zenoh.
+ - Fix socket frontend to use a variable-length buffer for outgoing message, allowing to send values with size >65kb
+
 ## **v0.2.2**
  - Fix *eval* behaviour when called remotelly via Zenoh
 

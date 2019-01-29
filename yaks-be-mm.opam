@@ -6,7 +6,7 @@ bug-reports:  "https://github.com/atolab/yaks/issues/"
 dev-repo:     "https://github.com/atolab/yaks.git"
 tags:         ["org:adlink-technology"]
 
-version:"0.2.2"
+version:"0.2.3"
 license: "Apache-2.0"
 
 build: [
@@ -22,7 +22,7 @@ install: [
 
 depends: [
   "dune"
-  "yaks-core"  {>= "0.2.2"}
+  "yaks-core"  {= "0.2.3"}
 ]
 
 conflicts: [
