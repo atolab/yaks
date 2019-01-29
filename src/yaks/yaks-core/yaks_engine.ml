@@ -229,7 +229,7 @@ module Engine = struct
         (p,tv.value)::res)
       kvlmap []
 
-    let get engine client ?(quorum=1) ?workspace sel =
+    let get engine client ?(quorum=0) ?workspace sel =
       (* TODO: access control *)
       (* TODO: transport with quorum *)
       let%lwt sel = to_absolute_selector engine client ?workspace sel in
@@ -249,39 +249,26 @@ module Engine = struct
       let storages_results =
         let%lwt _ = Logs_lwt.debug (fun m -> m "[Yeng]: get %s => query storages" (Selector.to_string sel)) in
         MVar.read engine >>= fun self ->
-        let%lwt storages = YAdminSpace.get_storages_for_selector self.admin sel in
-        match storages with
-        | [] ->
-          let%lwt _ = Logs_lwt.debug (fun m -> m "[Yeng]: No storage Matches, going remote...") in
-          (match self.zenoh with
-          | Some zenoh -> issue_remote_query zenoh sel TimedValue.decode
-          | None -> Lwt.return [])
-        | _ ->
-          let%lwt _ = Logs_lwt.debug (fun m -> m "[Yeng]: Some storage Matches, going local+remote") in
-          let covers: bool =  storages
-            |> List.map (fun s -> Storage.covers_partially s sel)
-            |> List.fold_left (fun a b -> a || b) false
+        let storages = YAdminSpace.get_storages_for_selector self.admin sel in
+        let fully_covering_storages = storages >|= List.filter (fun s -> Storage.covers_fully s sel) in
+        match%lwt fully_covering_storages with
+        | s::_ -> (* Get results from the 1st fully covering storage *)
+          let%lwt _ = Logs_lwt.debug (fun m -> m "[Yeng]: get %s => Local storage %s fully covers. Get only from it." (Selector.to_string sel) (Storage.to_string s) ) in
+          Storage.get s sel
+        | [] -> (* get from local + remote storages *)
+          let%lwt _ = Logs_lwt.debug (fun m -> m "[Yeng]: get %s => get local + remote" (Selector.to_string sel)) in
+          let local_get = storages >|= List.map (fun store -> Storage.get store sel) >>= Apero.LwtM.flatten >|= List.concat in
+          let remote_get = (match self.zenoh with
+            | Some zenoh -> issue_remote_query zenoh sel TimedValue.decode
+            | None -> Lwt.return [])
           in
-          let local_get = List.map (fun store -> Storage.get store sel) storages
-              |> Apero.LwtM.flatten
-              >|= List.concat
-          in 
-          let%lwt _ = Logs_lwt.debug (fun m -> m "[Yeng]: Some storage Covers: %b" covers) in
-          if covers then local_get
-          else 
-            match self.zenoh with
-            | Some zenoh -> 
-              let rdata = issue_remote_query zenoh sel TimedValue.decode in
-              let ldata = local_get in 
-              Lwt.join [(rdata >>= fun _ -> Lwt.return_unit); (ldata >>= fun _ -> Lwt.return_unit)] 
-              >>= fun () ->
-                rdata >>= fun rd ->
-                  ldata >>= fun ld -> 
-                    let%lwt _ = Logs_lwt.debug (fun m -> m "[Yeng]: Local get returned %d values and remote get %d results" (List.length ld) (List.length rd)) in
-                    Lwt.return @@ List.append rd ld
-            | None -> local_get
-        in
-        LwtM.flatten [admin_results; storages_results] >|= List.concat
+          Lwt.join [(local_get >>= fun _ -> Lwt.return_unit); (remote_get >>= fun _ -> Lwt.return_unit)] >>= fun () ->
+          remote_get >>= fun rd ->
+          local_get >>= fun ld ->
+          let%lwt _ = Logs_lwt.debug (fun m -> m "[Yeng]: get %s => found %d values locally and %d values remotely" (Selector.to_string sel) (List.length ld) (List.length rd)) in
+          Lwt.return @@ List.append rd ld
+      in
+      LwtM.flatten [admin_results; storages_results] >|= List.concat
         >|= map_of_results >|= apply_quorum quorum
 
 
