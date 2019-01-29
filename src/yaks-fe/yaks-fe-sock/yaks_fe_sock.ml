@@ -144,7 +144,7 @@ module Make (YEngine : Yaks_engine.Engine.S) (MVar: Apero.MVar) = struct
 
 
   let fe_service config  dispatcher tx_sex = 
-    let buf = IOBuf.create (Config.buf_size config) in 
+    let buf = IOBuf.create ~grow:4096 (Config.buf_size config) in
     let sock = TxSession.socket tx_sex in 
     let mwriter = writer buf sock in 
     fun () ->
