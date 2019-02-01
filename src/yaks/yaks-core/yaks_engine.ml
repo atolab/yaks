@@ -207,9 +207,9 @@ module Engine = struct
               (* NB:
                   - Currently an eval is represented with a storage, once zenoh will support something like evals, we'll
                     transition to that abstraction to avoid bu construction the progagation of spurious values.
-                  - The Zenoh storage selector for eval is the eval's path prefixed with '/+'
+                  - The Zenoh storage selector for eval is the eval's path prefixed with '+'
               *)
-              let sel' = Selector.add_prefix ~prefix:(Path.of_string "/+") sel in
+              let sel' = Selector.add_prefix ~prefix:(Path.of_string "+") sel in
               issue_remote_query zenoh sel' Yaks_fe_sock_codec.decode_value
             | None -> Lwt.return []
       in

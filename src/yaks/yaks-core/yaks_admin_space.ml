@@ -540,7 +540,7 @@ module AdminSpace = struct
 
     let incoming_eval_query_handler evaluator resname predicate = 
       let%lwt _ = Logs_lwt.debug (fun m -> m "[YAdm]: Handling remote Zenoh query on eval for '%s' '%s'" resname predicate) in
-      if Astring.is_prefix ~affix:"/+" resname then
+      if Astring.is_prefix ~affix:"+" resname then
         let resname = Astring.with_range ~first:2 resname in
         let s = if String.length predicate = 0 then resname else resname ^"?"^predicate in
         match Selector.of_string_opt s with
@@ -558,16 +558,16 @@ module AdminSpace = struct
           let%lwt _ = Logs_lwt.debug (fun m -> m "[YAdm]: Unable to run eval for %s - not a Selector" s) in
           Lwt.return []
       else
-        let%lwt _ = Logs_lwt.debug (fun m -> m "[YAdm]: Internal error the Zenoh resource name for eval doesn't start with /+ : %s" resname) in
+        let%lwt _ = Logs_lwt.debug (fun m -> m "[YAdm]: Internal error the Zenoh resource name for eval doesn't start with + : %s" resname) in
         Lwt.return []
 
     
     let create_zenoh_eval zenoh selector evaluator = 
-      Zenoh.storage ("/+"^(Selector.to_string selector)) incoming_eval_data_handler (incoming_eval_query_handler evaluator) zenoh 
+      Zenoh.storage ("+"^(Selector.to_string selector)) incoming_eval_data_handler (incoming_eval_query_handler evaluator) zenoh 
       (* NB:
           - Currently an eval is represented with a storage, once zenoh will support something like evals, we'll
             transition to that abstraction to avoid bu construction the progagation of spurious values.
-          - The Zenoh storage selector for eval is the eval's path prefixed with '/+'
+          - The Zenoh storage selector for eval is the eval's path prefixed with '+'
           - The quorum for remotely resolved eval is currently 1       
       *)
 
