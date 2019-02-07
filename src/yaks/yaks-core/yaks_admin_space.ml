@@ -440,19 +440,19 @@ module AdminSpace = struct
         in
         MVar.return () { self with frontends = FrontendMap.add clientid.feid fe' self.frontends; kvs}
 
-    let create_zenoh_subscriber admin zenoh subid selector is_push notifier  =
+    let create_zenoh_subscriber admin zenoh clientid subid selector is_push notifier  =
       let sub_mode = if is_push then Zenoh.push_mode else Zenoh.pull_mode in 
       let listener buf path = 
         match TimedValue.decode buf with 
-        | Ok (tv, _) -> 
-          notifier subid ~fallback:(remove_subscriber admin local_client) [(Path.of_string path, tv.value)]
-        | Error e -> 
+        | Ok (tv, _) ->
+          Logs_lwt.debug (fun m -> m "[Yadm] notify subscriber %s for remote update on %s" (ClientId.to_string clientid) path) >>
+          notifier subid ~fallback:(remove_subscriber admin clientid) [(Path.of_string path, tv.value)]
+        | Error e ->
           let%lwt _ = Logs_lwt.warn (fun m -> m "Error while decoding value received for subscription: \n%s" @@ Atypes.show_error e) 
           in Lwt.return_unit
         in
         Zenoh.subscribe (Selector.to_string selector) listener ~mode:sub_mode zenoh
 
-      (* let sub = Zenoh.su *)
     let create_subscriber admin (clientid:ClientId.t) selector is_push notifier =
       Logs_lwt.debug (fun m -> m "[Yadm] %s: create_subscriber %s" (ClientId.to_string clientid) (Selector.to_string selector)) >>
       MVar.guarded admin 
@@ -461,7 +461,7 @@ module AdminSpace = struct
         let subid = SubscriberId.next_id () in
         let%lwt zenoh_sub = match self.zenoh with 
           | Some zenoh -> 
-            let%lwt zsub = create_zenoh_subscriber admin zenoh subid selector is_push notifier in
+            let%lwt zsub = create_zenoh_subscriber admin zenoh clientid subid selector is_push notifier in
             Lwt.return @@ Some zsub
           | None -> Lwt.return None 
         in 
@@ -477,15 +477,18 @@ module AdminSpace = struct
 
    
     let notify_subscribers admin path value =
-      let iter_session s = SubscriberMap.iter
-        (fun sid sub -> 
+      let iter_session feid sid s = SubscriberMap.iter
+        (fun subid sub ->
           if Selector.is_matching_path path sub.selector then
-            Lwt.ignore_result (sub.notifier sid ~fallback:(remove_subscriber admin local_client) [(path, value)]) 
+            let clientid: ClientId.t = {feid; sid} in
+            Lwt.ignore_result (
+              Logs_lwt.debug (fun m -> m "[Yadm] notify subscriber %s for local update on %s" (ClientId.to_string clientid) (Path.to_string path)) >>
+              sub.notifier subid ~fallback:(remove_subscriber admin clientid) [(path, value)])
           else ()) s.subs
       in
-      let iter_frontend f = SessionMap.iter (fun _ session -> iter_session session) f.sessions in
+      let iter_frontend feid fe = SessionMap.iter (fun sid session -> iter_session feid sid session) fe.sessions in
       MVar.read admin >|= (fun self ->
-      FrontendMap.iter (fun _ fe -> iter_frontend fe) self.frontends)
+      FrontendMap.iter (fun feid fe -> iter_frontend feid fe) self.frontends)
 
     (*****************************)
     (*     evals management      *)

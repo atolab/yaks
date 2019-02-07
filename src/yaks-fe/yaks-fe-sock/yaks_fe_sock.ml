@@ -108,11 +108,15 @@ module Make (YEngine : Yaks_engine.Engine.S) (MVar: Apero.MVar) = struct
     | SUB -> 
       let sock = TxSession.socket tx_sex in 
       let buf = IOBuf.create Yaks_fe_sock_types.max_msg_size in 
-      let push_sub buf sid ~fallback pvs = 
+      let push_sub buf sid ~fallback pvs =
+        let _ = Logs_lwt.debug (fun m -> m "[FES] notify subscriber %s/%s" (ClientId.to_string clientid) (Yaks_core.SubscriberId.to_string sid)) in
         let body = YNotification (Yaks_core.SubscriberId.to_string sid, pvs)  in                 
         let h = make_header NOTIFY [] (Random.int64 Int64.max_int) Properties.empty in
-        let msg = make_message h body in         
-        Lwt.catch (fun () -> writer buf sock msg >|= fun _ -> ()) (fun _ -> fallback sid)
+        let msg = make_message h body in
+        Lwt.catch 
+          (fun () -> writer buf sock msg >|= fun _ -> ())
+          (fun ex -> let _ = Logs_lwt.debug (fun m -> m "[FES] Error notifying subscriber %s/%s : %s" (ClientId.to_string clientid) (Yaks_core.SubscriberId.to_string sid) (Printexc.to_string ex)) in
+            fallback sid)
       in  P.process_sub engine clientid msg (push_sub buf)
     | UNSUB -> P.process_unsub engine clientid msg
     | REG_EVAL ->
