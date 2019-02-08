@@ -99,7 +99,9 @@ module Make (YEngine : Yaks_engine.Engine.S) (MVar: Apero.MVar) = struct
     let sid = TxSession.id tx_sex |> NetService.Id.to_string |> SessionId.of_string in 
     let (clientid: ClientId.t) = { feid; sid }  in
     match msg.header.mid with 
-    | LOGIN -> P.process_login engine clientid msg 
+    | LOGIN -> P.process_login engine clientid msg >|= fun response ->
+      if response.header.mid = OK then Lwt.async (fun () -> Lwt.bind (TxSession.when_closed tx_sex) (fun _ -> P.process_logout engine clientid msg));
+      response
     | LOGOUT -> P.process_logout engine clientid msg
     | WORKSPACE -> P.process_workspace engine clientid msg
     | PUT -> P.process_put engine clientid msg
