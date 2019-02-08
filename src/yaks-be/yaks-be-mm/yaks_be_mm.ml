@@ -38,11 +38,13 @@ module MainMemoryBE = struct
 
 
     let put (path:Path.t) (value:TimedValue.t) =
-      (* Stores should potentailly convert the encoding for the value. 
-             For the main memory, we keep the value in its original format 
-             and just convert in the front-end when required *)        
       MVar.guarded mvar_self
-        (fun self -> Lwt.return (Lwt.return_unit, SMap.add path value self))        
+        (fun self ->
+          match SMap.find_opt path self with
+          | Some v -> if (TimedValue.preceeds ~first:v ~second:value)
+              then Lwt.return (Lwt.return_unit, SMap.add path value self)
+              else Lwt.return (Lwt.return_unit, self)
+          | None -> Lwt.return (Lwt.return_unit, SMap.add path value self))         (* TODO: manage timestamped removals ! *)
 
     let try_update (tv:TimedValue.t) (d:TimedValue.t) : TimedValue.t = match Value.update tv.value d.value with
       | Ok r -> { time=tv.time; value=r }
@@ -52,8 +54,10 @@ module MainMemoryBE = struct
       MVar.guarded mvar_self
       @@ fun self -> 
       (match SMap.find_opt path self with 
-        | Some v -> Lwt.return (Lwt.return_unit, SMap.add path (try_update v delta) self)        
-        | None -> Lwt.return (Lwt.return_unit, SMap.add path delta self))        
+        | Some v -> if (TimedValue.preceeds ~first:v ~second:delta)
+            then Lwt.return (Lwt.return_unit, SMap.add path (try_update v delta) self)
+            else Lwt.return (Lwt.return_unit, self)
+        | None -> Lwt.return (Lwt.return_unit, SMap.add path delta self))          (* TODO: manage timestamped removals ! *)
 
 
     let remove path = 
