@@ -151,6 +151,12 @@ let get_keys_kv_table conx ?condition table_name =
   in
   collect_query conx query Caqti_type.string
 
+let get_timestamp_kv_table conx table_name key =
+  let query = "SELECT t FROM "^table_name^" WHERE k = "^key in
+  match%lwt collect_query conx query Caqti_type.string with
+  | [] -> Lwt.return_none
+  | t::_ -> Lwt.return_some t
+
 
 let trunc_table conx table_name =
   let query = "TRUNCATE TABLE "^table_name in

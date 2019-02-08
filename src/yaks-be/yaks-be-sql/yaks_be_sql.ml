@@ -144,14 +144,30 @@ module SQLBE = struct
           >|= List.filter Option.is_some
           >|= List.map (fun o -> Option.get o)
 
+
     let put_kv_table storage_info (path:Path.t) (tv:TimedValue.t) =
       let%lwt _ = Logs_lwt.debug (fun m -> m "[SQL]: put(%s) into kv table %s"
                     (Path.to_string path) (storage_info.table_name)) in
       let k = Astring.with_range ~first:(String.length @@ Path.to_string storage_info.keys_prefix) (Path.to_string path) |> to_sql_string in
-      let v = Value.to_string tv.value |> to_sql_string in
-      let enc = Value.encoding_to_string @@ Value.encoding tv.value |> to_sql_string in
-      let t = HLC.Timestamp.to_string tv.time |> to_sql_string in
-      Caqti_driver.put C.conx storage_info.table_name storage_info.schema (k::v::enc::t::[]) ()
+      (* NOTE: We need to compare timestamp with a potential existing value before to insert
+         here, we get it via a 1st SQL request, and then we replace it via a 2nd SQL requst if tv is more recent.
+         @TODO: ideally the time coparison and replacement should be done via a single SQL request.
+      *)
+      let should_replace = match%lwt Caqti_driver.get_timestamp_kv_table C.conx storage_info.table_name k with
+        | None -> Lwt.return_true     (* TODO: manage timestamped removals ! *)
+        | Some t -> (match HLC.Timestamp.of_string t with
+          | None -> let _ = Logs_lwt.warn (fun m -> m "[SQL]: put in KV table %s failed to read existing timestamp for %s : %s" storage_info.table_name k t) in Lwt.return_true
+          | Some time1 -> Lwt.return @@ (HLC.Timestamp.compare time1 tv.time < 0))
+      in
+      if%lwt should_replace then
+        let v = Value.to_string tv.value |> to_sql_string in
+        let enc = Value.encoding_to_string @@ Value.encoding tv.value |> to_sql_string in
+        let t = HLC.Timestamp.to_string tv.time |> to_sql_string in
+        Caqti_driver.put C.conx storage_info.table_name storage_info.schema (k::v::enc::t::[]) ()
+      else
+        let%lwt _ = Logs_lwt.debug (fun m -> m "[SQL]: put(%s) into kv table %s: outdated value... drop it"
+                    (Path.to_string path) (storage_info.table_name)) in
+        Lwt.return_unit
 
     let update_kv_table storage_info path (delta:TimedValue.t) =
       let%lwt _ = Logs_lwt.debug (fun m -> m "[SQL]: put_delta(%s) into kv table %s"
