@@ -536,6 +536,7 @@ module AdminSpace = struct
         MVar.return () { self with frontends = FrontendMap.add clientid.feid fe' self.frontends; kvs}
 
     let call_evals admin (clientid:ClientId.t) quorum sel =
+      let%lwt _ = Logs_lwt.debug (fun m -> m "[YAdm]: Call eval on %s for %s" (ClientId.to_string clientid) (Selector.to_string sel)) in
       let _ = ignore clientid in
       let add_eval p e m = if EvalMap.mem p m then EvalMap.add p (e::EvalMap.find p m) m else EvalMap.add p (e::[]) m in
       let remove_eval_fallback feid sid path =
@@ -572,7 +573,7 @@ module AdminSpace = struct
     let incoming_eval_query_handler evaluator resname predicate = 
       let%lwt _ = Logs_lwt.debug (fun m -> m "[YAdm]: Handling remote Zenoh query on eval for '%s' '%s'" resname predicate) in
       if Astring.is_prefix ~affix:"+" resname then
-        let resname = Astring.with_range ~first:2 resname in
+        let resname = Astring.with_range ~first:1 resname in
         let s = if String.length predicate = 0 then resname else resname ^"?"^predicate in
         match Selector.of_string_opt s with
         | Some selector ->
