@@ -54,6 +54,8 @@ module AdminSpace = struct
     module EvalMap = Map.Make (Path)
     module KVMap = Map.Make(Path)
 
+    module ZUtils = Yaks_zenoh_utils.Make(MVar)
+
     type subscriber =
       { selector : Selector.t
       ; is_push : bool
@@ -207,6 +209,31 @@ module AdminSpace = struct
         let%lwt _ = Logs_lwt.debug (fun m -> m "[YAdm]: Unable to resolve query for %s - not a Selector" s) in 
         Lwt.return []
 
+    let align_storage zenoh selector storage stid =
+      let%lwt _ = Logs_lwt.debug (fun m -> m "[Yadm] create_storage %s : align with remote storages..." stid) in
+      (* create a temporary Zenoh listener (to not miss ongoing updates) *)
+      let listener buf path =
+        if Astring.is_prefix ~affix:"/@" path then Lwt.return_unit
+        else match TimedValue.decode buf with
+        | Ok (tv, _) ->
+          Storage.put storage (Path.of_string path) tv
+        | Error e ->
+          let%lwt _ = Logs_lwt.warn (fun m -> m "Error while decoding value received for alignment of storage %s: \n%s"  (Storage.to_string storage) (Atypes.show_error e)) 
+          in Lwt.return_unit
+      in
+      let%lwt tmp_sub = Zenoh.subscribe (Selector.to_string selector) listener ~mode:Zenoh.push_mode zenoh in
+      (* query the remote storages (to get historical data) *)
+      let%lwt kvs = ZUtils.issue_remote_query zenoh selector TimedValue.decode in
+      let%lwt () = List.map (fun (path, tv) ->
+        if Astring.is_prefix ~affix:"/@" (Path.to_string path) then Lwt.return_unit
+        else Storage.put storage path tv) kvs |> Lwt.join
+      in
+      let%lwt _ = Logs_lwt.debug (fun m -> m "[Yadm] create_storage %s : alignment done" stid) in
+      (* program the removal of the temporary Zenoh listener after a while *)
+      Lwt.async (fun() -> Lwt_unix.sleep 10.0 >> Zenoh.unsubscribe tmp_sub zenoh);
+      Lwt.return_unit
+
+
     let create_zenoh_storage zenoh selector storage = 
       Zenoh.storage (Selector.to_string selector) (incoming_storage_data_handler storage) (incoming_storage_query_handler storage) zenoh 
 
@@ -246,6 +273,7 @@ module AdminSpace = struct
         let%lwt zenoh_storage =  
           match self.zenoh with 
           | Some zenoh ->
+            align_storage zenoh selector storage stid >>
             create_zenoh_storage zenoh selector storage  >|= fun storage -> Some storage            
           | None -> Lwt.return None 
         in

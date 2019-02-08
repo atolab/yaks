@@ -78,4 +78,7 @@ module TimedValue = struct
       Yaks_fe_sock_codec.decode_value buf >>= fun (value, buf) ->
       Result.ok ({time; value}, buf)
 
+    let preceeds ~first ~second = Timestamp.compare first.time second.time < 0
+    (** [preceeds first second] returns true if timestamp of [first] < timestamp of [second] *)
+
 end
