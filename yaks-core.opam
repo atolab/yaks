@@ -3,10 +3,10 @@ maintainer:   ["contact@adlink-labs.tech"]
 authors:      ["Angelo Corsaro" "Julien Enoch" "Olivier Hecart" "Gabriele Baldoni"]
 homepage:     "https://github.com/atolab/yaks"
 bug-reports:  "https://github.com/atolab/yaks/issues/"
-dev-repo:     "https://github.com/atolab/yaks.git"
+dev-repo:     "git+https://github.com/atolab/yaks.git"
 tags:         ["org:adlink-technology"]
 
-version:"0.2.3"
+version:"0.2.4"
 license: "Apache-2.0"
 
 build: [
@@ -20,9 +20,10 @@ install: [
 ]
 
 depends: [
+  "ocaml" {>= "4.03.0"}
   "dune"
   "atdgen"
-  "apero_core" {>= "0.4.1"}
+  "apero-core" {>= "0.4.2"}
   "cmdliner"
   "fmt" 
   "logs" 
@@ -38,6 +39,3 @@ depends: [
 conflicts: [
   "lwt" {< "4.0.0"}
 ]
-
-
-available: [ocaml-version >= "4.03.0"]
