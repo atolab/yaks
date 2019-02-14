@@ -173,7 +173,7 @@ module Engine = struct
                   - The Zenoh storage selector for eval is the eval's path prefixed with '+'
               *)
               let sel' = Selector.add_prefix ~prefix:(Path.of_string "+") sel in
-              ZUtils.issue_remote_query zenoh sel' Yaks_fe_sock_codec.decode_value
+              ZUtils.query zenoh sel' Yaks_fe_sock_codec.decode_value
             | None -> Lwt.return []
       in
       LwtM.flatten [local_evals; remote_evals] >|= List.concat
@@ -212,7 +212,7 @@ module Engine = struct
       let storages_results =
         let%lwt _ = Logs_lwt.debug (fun m -> m "[Yeng]: get %s => query storages" (Selector.to_string sel)) in
         let self = Guard.get engine in 
-        let storages = YAdminSpace.get_storages_for_selector self.admin sel in
+        let storages = YAdminSpace.get_matching_storages self.admin sel in
         let fully_covering_storages = storages |> List.filter (fun s -> Storage.covers_fully s sel) in
         match fully_covering_storages with
         | s::_ -> (* Get results from the 1st fully covering storage *)
@@ -222,7 +222,7 @@ module Engine = struct
           let%lwt _ = Logs_lwt.debug (fun m -> m "[Yeng]: get %s => get local + remote" (Selector.to_string sel)) in
           let local_get = storages |> List.map (fun store -> Storage.get store sel) |> Apero.LwtM.flatten >|= List.concat in
           let remote_get = (match self.zenoh with
-            | Some zenoh -> ZUtils.issue_remote_query zenoh sel TimedValue.decode
+            | Some zenoh -> ZUtils.query zenoh sel TimedValue.decode
             | None -> Lwt.return [])
           in
           Lwt.join [(local_get >>= fun _ -> Lwt.return_unit); (remote_get >>= fun _ -> Lwt.return_unit)] >>= fun () ->
@@ -249,10 +249,10 @@ module Engine = struct
       | Some path -> YAdminSpace.put self.admin client path tv
       | None ->
         let _ = YAdminSpace.notify_subscribers self.admin path value in
-        let _ = YAdminSpace.get_storages_for_path self.admin path |>
+        let _ = YAdminSpace.get_matching_storages self.admin (Selector.of_path path) |>
         Lwt_list.iter_p (fun store -> Storage.put store path tv) in 
         let open Apero.Option.Infix in 
-        let _ = self.zenoh >|= fun zenoh -> (ZUtils.distribute_update path tv zenoh) in
+        let _ = self.zenoh >|= fun zenoh -> (ZUtils.write path tv zenoh) in
         Lwt.return_unit
 
     let update engine client ?quorum ?workspace path value =
@@ -265,7 +265,7 @@ module Engine = struct
       let tv: TimedValue.t = { time; value } in
       let%lwt _ = Logs_lwt.debug (fun m -> m "[Yeng]: update %s with timestamp %a" (Path.to_string path) HLC.Timestamp.pp time) in
       let _ = Lwt.return @@ YAdminSpace.notify_subscribers self.admin path value in
-      YAdminSpace.get_storages_for_path self.admin path
+      YAdminSpace.get_matching_storages self.admin (Selector.of_path path)
         |> Lwt_list.iter_p (fun store -> Storage.update store path tv)
 
     let remove engine client ?quorum ?workspace path =
@@ -279,7 +279,7 @@ module Engine = struct
         YAdminSpace.remove self.admin client path
       | None ->
         let%lwt _ = Logs_lwt.debug (fun m -> m "[Yeng]: remove %s" (Path.to_string path)) in
-        YAdminSpace.get_storages_for_path self.admin path
+        YAdminSpace.get_matching_storages self.admin (Selector.of_path path)
         |> Lwt_list.iter_p (fun store -> Storage.remove store path)
 
 

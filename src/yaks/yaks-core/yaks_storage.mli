@@ -40,5 +40,8 @@ module Storage : sig
 
   val remove : t -> Path.t -> unit Lwt.t
 
+  val on_zenoh_write : t -> IOBuf.t -> string -> unit Lwt.t
+  val on_zenoh_query : t -> string -> string -> (string * IOBuf.t) list Lwt.t
+  val align : t -> Zenoh.t -> Selector.t -> unit Lwt.t
 
 end  [@@deriving show]

@@ -31,10 +31,8 @@ module AdminSpace : sig
 
     val get_workspace_path : t -> ClientId.t -> WsId.t -> Path.t Lwt.t
 
-    val get_storages_for_path : t -> Path.t -> Storage.t list
-    val get_storages_for_selector : t -> Selector.t -> Storage.t list
+    val get_matching_storages : t -> Selector.t -> Storage.t list
 
-    
 
     (* TODO: Temporary operations that should be replaced by put/get/remove usage *)
     val add_backend_TMP : t -> (module Backend) -> unit Lwt.t

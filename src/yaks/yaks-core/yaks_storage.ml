@@ -37,11 +37,68 @@ module Storage = struct
   let covers_fully s sel = Selector.includes ~subsel:sel s.selector
   let covers_partially s sel = Selector.intersects sel s.selector
 
-  let get t = t.get
-  let put t = t.put
-  let update t = t.put_delta
-  let remove t = t.remove
+  let get s = s.get
+  let put s = s.put
+  let update s = s.put_delta
+  let remove s = s.remove
 
+
+  let on_zenoh_write s (sample:IOBuf.t) (key:string) =
+    match Path.of_string_opt key with 
+    | Some path ->
+      (match TimedValue.decode sample with
+      | Ok (v, _) -> 
+        let%lwt _ = Logs_lwt.warn (fun m -> m "[Sto] %s: Inserting remote update for key %s" (Id.to_string s.id) key) in 
+        put s path v
+      | Error e ->
+        let%lwt _ = Logs_lwt.debug (fun m -> m "[Sto] %s: Failed to decode TimedValue.t to be stored for key %s: %s" (Id.to_string s.id) key (Atypes.show_error e)) in
+        Lwt.return_unit
+      )
+    | _ -> 
+      let%lwt _ = Logs_lwt.warn (fun m -> m "[Sto] %s: Received data via Zenoh for key %s which is not a path" (Id.to_string s.id) key) 
+      in Lwt.return_unit     
+
+
+  let on_zenoh_query s resname predicate = 
+    let sel = if predicate = "" then resname else resname ^"?"^predicate in 
+    let%lwt _ = Logs_lwt.debug (fun m -> m "[Sto] %s: Handling remote query on storage for %s?%s" (Id.to_string s.id) resname predicate) in 
+    match Selector.of_string_opt sel with 
+    | Some selector ->
+      let%lwt kvs = get s selector in
+      let evs = List.map
+        (fun (path,value) ->
+          let spath = Path.to_string path in
+          let buf = Result.get  (TimedValue.encode value (IOBuf.create ~grow:4096 4096)) in
+          (spath, IOBuf.flip buf)) kvs in
+      Lwt.return evs 
+    | _ -> 
+      let%lwt _ = Logs_lwt.debug (fun m -> m "[Sto] %s: Unable to resolve query for %s - not a Selector" (Id.to_string s.id) sel) in 
+      Lwt.return []
+
+  let align s zenoh selector =
+    let%lwt _ = Logs_lwt.debug (fun m -> m "[Sto] %s: align with remote storages..." (Id.to_string s.id)) in
+    (* create a temporary Zenoh listener (to not miss ongoing updates) *)
+    let listener buf path =
+      if Astring.is_prefix ~affix:"/@" path then Lwt.return_unit
+      else match TimedValue.decode buf with
+      | Ok (tv, _) ->
+        put s (Path.of_string path) tv
+      | Error e ->
+        let%lwt _ = Logs_lwt.warn (fun m -> m "[Sto] %s: Error while decoding value received for alignment: \n%s"  (Id.to_string s.id) (Atypes.show_error e)) 
+        in Lwt.return_unit
+    in
+    let%lwt tmp_sub = Zenoh.subscribe (Selector.to_string selector) listener ~mode:Zenoh.push_mode zenoh in
+    (* query the remote storages (to get historical data) *)
+    let%lwt kvs = Yaks_zenoh_utils.query zenoh selector TimedValue.decode in
+    let%lwt () = List.map (fun (path, tv) ->
+      if Astring.is_prefix ~affix:"/@" (Path.to_string path) then Lwt.return_unit
+      else put s path tv) kvs |> Lwt.join
+    in
+    let%lwt _ = Logs_lwt.debug (fun m -> m "[Sto] %s: alignment done" (Id.to_string s.id)) in
+    let open Apero.LwtM.InfixM in
+    (* program the removal of the temporary Zenoh listener after a while *)
+    Lwt.async (fun() -> Lwt_unix.sleep 10.0 >> Zenoh.unsubscribe tmp_sub zenoh);
+    Lwt.return_unit
 
 end  [@@deriving show]
 

@@ -20,10 +20,12 @@ module AdminSpace = struct
 
     module ZUtils = Yaks_zenoh_utils
 
+    type eval_call = Selector.t -> Value.t Lwt.t
+
     type subscriber =
       { selector : Selector.t
       ; is_push : bool
-      ; notifier : notify_subscriber
+      ; notify_call : (Path.t * Value.t) list -> unit Lwt.t
       ; zenoh_sub : Zenoh.sub option
       }
 
@@ -32,7 +34,7 @@ module AdminSpace = struct
       ; ws : Path.t WsMap.t
       ; lastWsid: WsId.t
       ; subs : subscriber SubscriberMap.t
-      ; evals : (eval_function * Zenoh.store option) EvalMap.t
+      ; evals : (eval_call * Zenoh.storage option) EvalMap.t
       }
 
     type frontend =
@@ -42,7 +44,7 @@ module AdminSpace = struct
 
     type backend =
       { beModule : (module Backend)
-      ; storages : (Storage.t * Zenoh.store option) StorageMap.t
+      ; storages : (Storage.t * Zenoh.storage option) StorageMap.t
       }
 
     type state =
@@ -53,7 +55,7 @@ module AdminSpace = struct
       ; kvs : TimedValue.t KVMap.t
       ; hlc : HLC.t
       ; zenoh : Zenoh.t option
-      ; mutable zenoh_storage : Zenoh.store option             
+      ; mutable zenoh_storage : Zenoh.storage option             
       }
 
     type t = state Guard.t
@@ -143,64 +145,6 @@ module AdminSpace = struct
         Properties.not_conflicting properties BE.properties) backends
       |> BackendMap.choose_opt
     
-    let incoming_storage_data_handler store (sample:IOBuf.t) (key:string) = 
-      match TimedValue.decode sample with
-      | Ok (v, _) -> 
-        (match Path.of_string_opt key with 
-        | Some path -> 
-          let%lwt _ = Logs_lwt.warn (fun m -> m "[YAdm]: Inserting remote update for key %s" key) in 
-          Storage.put store path v
-        | _ -> 
-          let%lwt _ = Logs_lwt.warn (fun m -> m "[YAdm]: Received data for key %s which I cannot store" key) 
-          in Lwt.return_unit)      
-      | Error e ->
-        let%lwt _ = Logs_lwt.debug (fun m -> m "[YAdm]: Failed to decode TimedValue.t to be stored for key %s: %s" key (Atypes.show_error e)) in
-        Lwt.return_unit
-    
-    let incoming_storage_query_handler store resname predicate = 
-      let s = if predicate = "" then resname else resname ^"?"^predicate in 
-      let%lwt _ = Logs_lwt.debug (fun m -> m "[YAdm]: Handling remote query on store for %s?%s" resname predicate) in 
-      match Selector.of_string_opt s with 
-      | Some selector ->  
-        let%lwt kvs = Storage.get store selector in
-        let evs = List.map
-          (fun (path,value) ->
-            let spath = Path.to_string path in
-            let buf = Result.get  (TimedValue.encode value (IOBuf.create ~grow:4096 4096)) in
-            (spath, IOBuf.flip buf)) kvs in
-        Lwt.return evs 
-      | _ -> 
-        let%lwt _ = Logs_lwt.debug (fun m -> m "[YAdm]: Unable to resolve query for %s - not a Selector" s) in 
-        Lwt.return []
-
-    let align_storage zenoh selector store stid =
-      let%lwt _ = Logs_lwt.debug (fun m -> m "[Yadm] create_storage %s : align with remote storages..." stid) in
-      (* create a temporary Zenoh listener (to not miss ongoing updates) *)
-      let listener buf path =
-        if Astring.is_prefix ~affix:"/@" path then Lwt.return_unit
-        else match TimedValue.decode buf with
-        | Ok (tv, _) ->
-          Storage.put store (Path.of_string path) tv
-        | Error e ->
-          let%lwt _ = Logs_lwt.warn (fun m -> m "Error while decoding value received for alignment of store %s: \n%s"  (Storage.to_string store) (Atypes.show_error e)) 
-          in Lwt.return_unit
-      in
-      let%lwt tmp_sub = Zenoh.subscribe (Selector.to_string selector) listener ~mode:Zenoh.push_mode zenoh in
-      (* query the remote storages (to get historical data) *)
-      let%lwt kvs = ZUtils.issue_remote_query zenoh selector TimedValue.decode in
-      let%lwt () = List.map (fun (path, tv) ->
-        if Astring.is_prefix ~affix:"/@" (Path.to_string path) then Lwt.return_unit
-        else Storage.put store path tv) kvs |> Lwt.join
-      in
-      let%lwt _ = Logs_lwt.debug (fun m -> m "[Yadm] create_storage %s : alignment done" stid) in
-      (* program the removal of the temporary Zenoh listener after a while *)
-      Lwt.async (fun() -> Lwt_unix.sleep 10.0 >> Zenoh.unsubscribe tmp_sub zenoh);
-      Lwt.return_unit
-
-
-    let create_zenoh_storage zenoh selector store = 
-      Zenoh.store (Selector.to_string selector) (incoming_storage_data_handler store) (incoming_storage_query_handler store) zenoh 
-
     let create_storage admin ?beid stid properties time =
       (* get "selector" from properties *)
       let%lwt selector = match Properties.find_opt "selector" properties with
@@ -225,25 +169,26 @@ module AdminSpace = struct
           | None -> Lwt.fail @@ YException (`InternalError (`Msg ("create_storage "^stid^" failed: backend not found: "^s)))
         )
       in
-      (* check if store with this id doen's already exists*)
+      (* check if storage with this id doen's already exists*)
       if StorageMap.mem storageId be.storages then
         Lwt.fail @@ YException (`InternalError (`Msg (
-          Printf.sprintf "create_storage %s on %s failed: store with same id already exists" stid (BeId.to_string beid'))))
+          Printf.sprintf "create_storage %s on %s failed: storage with same id already exists" stid (BeId.to_string beid'))))
       else
-        (* create store (in backend and in Zenoh) and add it to self state *)
+        (* create storage (in backend and in Zenoh) and add it to self state *)
         let module BE = (val be.beModule: Backend) in
         let%lwt _ = Logs_lwt.debug (fun m -> m "[Yadm]: create_storage %s using Backend %s" stid (BE.to_string)) in
-        let%lwt store = BE.create_storage selector properties in
+        let%lwt storage = BE.create_storage selector properties in
         let%lwt zenoh_storage =  
           match self.zenoh with 
           | Some zenoh ->
-            align_storage zenoh selector store stid >>
-            create_zenoh_storage zenoh selector store  >|= fun store -> Some store            
-          | None -> Lwt.return None 
+            Storage.align storage zenoh selector >>
+            Zenoh.store (Selector.to_string selector) (Storage.on_zenoh_write storage) (Storage.on_zenoh_query storage) zenoh >>=
+            Lwt.return_some
+          | None -> Lwt.return_none
         in
-        let be' = { be with storages = StorageMap.add storageId (store, zenoh_storage) be.storages } in
+        let be' = { be with storages = StorageMap.add storageId (storage, zenoh_storage) be.storages } in
         let kvs = kvmap_add
-          (Path.of_string @@ Printf.sprintf "%s/backend/%s/store/%s" self.admin_prefix (BeId.to_string beid') stid)
+          (Path.of_string @@ Printf.sprintf "%s/backend/%s/storage/%s" self.admin_prefix (BeId.to_string beid') stid)
           (Value.PropertiesValue properties) time self.kvs
         in
         Guard.return () { self with backends = BackendMap.add beid' be' self.backends; kvs}
@@ -260,34 +205,24 @@ module AdminSpace = struct
         | Some be -> Lwt.return be
       in
       match StorageMap.find_opt stid' be.storages with
-      | Some (store, zenoh_storage) ->
-        Storage.dispose store >>
+      | Some (storage, zenoh_storage) ->
+        Storage.dispose storage >>
         let be' = { be with storages = StorageMap.remove stid' be.storages } in
-        let kvs = KVMap.remove (Path.of_string @@ Printf.sprintf "%s/backend/%s/store/%s" self.admin_prefix beid stid) self.kvs in
+        let kvs = KVMap.remove (Path.of_string @@ Printf.sprintf "%s/backend/%s/storage/%s" self.admin_prefix beid stid) self.kvs in
         let open Apero.Option.Infix in 
         let _ = self.zenoh 
         >>= fun zenoh -> 
-          zenoh_storage >|= fun store ->  Zenoh.unstore store zenoh 
+          zenoh_storage >|= fun storage ->  Zenoh.unstore storage zenoh 
         in 
         Guard.return () { self with backends = BackendMap.add beid' be' self.backends; kvs}
       | None -> 
-        Logs_lwt.debug (fun m -> m "[Yadm] store %s/%s not found... ignore remove request" beid stid) >>
+        Logs_lwt.debug (fun m -> m "[Yadm] storage %s/%s not found... ignore remove request" beid stid) >>
         Guard.return () self
 
-
-    let get_storages_for_path admin path =
+    let get_matching_storages admin sel =
       (* @TODO: depending on quorum, use Storage.covers_fully *)
       let get_matching_storages backend =
-        StorageMap.filter (fun _ (store, _) -> Storage.covers_partially store @@ Selector.of_path path) backend.storages
-        |> StorageMap.bindings |> List.map (fun (_,(s, _)) -> s)
-      in
-      let self = Guard.get admin in 
-        BackendMap.fold (fun _ backend l -> (get_matching_storages backend)::l) self.backends [] |> List.concat
-
-    let get_storages_for_selector admin sel =
-      (* @TODO: depending on quorum, use Storage.covers_fully *)
-      let get_matching_storages backend =
-        StorageMap.filter (fun _ (store, _) -> Storage.covers_partially store sel) backend.storages
+        StorageMap.filter (fun _ (storage, _) -> Storage.covers_partially storage sel) backend.storages
         |> StorageMap.bindings |> List.map (fun (_,(s, _)) -> s)
       in
       let self = Guard.get admin in 
@@ -432,32 +367,23 @@ module AdminSpace = struct
         in
         Guard.return () { self with frontends = FrontendMap.add clientid.feid fe' self.frontends; kvs}
 
-    let create_zenoh_subscriber admin zenoh clientid subid selector is_push notifier  =
-      let sub_mode = if is_push then Zenoh.push_mode else Zenoh.pull_mode in 
-      let listener buf path = 
-        match TimedValue.decode buf with 
-        | Ok (tv, _) ->
-          Logs_lwt.debug (fun m -> m "[Yadm] notify subscriber %s for remote update on %s" (ClientId.to_string clientid) path) >>
-          notifier subid ~fallback:(remove_subscriber admin clientid) [(Path.of_string path, tv.value)]
-        | Error e ->
-          let%lwt _ = Logs_lwt.warn (fun m -> m "Error while decoding value received for subscription: \n%s" @@ Atypes.show_error e) 
-          in Lwt.return_unit
-        in
-        Zenoh.subscribe (Selector.to_string selector) listener ~mode:sub_mode zenoh
-
     let create_subscriber admin (clientid:ClientId.t) selector is_push notifier =
       Logs_lwt.debug (fun m -> m "[Yadm] %s: create_subscriber %s" (ClientId.to_string clientid) (Selector.to_string selector)) >>
       Guard.guarded admin 
       @@ fun self ->
         let%lwt (fe, s) = get_frontend_session self clientid.feid clientid.sid in
         let subid = SubscriberId.next_id () in
+        let notify_call pvs =
+          Logs_lwt.debug (fun m -> m "[Yadm] notify subscriber %s/%s for %d k/v changes" (ClientId.to_string clientid) (SubscriberId.to_string subid) (List.length pvs)) >>
+          notifier subid ~fallback:(remove_subscriber admin clientid) pvs 
+        in
         let%lwt zenoh_sub = match self.zenoh with 
           | Some zenoh -> 
-            let%lwt zsub = create_zenoh_subscriber admin zenoh clientid subid selector is_push notifier in
+            let%lwt zsub = ZUtils.subscribe zenoh selector is_push notify_call in
             Lwt.return @@ Some zsub
           | None -> Lwt.return None 
-        in 
-        let sub = {selector; is_push; notifier; zenoh_sub} in
+        in
+        let sub = {selector; is_push; notify_call; zenoh_sub} in
         let s' = { s with subs = SubscriberMap.add subid sub s.subs } in
         let fe' = { fe with sessions = SessionMap.add clientid.sid s' fe.sessions } in
         let kvs = kvmap_add
@@ -467,15 +393,11 @@ module AdminSpace = struct
         in
         Guard.return subid { self with frontends = FrontendMap.add clientid.feid fe' self.frontends; kvs}
 
-   
     let notify_subscribers admin path value =
-      let iter_session feid sid s = SubscriberMap.iter
-        (fun subid sub ->
+      let iter_session _ _ s = SubscriberMap.iter
+        (fun _ sub ->
           if Selector.is_matching_path path sub.selector then
-            let clientid: ClientId.t = {feid; sid} in
-            Lwt.ignore_result (
-              Logs_lwt.debug (fun m -> m "[Yadm] notify subscriber %s for local update on %s" (ClientId.to_string clientid) (Path.to_string path)) >>
-              sub.notifier subid ~fallback:(remove_subscriber admin clientid) [(path, value)])
+            Lwt.ignore_result @@ sub.notify_call [(path, value)]
           else ()) s.subs
       in
       let iter_frontend feid fe = SessionMap.iter (fun sid session -> iter_session feid sid session) fe.sessions in
@@ -499,57 +421,48 @@ module AdminSpace = struct
         in
         Guard.return () { self with frontends = FrontendMap.add clientid.feid fe' self.frontends; kvs}
 
-    let call_evals admin (clientid:ClientId.t) quorum sel =
+    let call_evals admin (clientid:ClientId.t) multiplicity sel =
       let%lwt _ = Logs_lwt.debug (fun m -> m "[YAdm]: Call eval on %s for %s" (ClientId.to_string clientid) (Selector.to_string sel)) in
       let _ = ignore clientid in
       let add_eval p e m = if EvalMap.mem p m then EvalMap.add p (e::EvalMap.find p m) m else EvalMap.add p (e::[]) m in
-      let remove_eval_fallback feid sid path =
-        remove_eval admin {feid; sid} path >>= fun _ ->
-        Lwt.return @@ Value.StringValue
-          (Printf.sprintf "Error calling get(%s) on eval(%s): Eval implementer was removed"
-          (Selector.to_string sel) (Path.to_string path))
-      in
-      let rec call_evals path evals quorum = 
+      let rec invoke path eval_calls multiplicity = 
         let sel' = Selector.of_path ?predicate:(Selector.predicate sel) ?properties:(Selector.properties sel) ?fragment:(Selector.fragment sel) path in
-        match quorum with
+        match multiplicity with
         | 0 -> []
-        | _ -> ((List.hd evals) path sel')::(call_evals path (List.tl evals) (quorum-1))   (* TODO: call a random eval instead of the 1st in list *)
+        | _ -> ((List.hd eval_calls) sel')::(invoke path (List.tl eval_calls) (multiplicity-1))   (* TODO: call a random eval instead of the 1st in list *)
       in
       let self = Guard.get admin in
-      FrontendMap.fold (fun feid fe m ->
-        SessionMap.fold (fun sid s m ->
-          EvalMap.fold (fun p ((eval:eval_function), _) m ->
+      FrontendMap.fold (fun _ fe m ->
+        SessionMap.fold (fun _ s m ->
+          EvalMap.fold (fun p (eval_call, _) m ->
             if Selector.is_matching_path p sel then
-              add_eval p (eval ~fallback:(remove_eval_fallback feid sid)) m
+              add_eval p eval_call m
             else
               m
           ) s.evals m
         ) fe.sessions m
       ) self.frontends EvalMap.empty
       |> EvalMap.bindings
-      |> List.map (fun (p,l) -> call_evals p l (max quorum @@ List.length l) |> LwtM.flatten >>= fun l' -> Lwt.return (p,l'))
+      |> List.map (fun (p,l) -> invoke p l (max multiplicity @@ List.length l) |> LwtM.flatten >>= fun l' -> Lwt.return (p,l'))
       |> LwtM.flatten
 
     let incoming_eval_data_handler _ resname =
       let%lwt _ = Logs_lwt.warn (fun m -> m "[YAdm]: Received pushed data for eval %s - Ignore it!!" resname) in
       Lwt.return_unit (* Eval should never get value "put" *)
 
-    let incoming_eval_query_handler evaluator resname predicate = 
-      let%lwt _ = Logs_lwt.debug (fun m -> m "[YAdm]: Handling remote Zenoh query on eval for '%s' '%s'" resname predicate) in
+    let incoming_eval_query_handler path (eval_call:eval_call) resname predicate = 
+      let%lwt _ = Logs_lwt.debug (fun m -> m "[YAdm]: Handling remote Zenoh query on eval '%s' for '%s' '%s'" (Path.to_string path) resname predicate) in
       if Astring.is_prefix ~affix:"+" resname then
         let resname = Astring.with_range ~first:1 resname in
         let s = if String.length predicate = 0 then resname else resname ^"?"^predicate in
         match Selector.of_string_opt s with
         | Some selector ->
           let open Yaks_fe_sock_codec in
-            let%lwt kvss = evaluator selector in
-            let kvs = List.map (fun (k, vs) -> (k, List.hd vs)) kvss in
-            let evs = List.map
-              (fun (path,value) ->
-                let spath = Path.to_string path in
-                let buf = Result.get  (encode_value value (IOBuf.create ~grow:4096 4096)) in
-                (spath, IOBuf.flip buf)) kvs in
-            Lwt.return evs 
+          (* Note: we can't use the received selector; we must use the registered eval's path adding the properties *)
+          let%lwt value = eval_call (Selector.with_path path selector) in
+          let spath = Path.to_string path in
+          let buf = Result.get  (encode_value value (IOBuf.create ~grow:4096 4096)) in
+          Lwt.return [(spath, IOBuf.flip buf)]
         | _ -> 
           let%lwt _ = Logs_lwt.debug (fun m -> m "[YAdm]: Unable to run eval for %s - not a Selector" s) in
           Lwt.return []
@@ -557,28 +470,37 @@ module AdminSpace = struct
         let%lwt _ = Logs_lwt.debug (fun m -> m "[YAdm]: Internal error the Zenoh resource name for eval doesn't start with + : %s" resname) in
         Lwt.return []
 
-    
-    let create_zenoh_eval zenoh selector evaluator = 
-      Zenoh.store ("+"^(Selector.to_string selector)) incoming_eval_data_handler (incoming_eval_query_handler evaluator) zenoh 
+
+    let create_zenoh_eval zenoh path eval_call = 
+      Zenoh.store ("+"^(Path.to_string path)) incoming_eval_data_handler (incoming_eval_query_handler path eval_call) zenoh 
       (* NB:
-          - Currently an eval is represented with a store, once zenoh will support something like evals, we'll
+          - Currently an eval is represented with a storage, once zenoh will support something like evals, we'll
             transition to that abstraction to avoid bu construction the progagation of spurious values.
-          - The Zenoh store selector for eval is the eval's path prefixed with '+'
-          - The quorum for remotely resolved eval is currently 1       
+          - The Zenoh storage selector for eval is the eval's path prefixed with '+'
       *)
 
-    let create_eval admin (clientid:ClientId.t) path eval =
+    let create_eval admin (clientid:ClientId.t) path (eval:eval_function) =
       Logs_lwt.debug (fun m -> m "[Yadm] %s: create_eval %s" (ClientId.to_string clientid) (Path.to_string path)) >>
+      let remove_eval_fallback path =
+        remove_eval admin clientid path >>= fun _ ->
+        Lwt.return @@ Value.StringValue
+          (Printf.sprintf "Error calling eval for %s on %s: Eval implementer was removed"
+          (Path.to_string path) (ClientId.to_string clientid))
+      in
+      let eval_call sel =
+        Logs_lwt.debug (fun m -> m "[Yadm] call eval for %s on %s with %s" (Path.to_string path) (ClientId.to_string clientid) (Selector.to_string sel)) >>
+        eval path ~fallback:remove_eval_fallback sel
+      in
       Guard.guarded admin 
       @@ fun self ->
         let%lwt (fe, s) = get_frontend_session self clientid.feid clientid.sid in
           let%lwt zenoh_eval = match self.zenoh with 
           | Some zenoh -> 
-            let%lwt ze = create_zenoh_eval zenoh (Selector.of_path path) (call_evals admin clientid 1) in 
+            let%lwt ze = create_zenoh_eval zenoh path eval_call in 
             Lwt.return @@ Some ze
           | None -> Lwt.return None
         in 
-        let s' = { s with evals = EvalMap.add path (eval, zenoh_eval) s.evals } in
+        let s' = { s with evals = EvalMap.add path (eval_call, zenoh_eval) s.evals } in
         let fe' = {fe with sessions = SessionMap.add clientid.sid s' fe.sessions} in
         let kvs = kvmap_add
           (Path.of_string @@ Printf.sprintf "%s/frontend/%s/session/%s/eval/%s"
@@ -622,8 +544,8 @@ module AdminSpace = struct
         | ["frontend"; feid] -> add_frontend admin feid properties time
         | ["backend"; "auto"]  -> Lwt.fail @@ YException (`InvalidPath (`Msg ("Creation of backend/auto forbidden (reserved id)")))
         | ["backend"; beid]  -> add_backend admin beid properties time
-        | ["backend"; "auto"; "store"; stid] -> create_storage admin stid properties time
-        | ["backend"; beid; "store"; stid] -> create_storage admin ~beid stid properties time
+        | ["backend"; "auto"; "storage"; stid] -> create_storage admin stid properties time
+        | ["backend"; beid; "storage"; stid] -> create_storage admin ~beid stid properties time
         | _ -> Lwt.fail @@ YException (`InvalidPath (`Msg ("Invalid path on admin space: "^(Path.to_string path))))
       else
         Lwt.fail @@ YException (`InternalError (`Msg ("put on remote Yaks admin not yet implemented")))
@@ -636,7 +558,7 @@ module AdminSpace = struct
         match String.split_on_char '/' @@ Astring.with_range ~first:(String.length self.admin_prefix+1) (Path.to_string path) with
         | ["frontend"; feid] -> remove_frontend admin feid
         | ["backend"; beid]  -> remove_backend admin beid
-        | ["backend"; beid; "store"; stid] -> remove_storage admin beid stid
+        | ["backend"; beid; "storage"; stid] -> remove_storage admin beid stid
         | _ -> Lwt.fail @@ YException (`InvalidPath (`Msg ("Invalid path on admin space: "^(Path.to_string path))))
       else
         Lwt.fail @@ YException (`InternalError (`Msg ("put on remote Yaks admin not yet implemented")))
