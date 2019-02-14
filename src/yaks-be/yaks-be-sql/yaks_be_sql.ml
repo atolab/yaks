@@ -11,7 +11,7 @@ module SQLBE = struct
     val conx : connection
   end
 
-  module Make (C : Config) (MVar : MVar) = struct 
+  module Make (C : Config) = struct 
 
     let id = C.id
     let properties = C.properties
@@ -265,7 +265,7 @@ module SQLBEF = struct
         let id = id
         let properties = Properties.add Property.Backend.Key.kind Property.Backend.Value.dbms properties
         let conx = connection
-      end) (MVar_lwt)
+      end) 
     in (module M : Backend)
 
 end

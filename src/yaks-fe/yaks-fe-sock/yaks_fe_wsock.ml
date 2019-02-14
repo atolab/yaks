@@ -9,7 +9,7 @@ open Yaks_fe_sock_codec
 open Yaks_fe_sock_codes
 open Yaks_fe_sock_types
 
-module Make (YEngine : Yaks_engine.Engine.S) (MVar: Apero.MVar) = struct 
+module Make (YEngine : Yaks_engine.Engine.S) = struct 
 
   module Config = Apero_net.NetServiceWebSock.Config
   module P = Processor.Make(YEngine)
@@ -26,7 +26,7 @@ module Make (YEngine : Yaks_engine.Engine.S) (MVar: Apero.MVar) = struct
     pending_eval_results : Value.t Lwt.u WorkingMap.t
   }
 
-  type state = state_t MVar.t
+  type state = state_t Guard.t
 
   let sessionid_of_source (s:Connected_client.source) =
     match s with
@@ -61,9 +61,9 @@ module Make (YEngine : Yaks_engine.Engine.S) (MVar: Apero.MVar) = struct
     Lwt.catch (
       fun () ->
         let (promise:Value.t Lwt.t), (resolver:Value.t Lwt.u) = Lwt.wait () in
-        MVar.guarded s @@ fun self ->
+        Guard.guarded s @@ fun self ->
         send_msg buf client Frame.Opcode.Binary msg >>= fun _ ->
-        MVar.return_lwt promise { pending_eval_results = WorkingMap.add msg.header.corr_id resolver self.pending_eval_results }
+        Guard.return_lwt promise { pending_eval_results = WorkingMap.add msg.header.corr_id resolver self.pending_eval_results }
       )
     (fun ex ->
       match ex with
@@ -102,20 +102,20 @@ module Make (YEngine : Yaks_engine.Engine.S) (MVar: Apero.MVar) = struct
     | REG_EVAL -> P.process_reg_eval engine clientid msg (process_eval state client wbuf)
     | UNREG_EVAL -> P.process_unreg_eval engine clientid msg
     | VALUES ->
-      MVar.guarded state @@ (fun self ->
+      Guard.guarded state @@ (fun self ->
       (match WorkingMap.find_opt msg.header.corr_id self.pending_eval_results with 
       | Some resolver ->
-        MVar.return_lwt (P.process_values msg resolver) { pending_eval_results = WorkingMap.remove msg.header.corr_id self.pending_eval_results }
+        Guard.return_lwt (P.process_values msg resolver) { pending_eval_results = WorkingMap.remove msg.header.corr_id self.pending_eval_results }
       | None ->
-        MVar.return_lwt (P.process_error msg BAD_REQUEST) self)
+        Guard.return_lwt (P.process_error msg BAD_REQUEST) self)
       )
     | ERROR ->
-      MVar.guarded state @@ (fun self ->
+      Guard.guarded state @@ (fun self ->
       (match WorkingMap.find_opt msg.header.corr_id self.pending_eval_results with 
       | Some resolver ->
-        MVar.return_lwt (P.process_error_on_eval msg resolver) { pending_eval_results = WorkingMap.remove msg.header.corr_id self.pending_eval_results }
+        Guard.return_lwt (P.process_error_on_eval msg resolver) { pending_eval_results = WorkingMap.remove msg.header.corr_id self.pending_eval_results }
       | None ->
-        MVar.return_lwt (P.process_error msg BAD_REQUEST) self)
+        Guard.return_lwt (P.process_error msg BAD_REQUEST) self)
       )
     | _ ->  P.process_error msg BAD_REQUEST
 
@@ -164,7 +164,7 @@ module Make (YEngine : Yaks_engine.Engine.S) (MVar: Apero.MVar) = struct
 
   let start fe  = 
     let _ = Logs_lwt.debug (fun m -> m "[FEWS] WebSock-FE starting server at %s" (WebSockLocator.to_string @@ Config.locator fe.config)) in    
-    let state = MVar.create { pending_eval_results=WorkingMap.empty } in
+    let state = Guard.create { pending_eval_results=WorkingMap.empty } in
     NetServiceWebSock.start fe.svc (handler fe.feid state fe.engine) 
   
   let stop fe = NetServiceWebSock.stop fe.svc

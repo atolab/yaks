@@ -3,9 +3,7 @@ open Yaks_types
 open Yaks_core_types
 open Yaks_be
 
-
 module Engine : sig 
-
   module type S = sig 
     type t 
 
@@ -33,6 +31,5 @@ module Engine : sig
     val add_frontend_TMP : t -> string -> properties -> unit Lwt.t
   end
 
-  module Make (MVar: Apero.MVar) : S 
-
+  include S    
 end

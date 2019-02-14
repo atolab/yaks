@@ -7,18 +7,17 @@ open Yaks_fe_sock_types
 open Yaks_fe_sock_codec
 open Yaks_fe_sock_processor
 
-module Make (YEngine : Yaks_engine.Engine.S) (MVar: Apero.MVar) = struct 
+module Make (YEngine : Yaks_engine.Engine.S) = struct 
 
 
   module Config = NetServiceTcp.TcpConfig
 
   module P = Processor.Make(YEngine) 
 
-  module TcpSocketFE = NetServiceTcp.Make (MVar_lwt)  
-
+  
   type t = 
-    { tcp_fe: TcpSocketFE.t
-    ; io_svc: TcpSocketFE.io_service }
+    { tcp_fe: NetServiceTcp.t
+    ; io_svc: NetServiceTcp.io_service }
 
   module WorkingMap = Map.Make(Apero.Vle)
 
@@ -26,7 +25,7 @@ module Make (YEngine : Yaks_engine.Engine.S) (MVar: Apero.MVar) = struct
     pending_eval_results : Value.t Lwt.u WorkingMap.t
   }
 
-  type state = state_t MVar.t
+  type state = state_t Guard.t
 
   let reader sock  =     
     let lbuf = IOBuf.create 16 in 
@@ -75,9 +74,9 @@ module Make (YEngine : Yaks_engine.Engine.S) (MVar: Apero.MVar) = struct
     Lwt.catch (
       fun () ->
         let (promise:Value.t Lwt.t), (resolver:Value.t Lwt.u) = Lwt.wait () in
-        MVar.guarded s @@ fun self ->
+        Guard.guarded s @@ fun self ->
         writer buf sock msg >>= fun _ ->
-        MVar.return_lwt promise { pending_eval_results = WorkingMap.add msg.header.corr_id resolver self.pending_eval_results }
+        Guard.return_lwt promise { pending_eval_results = WorkingMap.add msg.header.corr_id resolver self.pending_eval_results }
       )
     (fun ex ->
       match ex with
@@ -129,20 +128,20 @@ module Make (YEngine : Yaks_engine.Engine.S) (MVar: Apero.MVar) = struct
       P.process_unreg_eval engine clientid msg
     | EVAL -> P.process_eval engine clientid msg 
     | VALUES ->
-      MVar.guarded state @@ (fun self ->
+      Guard.guarded state @@ (fun self ->
       (match WorkingMap.find_opt msg.header.corr_id self.pending_eval_results with 
       | Some resolver ->
-        MVar.return_lwt (P.process_values msg resolver) { pending_eval_results = WorkingMap.remove msg.header.corr_id self.pending_eval_results }
+        Guard.return_lwt (P.process_values msg resolver) { pending_eval_results = WorkingMap.remove msg.header.corr_id self.pending_eval_results }
       | None ->
-        MVar.return_lwt (P.process_error msg BAD_REQUEST) self)
+        Guard.return_lwt (P.process_error msg BAD_REQUEST) self)
       )
     | ERROR ->
-      MVar.guarded state @@ (fun self ->
+      Guard.guarded state @@ (fun self ->
       (match WorkingMap.find_opt msg.header.corr_id self.pending_eval_results with 
       | Some resolver ->
-        MVar.return_lwt (P.process_error_on_eval msg resolver) { pending_eval_results = WorkingMap.remove msg.header.corr_id self.pending_eval_results }
+        Guard.return_lwt (P.process_error_on_eval msg resolver) { pending_eval_results = WorkingMap.remove msg.header.corr_id self.pending_eval_results }
       | None ->
-        MVar.return_lwt (P.process_error msg BAD_REQUEST) self)
+        Guard.return_lwt (P.process_error msg BAD_REQUEST) self)
       )
     | _ -> 
       let _ = Logs_lwt.warn (fun m -> m "[FES] received unexpected message with mid %d" (message_id_to_int msg.header.mid)) in
@@ -165,17 +164,17 @@ module Make (YEngine : Yaks_engine.Engine.S) (MVar: Apero.MVar) = struct
 
   let create id (conf : Config.t) (engine: YEngine.t) = 
     let _ = Logs_lwt.debug (fun m -> m "[FES] SOCK-FE starting TCP socket on %s" (TcpLocator.to_string @@ Config.locator conf)) in
-    let tcp_fe = TcpSocketFE.make conf in
-    let state = MVar.create { pending_eval_results=WorkingMap.empty } in
+    let tcp_fe = NetServiceTcp.make conf in
+    let state = Guard.create { pending_eval_results=WorkingMap.empty } in
     let dispatcher = dispatch_message id state engine in 
     let io_svc = fe_service conf dispatcher in (* TxSession.t -> unit -> unit Lwt.t*)
     {tcp_fe; io_svc}
 
   let start svc = 
     let _ = Logs_lwt.debug (fun m -> m "[FES] Sock-FE starting TCP/IP server") in
-    TcpSocketFE.start svc.tcp_fe svc.io_svc
+    NetServiceTcp.start svc.tcp_fe svc.io_svc
 
-  let stop svc = TcpSocketFE.stop svc.tcp_fe
+  let stop svc = NetServiceTcp.stop svc.tcp_fe
 
 end
 

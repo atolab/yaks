@@ -9,11 +9,10 @@ module MainMemoryBE = struct
     val properties : properties
   end
 
-  module Make (C : Config) (MVar : Apero.MVar) = struct 
-    open Lwt.Infix
+  module Make (C : Config) = struct     
     module SMap = Map.Make(Path)
 
-    let mvar_self = MVar.create SMap.empty
+    let state = Guard.create SMap.empty
 
     let id = C.id
     let properties = C.properties
@@ -21,52 +20,49 @@ module MainMemoryBE = struct
     let to_string = "MainMemoryBE#"^(BeId.to_string C.id)^"{"^(Properties.to_string properties)^"}"
 
     let get selector =       
-      match Selector.as_unique_path selector with 
+      let self = Guard.get state in        
+      Lwt.return @@ match Selector.as_unique_path selector with 
       | Some path ->
-        MVar.read mvar_self 
-        >|= (fun self -> 
-            match SMap.find_opt path self with 
-            | Some v -> [(path, v)]
-            | None -> [])
+        (match SMap.find_opt path self with 
+        | Some v -> [(path, v)]
+        | None -> [])
       | None -> 
-        MVar.read mvar_self 
-        >|= (fun self ->
-            self
-            |> SMap.filter (fun path _ -> Selector.is_matching_path path selector)
-            |> SMap.bindings)
+          self
+          |> SMap.filter (fun path _ -> Selector.is_matching_path path selector)
+          |> SMap.bindings
 
 
 
     let put (path:Path.t) (value:TimedValue.t) =
-      MVar.guarded mvar_self
-        (fun self ->
+      Guard.guarded state
+        @@ fun self ->
           match SMap.find_opt path self with
           | Some v -> if (TimedValue.preceeds ~first:v ~second:value)
-              then Lwt.return (Lwt.return_unit, SMap.add path value self)
-              else Lwt.return (Lwt.return_unit, self)
-          | None -> Lwt.return (Lwt.return_unit, SMap.add path value self))         (* TODO: manage timestamped removals ! *)
+              then Guard.return () (SMap.add path value self)
+              else Guard.return () self
+          | None -> Guard.return  () (SMap.add path value self)         (* TODO: manage timestamped removals ! *)
 
     let try_update (tv:TimedValue.t) (d:TimedValue.t) : TimedValue.t = match Value.update tv.value d.value with
       | Ok r -> { time=tv.time; value=r }
       | Error _ -> { time=tv.time; value=tv.value }
 
     let update path delta =       
-      MVar.guarded mvar_self
+      Guard.guarded state
       @@ fun self -> 
-      (match SMap.find_opt path self with 
+      match SMap.find_opt path self with 
         | Some v -> if (TimedValue.preceeds ~first:v ~second:delta)
-            then Lwt.return (Lwt.return_unit, SMap.add path (try_update v delta) self)
-            else Lwt.return (Lwt.return_unit, self)
-        | None -> Lwt.return (Lwt.return_unit, SMap.add path delta self))          (* TODO: manage timestamped removals ! *)
+            then Guard.return () (SMap.add path (try_update v delta) self)
+            else Guard.return () self
+        | None -> Guard.return () (SMap.add path delta self)          (* TODO: manage timestamped removals ! *)
 
 
     let remove path = 
-      MVar.guarded mvar_self 
-      @@ fun self -> Lwt.return (Lwt.return_unit, SMap.remove path self)
+      Guard.guarded state 
+      @@ fun self -> Guard.return () (SMap.remove path self)
 
     let dispose () = 
-      MVar.guarded mvar_self
-        (fun _ -> Lwt.return (Lwt.return_unit, SMap.empty))        
+      Guard.guarded state
+        (fun _ -> Guard.return () (SMap.empty))        
 
 
     let create_storage selector props =
@@ -83,6 +79,6 @@ module MainMemoryBEF = struct
     struct 
       let id = id
       let properties = Properties.add Property.Backend.Key.kind Property.Backend.Value.memory properties
-    end) (Apero.MVar_lwt) in (module M : Backend)
+    end) in (module M : Backend)
 
 end

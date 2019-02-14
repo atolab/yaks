@@ -1,6 +1,6 @@
 open Yaks_core
 
-module Make (YEngine : Yaks_engine.Engine.S) (MVar: Apero.MVar) : sig
+module Make (YEngine : Yaks_engine.Engine.S) : sig
 
   module Config : sig 
     include module type of Apero_net.NetServiceWebSock.Config

@@ -35,7 +35,7 @@ let setup_log style_renderer level =
   ()
 
 
-module YEngine = Yaks_core.Engine.Make (Apero.MVar_lwt)
+module YEngine = Yaks_core.Engine
  
 
 let (local_client_id:ClientId.t) = { feid = FeId.of_string "local"; sid = SessionId.of_string "daemon"}
@@ -68,7 +68,7 @@ let add_rest_fe engine http_port =
   YRestFE.start restfe
 
 let add_socket_fe engine sock_port =
-  let module YSockFE = Yaks_fe_sock.Make (YEngine) (Apero.MVar_lwt) in
+  let module YSockFE = Yaks_fe_sock.Make (YEngine) in
   let socket_addr = "tcp/0.0.0.0:"^(string_of_int sock_port) in
   let socket_cfg = YSockFE.Config.make (Apero.Option.get @@ Apero_net.TcpLocator.of_string socket_addr) in 
   let sockfe = YSockFE.create (FeId.of_string "TCP") socket_cfg engine in 
@@ -76,7 +76,7 @@ let add_socket_fe engine sock_port =
   YSockFE.start sockfe
 
 let add_websock_fe engine wsock_port = 
-  let module WSockFE = Yaks_fe_wsock.Make (YEngine) (Apero.MVar_lwt) in 
+  let module WSockFE = Yaks_fe_wsock.Make (YEngine) in 
   let wsock_addr = "ws/0.0.0.0:"^(string_of_int wsock_port) in  
   let wsock_cfg = WSockFE.Config.make (Apero.Option.get @@ Apero_net.WebSockLocator.of_string wsock_addr) in 
   let wsfe = WSockFE.create (FeId.of_string "WSOCK") wsock_cfg engine in

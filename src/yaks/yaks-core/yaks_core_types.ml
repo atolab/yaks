@@ -60,7 +60,7 @@ type eval_function = Path.t -> Selector.t -> fallback:(Path.t -> Value.t Lwt.t) 
 
 
 
-module HLC = Apero_time.HLC.Make (Apero.MVar_lwt) (Apero_time.Clock_unix)
+module HLC = Apero_time.HLC.Make (Apero_time.Clock_unix)
 module Timestamp = HLC.Timestamp
 
 module TimedValue = struct
