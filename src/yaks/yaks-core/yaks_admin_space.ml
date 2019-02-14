@@ -32,7 +32,7 @@ module AdminSpace = struct
       ; ws : Path.t WsMap.t
       ; lastWsid: WsId.t
       ; subs : subscriber SubscriberMap.t
-      ; evals : (eval_function * Zenoh.storage option) EvalMap.t
+      ; evals : (eval_function * Zenoh.store option) EvalMap.t
       }
 
     type frontend =
@@ -42,7 +42,7 @@ module AdminSpace = struct
 
     type backend =
       { beModule : (module Backend)
-      ; storages : (Storage.t * Zenoh.storage option) StorageMap.t
+      ; storages : (Storage.t * Zenoh.store option) StorageMap.t
       }
 
     type state =
@@ -53,7 +53,7 @@ module AdminSpace = struct
       ; kvs : TimedValue.t KVMap.t
       ; hlc : HLC.t
       ; zenoh : Zenoh.t option
-      ; mutable zenoh_storage : Zenoh.storage option             
+      ; mutable zenoh_storage : Zenoh.store option             
       }
 
     type t = state Guard.t
@@ -143,13 +143,13 @@ module AdminSpace = struct
         Properties.not_conflicting properties BE.properties) backends
       |> BackendMap.choose_opt
     
-    let incoming_storage_data_handler storage (sample:IOBuf.t) (key:string) = 
+    let incoming_storage_data_handler store (sample:IOBuf.t) (key:string) = 
       match TimedValue.decode sample with
       | Ok (v, _) -> 
         (match Path.of_string_opt key with 
         | Some path -> 
           let%lwt _ = Logs_lwt.warn (fun m -> m "[YAdm]: Inserting remote update for key %s" key) in 
-          Storage.put storage path v
+          Storage.put store path v
         | _ -> 
           let%lwt _ = Logs_lwt.warn (fun m -> m "[YAdm]: Received data for key %s which I cannot store" key) 
           in Lwt.return_unit)      
@@ -157,12 +157,12 @@ module AdminSpace = struct
         let%lwt _ = Logs_lwt.debug (fun m -> m "[YAdm]: Failed to decode TimedValue.t to be stored for key %s: %s" key (Atypes.show_error e)) in
         Lwt.return_unit
     
-    let incoming_storage_query_handler storage resname predicate = 
+    let incoming_storage_query_handler store resname predicate = 
       let s = if predicate = "" then resname else resname ^"?"^predicate in 
-      let%lwt _ = Logs_lwt.debug (fun m -> m "[YAdm]: Handling remote query on storage for %s?%s" resname predicate) in 
+      let%lwt _ = Logs_lwt.debug (fun m -> m "[YAdm]: Handling remote query on store for %s?%s" resname predicate) in 
       match Selector.of_string_opt s with 
       | Some selector ->  
-        let%lwt kvs = Storage.get storage selector in
+        let%lwt kvs = Storage.get store selector in
         let evs = List.map
           (fun (path,value) ->
             let spath = Path.to_string path in
@@ -173,16 +173,16 @@ module AdminSpace = struct
         let%lwt _ = Logs_lwt.debug (fun m -> m "[YAdm]: Unable to resolve query for %s - not a Selector" s) in 
         Lwt.return []
 
-    let align_storage zenoh selector storage stid =
+    let align_storage zenoh selector store stid =
       let%lwt _ = Logs_lwt.debug (fun m -> m "[Yadm] create_storage %s : align with remote storages..." stid) in
       (* create a temporary Zenoh listener (to not miss ongoing updates) *)
       let listener buf path =
         if Astring.is_prefix ~affix:"/@" path then Lwt.return_unit
         else match TimedValue.decode buf with
         | Ok (tv, _) ->
-          Storage.put storage (Path.of_string path) tv
+          Storage.put store (Path.of_string path) tv
         | Error e ->
-          let%lwt _ = Logs_lwt.warn (fun m -> m "Error while decoding value received for alignment of storage %s: \n%s"  (Storage.to_string storage) (Atypes.show_error e)) 
+          let%lwt _ = Logs_lwt.warn (fun m -> m "Error while decoding value received for alignment of store %s: \n%s"  (Storage.to_string store) (Atypes.show_error e)) 
           in Lwt.return_unit
       in
       let%lwt tmp_sub = Zenoh.subscribe (Selector.to_string selector) listener ~mode:Zenoh.push_mode zenoh in
@@ -190,7 +190,7 @@ module AdminSpace = struct
       let%lwt kvs = ZUtils.issue_remote_query zenoh selector TimedValue.decode in
       let%lwt () = List.map (fun (path, tv) ->
         if Astring.is_prefix ~affix:"/@" (Path.to_string path) then Lwt.return_unit
-        else Storage.put storage path tv) kvs |> Lwt.join
+        else Storage.put store path tv) kvs |> Lwt.join
       in
       let%lwt _ = Logs_lwt.debug (fun m -> m "[Yadm] create_storage %s : alignment done" stid) in
       (* program the removal of the temporary Zenoh listener after a while *)
@@ -198,8 +198,8 @@ module AdminSpace = struct
       Lwt.return_unit
 
 
-    let create_zenoh_storage zenoh selector storage = 
-      Zenoh.storage (Selector.to_string selector) (incoming_storage_data_handler storage) (incoming_storage_query_handler storage) zenoh 
+    let create_zenoh_storage zenoh selector store = 
+      Zenoh.store (Selector.to_string selector) (incoming_storage_data_handler store) (incoming_storage_query_handler store) zenoh 
 
     let create_storage admin ?beid stid properties time =
       (* get "selector" from properties *)
@@ -225,25 +225,25 @@ module AdminSpace = struct
           | None -> Lwt.fail @@ YException (`InternalError (`Msg ("create_storage "^stid^" failed: backend not found: "^s)))
         )
       in
-      (* check if storage with this id doen's already exists*)
+      (* check if store with this id doen's already exists*)
       if StorageMap.mem storageId be.storages then
         Lwt.fail @@ YException (`InternalError (`Msg (
-          Printf.sprintf "create_storage %s on %s failed: storage with same id already exists" stid (BeId.to_string beid'))))
+          Printf.sprintf "create_storage %s on %s failed: store with same id already exists" stid (BeId.to_string beid'))))
       else
-        (* create storage (in backend and in Zenoh) and add it to self state *)
+        (* create store (in backend and in Zenoh) and add it to self state *)
         let module BE = (val be.beModule: Backend) in
         let%lwt _ = Logs_lwt.debug (fun m -> m "[Yadm]: create_storage %s using Backend %s" stid (BE.to_string)) in
-        let%lwt storage = BE.create_storage selector properties in
+        let%lwt store = BE.create_storage selector properties in
         let%lwt zenoh_storage =  
           match self.zenoh with 
           | Some zenoh ->
-            align_storage zenoh selector storage stid >>
-            create_zenoh_storage zenoh selector storage  >|= fun storage -> Some storage            
+            align_storage zenoh selector store stid >>
+            create_zenoh_storage zenoh selector store  >|= fun store -> Some store            
           | None -> Lwt.return None 
         in
-        let be' = { be with storages = StorageMap.add storageId (storage, zenoh_storage) be.storages } in
+        let be' = { be with storages = StorageMap.add storageId (store, zenoh_storage) be.storages } in
         let kvs = kvmap_add
-          (Path.of_string @@ Printf.sprintf "%s/backend/%s/storage/%s" self.admin_prefix (BeId.to_string beid') stid)
+          (Path.of_string @@ Printf.sprintf "%s/backend/%s/store/%s" self.admin_prefix (BeId.to_string beid') stid)
           (Value.PropertiesValue properties) time self.kvs
         in
         Guard.return () { self with backends = BackendMap.add beid' be' self.backends; kvs}
@@ -260,18 +260,18 @@ module AdminSpace = struct
         | Some be -> Lwt.return be
       in
       match StorageMap.find_opt stid' be.storages with
-      | Some (storage, zenoh_storage) ->
-        Storage.dispose storage >>
+      | Some (store, zenoh_storage) ->
+        Storage.dispose store >>
         let be' = { be with storages = StorageMap.remove stid' be.storages } in
-        let kvs = KVMap.remove (Path.of_string @@ Printf.sprintf "%s/backend/%s/storage/%s" self.admin_prefix beid stid) self.kvs in
+        let kvs = KVMap.remove (Path.of_string @@ Printf.sprintf "%s/backend/%s/store/%s" self.admin_prefix beid stid) self.kvs in
         let open Apero.Option.Infix in 
         let _ = self.zenoh 
         >>= fun zenoh -> 
-          zenoh_storage >|= fun storage ->  Zenoh.unstore storage zenoh 
+          zenoh_storage >|= fun store ->  Zenoh.unstore store zenoh 
         in 
         Guard.return () { self with backends = BackendMap.add beid' be' self.backends; kvs}
       | None -> 
-        Logs_lwt.debug (fun m -> m "[Yadm] storage %s/%s not found... ignore remove request" beid stid) >>
+        Logs_lwt.debug (fun m -> m "[Yadm] store %s/%s not found... ignore remove request" beid stid) >>
         Guard.return () self
 
 
@@ -559,11 +559,11 @@ module AdminSpace = struct
 
     
     let create_zenoh_eval zenoh selector evaluator = 
-      Zenoh.storage ("+"^(Selector.to_string selector)) incoming_eval_data_handler (incoming_eval_query_handler evaluator) zenoh 
+      Zenoh.store ("+"^(Selector.to_string selector)) incoming_eval_data_handler (incoming_eval_query_handler evaluator) zenoh 
       (* NB:
-          - Currently an eval is represented with a storage, once zenoh will support something like evals, we'll
+          - Currently an eval is represented with a store, once zenoh will support something like evals, we'll
             transition to that abstraction to avoid bu construction the progagation of spurious values.
-          - The Zenoh storage selector for eval is the eval's path prefixed with '+'
+          - The Zenoh store selector for eval is the eval's path prefixed with '+'
           - The quorum for remotely resolved eval is currently 1       
       *)
 
@@ -622,8 +622,8 @@ module AdminSpace = struct
         | ["frontend"; feid] -> add_frontend admin feid properties time
         | ["backend"; "auto"]  -> Lwt.fail @@ YException (`InvalidPath (`Msg ("Creation of backend/auto forbidden (reserved id)")))
         | ["backend"; beid]  -> add_backend admin beid properties time
-        | ["backend"; "auto"; "storage"; stid] -> create_storage admin stid properties time
-        | ["backend"; beid; "storage"; stid] -> create_storage admin ~beid stid properties time
+        | ["backend"; "auto"; "store"; stid] -> create_storage admin stid properties time
+        | ["backend"; beid; "store"; stid] -> create_storage admin ~beid stid properties time
         | _ -> Lwt.fail @@ YException (`InvalidPath (`Msg ("Invalid path on admin space: "^(Path.to_string path))))
       else
         Lwt.fail @@ YException (`InternalError (`Msg ("put on remote Yaks admin not yet implemented")))
@@ -636,7 +636,7 @@ module AdminSpace = struct
         match String.split_on_char '/' @@ Astring.with_range ~first:(String.length self.admin_prefix+1) (Path.to_string path) with
         | ["frontend"; feid] -> remove_frontend admin feid
         | ["backend"; beid]  -> remove_backend admin beid
-        | ["backend"; beid; "storage"; stid] -> remove_storage admin beid stid
+        | ["backend"; beid; "store"; stid] -> remove_storage admin beid stid
         | _ -> Lwt.fail @@ YException (`InvalidPath (`Msg ("Invalid path on admin space: "^(Path.to_string path))))
       else
         Lwt.fail @@ YException (`InternalError (`Msg ("put on remote Yaks admin not yet implemented")))
@@ -697,7 +697,7 @@ module AdminSpace = struct
       let zenoh_storage_lwt = match zenoh with  
       | Some z -> 
         let selector = (admin_prefix ^ "/**") in
-        let%lwt s = Zenoh.storage selector (incoming_admin_storage_data_handler admin) (incoming_admin_query_handler admin) z in
+        let%lwt s = Zenoh.store selector (incoming_admin_storage_data_handler admin) (incoming_admin_query_handler admin) z in
         Lwt.return @@ Some s
       | None -> Lwt.return None 
       in 
