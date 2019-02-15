@@ -105,6 +105,15 @@ module AdminSpace = struct
       else
         None
 
+    let get_frontend_session self feid sid =
+      match FrontendMap.find_opt feid self.frontends with
+        | None -> Lwt.fail @@ YException (`InternalError (`Msg ("No frontend with id: "^(FeId.to_string feid))))
+        | Some fe -> 
+          (match SessionMap.find_opt sid fe.sessions with
+          | None -> Lwt.fail @@ YException (`InternalError (`Msg ("No session with id: "^(SessionId.to_string sid))))
+          | Some s -> Lwt.return (fe, s))
+
+
     (**************************)
     (*   Backends management  *)
     (**************************)
@@ -193,7 +202,6 @@ module AdminSpace = struct
         in
         Guard.return () { self with backends = BackendMap.add beid' be' self.backends; kvs}
 
-
     let remove_storage admin beid stid =
       let beid' = BeId.of_string beid in
       let stid' = StorageId.of_string stid in
@@ -262,57 +270,6 @@ module AdminSpace = struct
         Guard.return () { self with frontends = FrontendMap.remove (FeId.of_string feid) self.frontends; kvs}
 
 
-    (**************************)
-    (*   Sessions management  *)
-    (**************************)
-    let login admin (clientid:ClientId.t) properties =
-      Logs_lwt.debug (fun m -> m "[Yadm] %s: login" (ClientId.to_string clientid)) >>
-      Guard.guarded admin
-      @@ fun self ->
-      let feid = FeId.to_string clientid.feid in
-      let sid = SessionId.to_string clientid.sid in
-      match FrontendMap.find_opt clientid.feid self.frontends with
-        | None -> Guard.return_lwt (Lwt.fail @@ YException (`InternalError (`Msg ("No frontend with id: "^feid)))) self
-        | Some fe ->
-          if SessionMap.mem clientid.sid fe.sessions then
-            Guard.return_lwt (Lwt.fail @@ YException (`InternalError (`Msg ("Already existing session: "^sid)))) self
-          else
-            let s = { properties; ws=WsMap.empty; lastWsid=WsId.zero; subs=SubscriberMap.empty; evals=EvalMap.empty } in
-            let fe' = {fe with sessions = SessionMap.add clientid.sid s fe.sessions} in
-            let kvs = kvmap_add
-              (Path.of_string @@ Printf.sprintf "%s/frontend/%s/session/%s" self.admin_prefix feid sid)
-              (Value.PropertiesValue properties) (now self.hlc) self.kvs
-            in
-            Guard.return () { self with frontends = FrontendMap.add clientid.feid fe' self.frontends; kvs}
-
-    let logout admin (clientid:ClientId.t) =
-      Logs_lwt.debug (fun m -> m "[Yadm] %s: logout" (ClientId.to_string clientid)) >>
-      Guard.guarded admin
-      @@ fun self ->
-      match FrontendMap.find_opt clientid.feid self.frontends with
-        | None -> let _ = Logs_lwt.warn (fun m -> m "[Yadm] logout from non-existing frontend: %s" (FeId.to_string clientid.feid)) in
-          Guard.return () self
-        | Some fe ->
-          if not @@ SessionMap.mem clientid.sid fe.sessions then
-             let _ = Logs_lwt.warn (fun m -> m "[Yadm] logout from non-existing session: %s" (ClientId.to_string clientid)) in
-            Guard.return () self
-          else
-            let fe' = {fe with sessions = SessionMap.remove clientid.sid fe.sessions} in
-            let spath = Path.of_string @@ Printf.sprintf "%s/frontend/%s/session/%s"
-                self.admin_prefix (FeId.to_string clientid.feid) (SessionId.to_string clientid.sid)
-            in
-            let kvs = KVMap.filter (fun p _ -> not @@ Path.is_prefix ~affix:spath p) self.kvs in
-            Guard.return () { self with frontends = FrontendMap.add clientid.feid fe' self.frontends; kvs }
-
-    let get_frontend_session self feid sid =
-      match FrontendMap.find_opt feid self.frontends with
-        | None -> Lwt.fail @@ YException (`InternalError (`Msg ("No frontend with id: "^(FeId.to_string feid))))
-        | Some fe -> 
-          (match SessionMap.find_opt sid fe.sessions with
-          | None -> Lwt.fail @@ YException (`InternalError (`Msg ("No session with id: "^(SessionId.to_string sid))))
-          | Some s -> Lwt.return (fe, s))
-
-
     (****************************)
     (*   Workspaces management  *)
     (****************************)
@@ -344,28 +301,35 @@ module AdminSpace = struct
     (*******************************)
     (*   Subscriptions management  *)
     (*******************************)
+    let create_zenoh_subscriber zenoh_opt selector is_push notify_call =
+      match zenoh_opt with
+      | Some zenoh -> ZUtils.subscribe zenoh selector is_push notify_call >>= Lwt.return_some
+      | None -> Lwt.return_none
+
+    let remove_zenoh_subscriber zenoh subscriber =
+      match subscriber.zenoh_sub with
+      | Some sub -> Zenoh.unsubscribe sub zenoh
+      | None -> Lwt.return_unit
 
      let remove_subscriber admin (clientid:ClientId.t) subid =
       Logs_lwt.debug (fun m -> m "[Yadm] %s: remove_subscriber %s" (ClientId.to_string clientid) (SubscriberId.to_string subid)) >>
       Guard.guarded admin 
       @@ fun self ->
         let%lwt (fe, s) = get_frontend_session self clientid.feid clientid.sid in
-        let open Apero.Option.Infix in         
-        let _ = self.zenoh 
-        >>= fun zenoh -> 
-          (SubscriberMap.find_opt subid s.subs) 
-            >>= fun sub_info -> 
-              sub_info.zenoh_sub 
-              >|= fun zsub -> Zenoh.unsubscribe zsub zenoh
-        in 
-        let s' = { s with subs = SubscriberMap.remove subid s.subs } in
-        let fe' = { fe with sessions = SessionMap.add clientid.sid s' fe.sessions } in
-        let kvs = KVMap.remove
-          (Path.of_string @@ Printf.sprintf "%s/frontend/%s/session/%s/subscriber/%s"
-            self.admin_prefix (FeId.to_string clientid.feid) (SessionId.to_string clientid.sid) (SubscriberId.to_string subid))
-          self.kvs
-        in
-        Guard.return () { self with frontends = FrontendMap.add clientid.feid fe' self.frontends; kvs}
+        match SubscriberMap.find_opt subid s.subs with
+        | Some subscriber -> 
+          let _ = Option.map self.zenoh @@ fun z -> remove_zenoh_subscriber z subscriber in
+          let s' = { s with subs = SubscriberMap.remove subid s.subs } in
+          let fe' = { fe with sessions = SessionMap.add clientid.sid s' fe.sessions } in
+          let kvs = KVMap.remove
+            (Path.of_string @@ Printf.sprintf "%s/frontend/%s/session/%s/subscriber/%s"
+              self.admin_prefix (FeId.to_string clientid.feid) (SessionId.to_string clientid.sid) (SubscriberId.to_string subid))
+            self.kvs
+          in
+          Guard.return () { self with frontends = FrontendMap.add clientid.feid fe' self.frontends; kvs}
+        | None ->
+          Logs_lwt.warn (fun m -> m "[Yadm] %s: can't remove subscriber %s : not found" (ClientId.to_string clientid) (SubscriberId.to_string subid)) >>
+          Guard.return () self
 
     let create_subscriber admin (clientid:ClientId.t) selector is_push notifier =
       Logs_lwt.debug (fun m -> m "[Yadm] %s: create_subscriber %s" (ClientId.to_string clientid) (Selector.to_string selector)) >>
@@ -377,12 +341,7 @@ module AdminSpace = struct
           Logs_lwt.debug (fun m -> m "[Yadm] notify subscriber %s/%s for %d k/v changes" (ClientId.to_string clientid) (SubscriberId.to_string subid) (List.length pvs)) >>
           notifier subid ~fallback:(remove_subscriber admin clientid) pvs 
         in
-        let%lwt zenoh_sub = match self.zenoh with 
-          | Some zenoh -> 
-            let%lwt zsub = ZUtils.subscribe zenoh selector is_push notify_call in
-            Lwt.return @@ Some zsub
-          | None -> Lwt.return None 
-        in
+        let%lwt zenoh_sub = create_zenoh_subscriber self.zenoh selector is_push notify_call in
         let sub = {selector; is_push; notify_call; zenoh_sub} in
         let s' = { s with subs = SubscriberMap.add subid sub s.subs } in
         let fe' = { fe with sessions = SessionMap.add clientid.sid s' fe.sessions } in
@@ -407,19 +366,30 @@ module AdminSpace = struct
     (*****************************)
     (*     evals management      *)
     (*****************************)
+    let remove_zenoh_eval zenoh eval =
+      match eval with
+      | (_, Some zstore) -> Zenoh.unstore zstore zenoh
+      | _, _ -> Lwt.return_unit
+
     let remove_eval admin (clientid:ClientId.t) path =
       Logs_lwt.debug (fun m -> m "[Yadm] %s: remove_eval %s" (ClientId.to_string clientid) (Path.to_string path)) >>
       Guard.guarded admin 
       @@ fun self ->
         let%lwt (fe, s) = get_frontend_session self clientid.feid clientid.sid in
-        let s' = { s with evals = EvalMap.remove path s.evals } in
-        let fe' = { fe with sessions = SessionMap.add clientid.sid s' fe.sessions } in
-        let kvs = KVMap.remove
-          (Path.of_string @@ Printf.sprintf "%s/frontend/%s/session/%s/eval/%s"
-            self.admin_prefix (FeId.to_string clientid.feid) (SessionId.to_string clientid.sid) (Path.to_string path))
-          self.kvs
-        in
-        Guard.return () { self with frontends = FrontendMap.add clientid.feid fe' self.frontends; kvs}
+        match EvalMap.find_opt path s.evals with
+        | Some eval -> 
+          let _ = Option.map self.zenoh @@ fun z -> remove_zenoh_eval z eval in
+          let s' = { s with evals = EvalMap.remove path s.evals } in
+          let fe' = { fe with sessions = SessionMap.add clientid.sid s' fe.sessions } in
+          let kvs = KVMap.remove
+            (Path.of_string @@ Printf.sprintf "%s/frontend/%s/session/%s/eval/%s"
+              self.admin_prefix (FeId.to_string clientid.feid) (SessionId.to_string clientid.sid) (Path.to_string path))
+            self.kvs
+          in
+          Guard.return () { self with frontends = FrontendMap.add clientid.feid fe' self.frontends; kvs}
+        | None ->
+          Logs_lwt.warn (fun m -> m "[Yadm] %s: can't remove eval %s : not found" (ClientId.to_string clientid) (Path.to_string path)) >>
+          Guard.return () self
 
     let call_evals admin (clientid:ClientId.t) multiplicity sel =
       let%lwt _ = Logs_lwt.debug (fun m -> m "[YAdm]: Call eval on %s for %s" (ClientId.to_string clientid) (Selector.to_string sel)) in
@@ -470,14 +440,15 @@ module AdminSpace = struct
         let%lwt _ = Logs_lwt.debug (fun m -> m "[YAdm]: Internal error the Zenoh resource name for eval doesn't start with + : %s" resname) in
         Lwt.return []
 
-
-    let create_zenoh_eval zenoh path eval_call = 
-      Zenoh.store ("+"^(Path.to_string path)) incoming_eval_data_handler (incoming_eval_query_handler path eval_call) zenoh 
+    let create_zenoh_eval zenoh_opt path eval_call =
+      match zenoh_opt with
       (* NB:
           - Currently an eval is represented with a storage, once zenoh will support something like evals, we'll
             transition to that abstraction to avoid bu construction the progagation of spurious values.
           - The Zenoh storage selector for eval is the eval's path prefixed with '+'
       *)
+      | Some zenoh -> Zenoh.store ("+"^(Path.to_string path)) incoming_eval_data_handler (incoming_eval_query_handler path eval_call) zenoh >>= Lwt.return_some
+      | None -> Lwt.return_none
 
     let create_eval admin (clientid:ClientId.t) path (eval:eval_function) =
       Logs_lwt.debug (fun m -> m "[Yadm] %s: create_eval %s" (ClientId.to_string clientid) (Path.to_string path)) >>
@@ -494,12 +465,7 @@ module AdminSpace = struct
       Guard.guarded admin 
       @@ fun self ->
         let%lwt (fe, s) = get_frontend_session self clientid.feid clientid.sid in
-          let%lwt zenoh_eval = match self.zenoh with 
-          | Some zenoh -> 
-            let%lwt ze = create_zenoh_eval zenoh path eval_call in 
-            Lwt.return @@ Some ze
-          | None -> Lwt.return None
-        in 
+        let%lwt zenoh_eval = create_zenoh_eval self.zenoh path eval_call in
         let s' = { s with evals = EvalMap.add path (eval_call, zenoh_eval) s.evals } in
         let fe' = {fe with sessions = SessionMap.add clientid.sid s' fe.sessions} in
         let kvs = kvmap_add
@@ -509,6 +475,57 @@ module AdminSpace = struct
         in
         Guard.return () { self with frontends = FrontendMap.add clientid.feid fe' self.frontends; kvs}
 
+    (**************************)
+    (*   Sessions management  *)
+    (**************************)
+    let login admin (clientid:ClientId.t) properties =
+      Logs_lwt.debug (fun m -> m "[Yadm] %s: login" (ClientId.to_string clientid)) >>
+      Guard.guarded admin
+      @@ fun self ->
+      let feid = FeId.to_string clientid.feid in
+      let sid = SessionId.to_string clientid.sid in
+      match FrontendMap.find_opt clientid.feid self.frontends with
+        | None -> Guard.return_lwt (Lwt.fail @@ YException (`InternalError (`Msg ("No frontend with id: "^feid)))) self
+        | Some fe ->
+          if SessionMap.mem clientid.sid fe.sessions then
+            Guard.return_lwt (Lwt.fail @@ YException (`InternalError (`Msg ("Already existing session: "^sid)))) self
+          else
+            let s = { properties; ws=WsMap.empty; lastWsid=WsId.zero; subs=SubscriberMap.empty; evals=EvalMap.empty } in
+            let fe' = {fe with sessions = SessionMap.add clientid.sid s fe.sessions} in
+            let kvs = kvmap_add
+              (Path.of_string @@ Printf.sprintf "%s/frontend/%s/session/%s" self.admin_prefix feid sid)
+              (Value.PropertiesValue properties) (now self.hlc) self.kvs
+            in
+            Guard.return () { self with frontends = FrontendMap.add clientid.feid fe' self.frontends; kvs}
+
+    let cleanup_session zenoh_opt s =
+      match zenoh_opt with
+      | Some zenoh ->
+        Lwt.join @@
+          (SubscriberMap.fold (fun _ sub l -> (remove_zenoh_subscriber zenoh sub)::l ) s.subs []) @
+          (EvalMap.fold (fun _ eval l -> (remove_zenoh_eval zenoh eval)::l) s.evals [])
+      | None -> Lwt.return_unit
+
+    let logout admin (clientid:ClientId.t) =
+      Logs_lwt.debug (fun m -> m "[Yadm] %s: logout" (ClientId.to_string clientid)) >>
+      Guard.guarded admin
+      @@ fun self ->
+      match FrontendMap.find_opt clientid.feid self.frontends with
+        | None -> let _ = Logs_lwt.warn (fun m -> m "[Yadm] logout from non-existing frontend: %s" (FeId.to_string clientid.feid)) in
+          Guard.return () self
+        | Some fe ->
+          match SessionMap.find_opt clientid.sid fe.sessions with
+          | None ->
+             let _ = Logs_lwt.warn (fun m -> m "[Yadm] logout from non-existing session: %s" (ClientId.to_string clientid)) in
+            Guard.return () self
+          | Some s ->
+            let () = Lwt.async @@ fun () -> cleanup_session self.zenoh s in
+            let fe' = {fe with sessions = SessionMap.remove clientid.sid fe.sessions} in
+            let spath = Path.of_string @@ Printf.sprintf "%s/frontend/%s/session/%s"
+                self.admin_prefix (FeId.to_string clientid.feid) (SessionId.to_string clientid.sid)
+            in
+            let kvs = KVMap.filter (fun p _ -> not @@ Path.is_prefix ~affix:spath p) self.kvs in
+            Guard.return () { self with frontends = FrontendMap.add clientid.feid fe' self.frontends; kvs }
 
     (*****************************)
     (* get/put/remove operations *)
