@@ -55,7 +55,7 @@ module AdminSpace = struct
       ; kvs : TimedValue.t KVMap.t
       ; hlc : HLC.t
       ; zenoh : Zenoh.t option
-      ; mutable zenoh_storage : Zenoh.storage option             
+      ; zenoh_storage : Zenoh.storage option             
       }
 
     type t = state Guard.t
@@ -186,7 +186,7 @@ module AdminSpace = struct
         (* create storage (in backend and in Zenoh) and add it to self state *)
         let module BE = (val be.beModule: Backend) in
         let%lwt _ = Logs_lwt.debug (fun m -> m "[Yadm]: create_storage %s using Backend %s" stid (BE.to_string)) in
-        let%lwt storage = BE.create_storage selector properties in
+        let%lwt storage = BE.create_storage selector properties self.hlc in
         let%lwt zenoh_storage =  
           match self.zenoh with 
           | Some zenoh ->
@@ -582,16 +582,20 @@ module AdminSpace = struct
 
 
     let incoming_admin_storage_data_handler admin (sample:IOBuf.t) (key:string) =
-      match TimedValue.decode sample with 
-      | Ok (v, _) -> 
-        (match Path.of_string_opt key with 
-        | Some path -> 
-          let%lwt _ = Logs_lwt.warn (fun m -> m "[YAdm]: Inserting remote update for key %s" key) in 
-          put admin local_client path v
-        | _ -> 
-          let%lwt _ = Logs_lwt.warn (fun m -> m "[YAdm]: Received data for key %s which I cannot store" key) 
-          in Lwt.return_unit)      
-      | _ -> Lwt.return_unit 
+      let%lwt _ = Logs_lwt.debug (fun m -> m "[YAdm]: Received remote update for key %s" key) in
+      match Path.of_string_opt key with
+      | Some path -> 
+        (match TimedValue.decode sample with 
+        | Ok (v, _) ->
+          let self = Guard.get admin in
+          (match%lwt HLC.update_with_timestamp v.time self.hlc with
+          | Ok () -> put admin local_client path v
+          | Error e -> 
+            Logs_lwt.warn (fun m -> m "[YAdm]: Remote update for key %s refused: timestamp differs too much from local clock: %s" key (Apero.show_error e)))
+        | Error e ->
+          Logs_lwt.warn (fun m -> m "[YAdm]: Failed to decode TimedValue.t received for key %s: %s" key (Atypes.show_error e)))
+      | None -> 
+        Logs_lwt.warn (fun m -> m "[YAdm]: Received data for key %s which I cannot store" key) 
 
     let incoming_admin_query_handler admin resname predicate = 
       let s = if predicate = "" then resname else resname ^"?"^predicate in

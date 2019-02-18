@@ -11,6 +11,7 @@ module Storage = struct
     { id : Id.t
     ; selector : Selector.t
     ; props : properties
+    ; hlc : HLC.t
     ; dispose : unit -> unit Lwt.t
     ; get : Selector.t -> (Path.t * TimedValue.t) list Lwt.t
     ; put : Path.t -> TimedValue.t -> unit Lwt.t 
@@ -19,10 +20,10 @@ module Storage = struct
     ; as_string : string
     }
 
-  let make selector props dispose get put put_delta remove =
+  let make selector props hlc dispose get put put_delta remove =
     let alias = Properties.get Property.Storage.Key.alias props in   
     let uuid = match alias with | Some(a) -> Id.make_from_alias a | None -> Id.make () in
-    { id = uuid; selector; props; dispose; get; put; put_delta; remove;
+    { id = uuid; selector; props; hlc; dispose; get; put; put_delta; remove;
       as_string = "Sto#"^(Id.to_string uuid)^"("^(Selector.to_string selector)^")"
     }
 
@@ -44,19 +45,19 @@ module Storage = struct
 
 
   let on_zenoh_write s (sample:IOBuf.t) (key:string) =
+    let%lwt _ = Logs_lwt.debug (fun m -> m "[Sto] %s: Received remote update for key %s" (Id.to_string s.id) key) in
     match Path.of_string_opt key with 
     | Some path ->
       (match TimedValue.decode sample with
       | Ok (v, _) -> 
-        let%lwt _ = Logs_lwt.warn (fun m -> m "[Sto] %s: Inserting remote update for key %s" (Id.to_string s.id) key) in 
-        put s path v
+        (match%lwt HLC.update_with_timestamp v.time s.hlc with
+        | Ok () -> put s path v
+        | Error e -> 
+          Logs_lwt.warn (fun m -> m "[Sto] %s: Remote update for key %s refused: timestamp differs too much from local clock: %s" (Id.to_string s.id) key (Apero.show_error e)))
       | Error e ->
-        let%lwt _ = Logs_lwt.debug (fun m -> m "[Sto] %s: Failed to decode TimedValue.t to be stored for key %s: %s" (Id.to_string s.id) key (Atypes.show_error e)) in
-        Lwt.return_unit
-      )
-    | _ -> 
-      let%lwt _ = Logs_lwt.warn (fun m -> m "[Sto] %s: Received data via Zenoh for key %s which is not a path" (Id.to_string s.id) key) 
-      in Lwt.return_unit     
+        Logs_lwt.debug (fun m -> m "[Sto] %s: Failed to decode TimedValue.t to be stored for key %s: %s" (Id.to_string s.id) key (Atypes.show_error e)))
+    | None -> 
+      Logs_lwt.warn (fun m -> m "[Sto] %s: Received data via Zenoh for key %s which is not a path" (Id.to_string s.id) key) 
 
 
   let on_zenoh_query s resname predicate = 
@@ -82,7 +83,10 @@ module Storage = struct
       if Astring.is_prefix ~affix:"/@" path then Lwt.return_unit
       else match TimedValue.decode buf with
       | Ok (tv, _) ->
-        put s (Path.of_string path) tv
+        (match%lwt HLC.update_with_timestamp tv.time s.hlc with
+        | Ok () -> put s (Path.of_string path) tv
+        | Error e -> 
+          Logs_lwt.warn (fun m -> m "[Sto] %s: align refuses update for key %s: timestamp differs too much from local clock: %s" (Id.to_string s.id) path (Apero.show_error e)))
       | Error e ->
         let%lwt _ = Logs_lwt.warn (fun m -> m "[Sto] %s: Error while decoding value received for alignment: \n%s"  (Id.to_string s.id) (Atypes.show_error e)) 
         in Lwt.return_unit
@@ -90,9 +94,16 @@ module Storage = struct
     let%lwt tmp_sub = Zenoh.subscribe (Selector.to_string selector) listener ~mode:Zenoh.push_mode zenoh in
     (* query the remote storages (to get historical data) *)
     let%lwt kvs = Yaks_zenoh_utils.query zenoh selector TimedValue.decode in
-    let%lwt () = List.map (fun (path, tv) ->
+    let%lwt () = List.map (fun (path, (tv:TimedValue.t)) ->
       if Astring.is_prefix ~affix:"/@" (Path.to_string path) then Lwt.return_unit
-      else put s path tv) kvs |> Lwt.join
+      else
+        (match%lwt HLC.update_with_timestamp tv.time s.hlc with
+        | Ok () -> put s path tv
+        | Error e -> 
+          Logs_lwt.warn (fun m -> m "[Sto] %s: align refuses update for key %s: timestamp differs too much from local clock: %s" (Id.to_string s.id) (Path.to_string path) (Apero.show_error e)))
+      )
+      kvs
+      |> Lwt.join
     in
     let%lwt _ = Logs_lwt.debug (fun m -> m "[Sto] %s: alignment done" (Id.to_string s.id)) in
     let open Apero.LwtM.InfixM in

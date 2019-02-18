@@ -35,8 +35,6 @@ module Engine = struct
     val add_backend_TMP : t -> (module Backend) -> unit Lwt.t
     val add_frontend_TMP : t -> string -> properties -> unit Lwt.t
   end
-    module HLC = Apero_time.HLC.Make (Apero_time.Clock_unix)
-
     module YAdminSpace = Yaks_admin_space.AdminSpace
 
     module KVListMap = Map.Make(Path)
@@ -224,6 +222,15 @@ module Engine = struct
           let remote_get = (match self.zenoh with
             | Some zenoh -> ZUtils.query zenoh sel TimedValue.decode
             | None -> Lwt.return [])
+            >>= Lwt_list.filter_p (fun (p, (tv:TimedValue.t)) ->
+              (* update HLC for each received TimedValue *)
+              match%lwt HLC.update_with_timestamp tv.time self.hlc with
+              | Ok () -> Lwt.return_true
+              | Error e ->
+                let _ = Logs_lwt.warn (fun m -> m "[Yeng]: get %s => received value key %s refused: timestamp differs too much from local clock: %s"
+                 (Selector.to_string sel) (Path.to_string p) (Apero.show_error e))
+                in Lwt.return_false
+              ) 
           in
           Lwt.join [(local_get >>= fun _ -> Lwt.return_unit); (remote_get >>= fun _ -> Lwt.return_unit)] >>= fun () ->
           remote_get >>= fun rd ->

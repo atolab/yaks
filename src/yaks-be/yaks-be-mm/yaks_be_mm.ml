@@ -65,8 +65,8 @@ module MainMemoryBE = struct
         (fun _ -> Guard.return () (SMap.empty))        
 
 
-    let create_storage selector props =
-      Lwt.return @@ Storage.make selector props dispose get put update remove
+    let create_storage selector props hlc =
+      Lwt.return @@ Storage.make selector props hlc dispose get put update remove
   end
 end 
 

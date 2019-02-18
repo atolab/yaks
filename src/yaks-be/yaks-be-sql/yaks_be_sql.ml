@@ -206,7 +206,7 @@ module SQLBE = struct
     let make_kv_table_name () =
       "Yaks_kv_table_"^(Uuid.make () |> Uuid.to_string |> String.map (function | '-' -> '_' | c -> c))
 
-    let create_storage selector props =
+    let create_storage selector props hlc =
       let open LwtM.InfixM in
       let props = Properties.union (fun _ _ v2 -> Some v2) C.properties props in
       let table_name = match Properties.get Key.table props with
@@ -232,7 +232,7 @@ module SQLBE = struct
       let storage_info = { selector; keys_prefix; props; table_name; schema; on_dispose } in
       if is_kv_table then
         Lwt.return @@
-        Storage.make selector props
+        Storage.make selector props hlc
           (dispose storage_info)
           (get_kv_table storage_info)
           (put_kv_table storage_info)

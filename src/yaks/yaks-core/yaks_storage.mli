@@ -8,7 +8,7 @@ module Storage : sig
 
   type t 
 
-  val make : Selector.t -> properties ->
+  val make : Selector.t -> properties -> HLC.t ->
     (unit -> unit Lwt.t) ->
     (Selector.t -> (Path.t * TimedValue.t) list Lwt.t) ->
     (Path.t -> TimedValue.t -> unit Lwt.t) ->
