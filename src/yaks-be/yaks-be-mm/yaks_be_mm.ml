@@ -12,6 +12,8 @@ module MainMemoryBE = struct
   module Make (C : Config) = struct     
     module SMap = Map.Make(Path)
 
+    type stored_value = | Present of TimedValue.t | Removed of Timestamp.t * unit Lwt.t
+
     let state = Guard.create SMap.empty
 
     let id = C.id
@@ -19,50 +21,102 @@ module MainMemoryBE = struct
 
     let to_string = "MainMemoryBE#"^(BeId.to_string C.id)^"{"^(Properties.to_string properties)^"}"
 
+    let cleanup_timeout = 5.
+
+    let cleanup_entry path =
+      let open Lwt.Infix in
+      Lwt_unix.sleep cleanup_timeout >>= fun () ->
+      Guard.guarded state
+      @@ fun self ->
+        Guard.return () (SMap.remove path self)
+
     let get selector =       
       let self = Guard.get state in        
       Lwt.return @@ match Selector.as_unique_path selector with 
       | Some path ->
         (match SMap.find_opt path self with 
-        | Some v -> [(path, v)]
-        | None -> [])
+        | Some Present tv -> [(path, tv)]
+        | _ -> [])
       | None -> 
-          self
-          |> SMap.filter (fun path _ -> Selector.is_matching_path path selector)
-          |> SMap.bindings
+        SMap.fold (fun path sv l -> 
+          match sv with
+          | Present tv -> if Selector.is_matching_path path selector then (path, tv)::l else l
+          | Removed _ -> l
+        ) self []
 
-
-
-    let put (path:Path.t) (value:TimedValue.t) =
+    let put path (value:TimedValue.t) =
       Guard.guarded state
-        @@ fun self ->
-          match SMap.find_opt path self with
-          | Some v -> if (TimedValue.preceeds ~first:v ~second:value)
-              then Guard.return () (SMap.add path value self)
-              else Guard.return () self
-          | None -> Guard.return  () (SMap.add path value self)         (* TODO: manage timestamped removals ! *)
+      @@ fun self ->
+        match SMap.find_opt path self with
+        | Some Present {time=t; value=_} ->
+          let open Timestamp.Infix in
+          if (t < value.time)
+          then Guard.return () (SMap.add path (Present value) self)
+          else
+            let _ = Logs_lwt.debug (fun m -> m "[MEM] put on %s dropped: out-of-date" (Path.to_string path)) in 
+            Guard.return () self
+        | Some Removed (t, cleanup) ->
+          let open Timestamp.Infix in
+          if (t < value.time)
+          then (
+            Lwt.cancel cleanup; 
+            Guard.return () (SMap.add path (Present value) self))
+          else
+            let _ = Logs_lwt.debug (fun m -> m "[MEM] put on %s dropped: out-of-date" (Path.to_string path)) in 
+            Guard.return () self
+        | None ->
+          Guard.return  () (SMap.add path (Present value) self)
 
     let try_update (tv:TimedValue.t) (d:TimedValue.t) : TimedValue.t = match Value.update tv.value d.value with
       | Ok r -> { time=tv.time; value=r }
       | Error _ -> { time=tv.time; value=tv.value }
 
-    let update path delta =       
+    let update path (delta:TimedValue.t) =       
       Guard.guarded state
       @@ fun self -> 
-      match SMap.find_opt path self with 
-        | Some v -> if (TimedValue.preceeds ~first:v ~second:delta)
-            then Guard.return () (SMap.add path (try_update v delta) self)
-            else Guard.return () self
-        | None -> Guard.return () (SMap.add path delta self)          (* TODO: manage timestamped removals ! *)
+        match SMap.find_opt path self with 
+        | Some Present {time=t; value=v} ->
+          let open Timestamp.Infix in
+          if (t < delta.time)
+          then Guard.return () (SMap.add path (Present (try_update {time=t; value=v} delta)) self)
+          else 
+            let _ = Logs_lwt.debug (fun m -> m "[MEM] update on %s dropped: out-of-date" (Path.to_string path)) in 
+            Guard.return () self
+        | Some Removed (t, cleanup) ->
+          let open Timestamp.Infix in
+          if (t < delta.time)
+          then (
+            Lwt.cancel cleanup; 
+            Guard.return () (SMap.add path (Present delta) self))
+          else Guard.return () self
+        | None -> Guard.return () (SMap.add path (Present delta) self)
 
 
-    let remove path = 
+    let remove path time = 
       Guard.guarded state 
-      @@ fun self -> Guard.return () (SMap.remove path self)
+      @@ fun self ->
+        match SMap.find_opt path self with
+        | Some Removed _ ->
+          (* do nothing *)
+          Guard.return () self
+        | Some Present {time=t; value=_} ->
+          let open Timestamp.Infix in
+          if (t < time)
+          then Guard.return () (SMap.add path (Removed (time, cleanup_entry path)) self)
+          else
+            let _ = Logs_lwt.debug (fun m -> m "[MEM] remove on %s dropped: out-of-date" (Path.to_string path)) in 
+            Guard.return () self
+        | None ->
+          (* NOTE: even if path is not known yet, we need to store the removal time:
+            if ever a put with a lower timestamp arrive (e.g. msg inversion between put and remove) 
+            we must drop the put.
+          *)
+          Guard.return  () (SMap.add path (Removed (time, cleanup_entry path)) self)
+
 
     let dispose () = 
       Guard.guarded state
-        (fun _ -> Guard.return () (SMap.empty))        
+        (fun _ -> Guard.return () (SMap.empty))
 
 
     let create_storage selector props hlc =

@@ -281,13 +281,14 @@ module Engine = struct
       let _ = ignore quorum in
       let%lwt path = to_absolute_path engine client ?workspace path in
       let self = Guard.get engine in       
+      let%lwt time = HLC.new_timestamp self.hlc in
       match YAdminSpace.covers_path self.admin path with
       | Some path ->         
-        YAdminSpace.remove self.admin client path
+        YAdminSpace.remove self.admin client path time
       | None ->
         let%lwt _ = Logs_lwt.debug (fun m -> m "[Yeng]: remove %s" (Path.to_string path)) in
         YAdminSpace.get_matching_storages self.admin (Selector.of_path path)
-        |> Lwt_list.iter_p (fun store -> Storage.remove store path)
+        |> Lwt_list.iter_p (fun store -> Storage.remove store path time)
 
 
     let add_backend_TMP engine be = 

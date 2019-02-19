@@ -66,7 +66,7 @@ module SQLBE = struct
           | Error e -> Logs_lwt.warn (
             fun m -> m "[SQL]: put_delta on value %s failed: %s" (Value.to_string v) (show_yerror e)))
 
-    let remove_sql_table storage_info path = 
+    let remove_sql_table storage_info path time = 
       (* TODO:
           Remove operation used to be on Selectors with a query (see commented code below).
           But now that a Path is given as argument, there is no longer a query part, and thus
@@ -82,6 +82,7 @@ module SQLBE = struct
         let _ = Logs_lwt.debug (fun m -> m "[SQL]: Can't remove path %s without a query" (Path.to_string path)) in
         Lwt.return_unit
       *)
+      let _ = ignore time in
       let%lwt _ = Logs_lwt.err (fun m -> m "[SQL]: Can't remove Path %s in Storage with selector %s - remove operation for legacy SQL tables is not implemented"
                                     (Path.to_string path) (Selector.to_string storage_info.selector))
       in Lwt.return_unit
@@ -180,7 +181,8 @@ module SQLBE = struct
         | Error e -> Logs_lwt.warn (
           fun m -> m "[SQL]: put_delta on value %s failed: %s" (Value.to_string tv.value) (show_yerror e)))
 
-    let remove_kv_table storage_info path = 
+    let remove_kv_table storage_info path time =
+      let _ = ignore time in
       let%lwt _ = Logs_lwt.debug (fun m -> m "[SQL]: remove(%s) from kv table %s"
                     (Path.to_string path) (storage_info.table_name)) in
       let k = Astring.with_range ~first:(String.length @@ Path.to_string storage_info.keys_prefix) (Path.to_string path) in

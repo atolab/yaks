@@ -13,7 +13,7 @@ module Storage : sig
     (Selector.t -> (Path.t * TimedValue.t) list Lwt.t) ->
     (Path.t -> TimedValue.t -> unit Lwt.t) ->
     (Path.t -> TimedValue.t -> unit Lwt.t) ->
-    (Path.t -> unit Lwt.t) -> t
+    (Path.t -> Timestamp.t -> unit Lwt.t) -> t
 
   val dispose : t -> unit Lwt.t
 
@@ -38,7 +38,7 @@ module Storage : sig
   val put : t -> Path.t -> TimedValue.t -> unit Lwt.t
   val update : t -> Path.t -> TimedValue.t -> unit Lwt.t
 
-  val remove : t -> Path.t -> unit Lwt.t
+  val remove : t -> Path.t -> Timestamp.t -> unit Lwt.t
 
   val on_zenoh_write : t -> Abuf.t -> string -> unit Lwt.t
   val on_zenoh_query : t -> string -> string -> (string * Abuf.t) list Lwt.t
