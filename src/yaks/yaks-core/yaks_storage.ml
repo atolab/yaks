@@ -44,18 +44,15 @@ module Storage = struct
   let remove s = s.remove
 
 
-  let on_zenoh_write s (sample:IOBuf.t) (key:string) =
+  let on_zenoh_write s (sample:Abuf.t) (key:string) =
     let%lwt _ = Logs_lwt.debug (fun m -> m "[Sto] %s: Received remote update for key %s" (Id.to_string s.id) key) in
     match Path.of_string_opt key with 
     | Some path ->
-      (match TimedValue.decode sample with
-      | Ok (v, _) -> 
-        (match%lwt HLC.update_with_timestamp v.time s.hlc with
-        | Ok () -> put s path v
-        | Error e -> 
-          Logs_lwt.warn (fun m -> m "[Sto] %s: Remote update for key %s refused: timestamp differs too much from local clock: %s" (Id.to_string s.id) key (Apero.show_error e)))
-      | Error e ->
-        Logs_lwt.debug (fun m -> m "[Sto] %s: Failed to decode TimedValue.t to be stored for key %s: %s" (Id.to_string s.id) key (Atypes.show_error e)))
+      (try TimedValue.decode sample |> fun v -> 
+          match%lwt HLC.update_with_timestamp v.time s.hlc with
+          | Ok () -> put s path v
+          | Error e -> Logs_lwt.warn (fun m -> m "[Sto] %s: Remote update for key %s refused: timestamp differs too much from local clock: %s" (Id.to_string s.id) key (Apero.show_error e))
+      with e -> Logs_lwt.debug (fun m -> m "[Sto] %s: Failed to decode TimedValue.t to be stored for key %s: %s" (Id.to_string s.id) key (Printexc.to_string e)))
     | None -> 
       Logs_lwt.warn (fun m -> m "[Sto] %s: Received data via Zenoh for key %s which is not a path" (Id.to_string s.id) key) 
 
@@ -69,8 +66,9 @@ module Storage = struct
       let evs = List.map
         (fun (path,value) ->
           let spath = Path.to_string path in
-          let buf = Result.get  (TimedValue.encode value (IOBuf.create ~grow:4096 4096)) in
-          (spath, IOBuf.flip buf)) kvs in
+          let buf = Abuf.create ~grow:4096 4096 in 
+          TimedValue.encode value buf;
+          (spath, buf)) kvs in
       Lwt.return evs 
     | _ -> 
       let%lwt _ = Logs_lwt.debug (fun m -> m "[Sto] %s: Unable to resolve query for %s - not a Selector" (Id.to_string s.id) sel) in 
@@ -81,15 +79,13 @@ module Storage = struct
     (* create a temporary Zenoh listener (to not miss ongoing updates) *)
     let listener buf path =
       if Astring.is_prefix ~affix:"/@" path then Lwt.return_unit
-      else match TimedValue.decode buf with
-      | Ok (tv, _) ->
+      else 
+      (try TimedValue.decode buf |> Result.return with e -> Error e)|> function 
+      | Ok tv ->
         (match%lwt HLC.update_with_timestamp tv.time s.hlc with
         | Ok () -> put s (Path.of_string path) tv
-        | Error e -> 
-          Logs_lwt.warn (fun m -> m "[Sto] %s: align refuses update for key %s: timestamp differs too much from local clock: %s" (Id.to_string s.id) path (Apero.show_error e)))
-      | Error e ->
-        let%lwt _ = Logs_lwt.warn (fun m -> m "[Sto] %s: Error while decoding value received for alignment: \n%s"  (Id.to_string s.id) (Atypes.show_error e)) 
-        in Lwt.return_unit
+        | Error e -> Logs_lwt.warn (fun m -> m "[Sto] %s: align refuses update for key %s: timestamp differs too much from local clock: %s" (Id.to_string s.id) path (Apero.show_error e)))
+      | Error e -> Logs_lwt.warn (fun m -> m "[Sto] %s: Error while decoding value received for alignment: \n%s"  (Id.to_string s.id) (Printexc.to_string e))
     in
     let%lwt tmp_sub = Zenoh.subscribe (Selector.to_string selector) listener ~mode:Zenoh.push_mode zenoh in
     (* query the remote storages (to get historical data) *)

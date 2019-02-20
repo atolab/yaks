@@ -431,8 +431,9 @@ module AdminSpace = struct
           (* Note: we can't use the received selector; we must use the registered eval's path adding the properties *)
           let%lwt value = eval_call (Selector.with_path path selector) in
           let spath = Path.to_string path in
-          let buf = Result.get  (encode_value value (IOBuf.create ~grow:4096 4096)) in
-          Lwt.return [(spath, IOBuf.flip buf)]
+          let buf = Abuf.create ~grow:4096 4096 in
+          encode_value value buf;
+          Lwt.return [(spath, buf)]
         | _ -> 
           let%lwt _ = Logs_lwt.debug (fun m -> m "[YAdm]: Unable to run eval for %s - not a Selector" s) in
           Lwt.return []
@@ -581,19 +582,19 @@ module AdminSpace = struct
         Lwt.fail @@ YException (`InternalError (`Msg ("put on remote Yaks admin not yet implemented")))
 
 
-    let incoming_admin_storage_data_handler admin (sample:IOBuf.t) (key:string) =
+    let incoming_admin_storage_data_handler admin (sample:Abuf.t) (key:string) =
       let%lwt _ = Logs_lwt.debug (fun m -> m "[YAdm]: Received remote update for key %s" key) in
       match Path.of_string_opt key with
       | Some path -> 
-        (match TimedValue.decode sample with 
-        | Ok (v, _) ->
+        ((try TimedValue.decode sample |> Result.return with e -> Error e) |> function
+        | Ok v ->
           let self = Guard.get admin in
           (match%lwt HLC.update_with_timestamp v.time self.hlc with
           | Ok () -> put admin local_client path v
           | Error e -> 
             Logs_lwt.warn (fun m -> m "[YAdm]: Remote update for key %s refused: timestamp differs too much from local clock: %s" key (Apero.show_error e)))
         | Error e ->
-          Logs_lwt.warn (fun m -> m "[YAdm]: Failed to decode TimedValue.t received for key %s: %s" key (Atypes.show_error e)))
+          Logs_lwt.warn (fun m -> m "[YAdm]: Failed to decode TimedValue.t received for key %s: %s" key (Printexc.to_string e)))
       | None -> 
         Logs_lwt.warn (fun m -> m "[YAdm]: Received data for key %s which I cannot store" key) 
 
@@ -607,8 +608,9 @@ module AdminSpace = struct
         let evs = List.map
           (fun (path,value) ->
             let spath = Path.to_string path in
-            let buf = Result.get  (TimedValue.encode value (IOBuf.create ~grow:4096 4096)) in
-            (spath, IOBuf.flip buf)) kvs in
+            let buf = Abuf.create ~grow:4096 4096 in
+            TimedValue.encode value buf; 
+            (spath, buf)) kvs in
         Lwt.return evs
       | _ ->
         let%lwt _ = Logs_lwt.debug (fun m -> m "[YAdm]: Unable to resolve query for %s?%s" resname predicate) in

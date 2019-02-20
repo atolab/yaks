@@ -1,4 +1,3 @@
-open Apero
 open Yaks_types
 open Yaks_core_types
 
@@ -9,9 +8,18 @@ let remote_query_handler promise mlist decoder sample =
   @@ fun xs ->
   match sample with
   | Zenoh.StorageData {stoid; rsn=_; resname; data} ->
-    (match
+    let store_id = Abuf.hexdump ~separator:":" stoid in
+    let _ = Logs.debug (fun m -> m ">>> Query Handler Received data for key: %s from storage %s" resname store_id) in
+    (try decoder data |> fun value -> 
+        Logs.debug (fun m -> m ">>> Query Handler parsed data for key: %s" resname);
+        Guard.return () ((store_id, Path.of_string(resname), value)::xs)
+    with e -> 
+        Logs.err (fun m -> m ">>> Query Handler failed to parse data for key %s : %s" resname (Printexc.to_string e));
+        Guard.return () xs)
+
+    (* (match
     let _ = Logs.debug (fun m -> m ">>> Query Handler Received data for key: %s" resname) in
-    let store_id = IOBuf.hexdump ~separator:":" stoid in
+    let store_id = Abuf.hexdump ~separator:":" stoid in
     let _ = Logs.debug (fun m -> m ">>> Query Handler Received data for key: %s from storage %s" resname store_id) in
     match decoder data with
     | Ok (value, _) ->
@@ -22,9 +30,10 @@ let remote_query_handler promise mlist decoder sample =
         Error e
     with
     | Ok sample -> Guard.return () (sample::xs)
-    | _ -> Guard.return () xs)
+    | _ -> Guard.return () xs) *)
+
   | Zenoh.StorageFinal {stoid; rsn;} ->
-      let store_id = IOBuf.hexdump ~separator:":" stoid in
+      let store_id = Abuf.hexdump ~separator:":" stoid in
       let%lwt _ = Logs_lwt.debug (fun m -> m "QUERY HANDLER RECIEVED FROM STORAGE [%-16s:%02i] FINAL\n%!" (store_id) rsn) in
       Guard.return () xs
   | Zenoh.ReplyFinal ->
@@ -45,21 +54,16 @@ let query zenoh selector decoder =
 
 let write path value zenoh =
   let res = Path.to_string path in
-  let buf = IOBuf.create ~grow:8192 8192 in 
-  match (TimedValue.encode value buf) with 
-  | Ok buf -> 
-    let buf' = IOBuf.flip buf in 
-    Zenoh.write buf' res zenoh 
-  | Error e -> Lwt.fail @@ Exception e 
+  let buf = Abuf.create ~grow:8192 8192 in 
+  TimedValue.encode value buf;
+  Zenoh.write buf res zenoh 
 
 let subscribe zenoh selector is_push notify_call =
+  let open Lwt.Infix in
   let sub_mode = if is_push then Zenoh.push_mode else Zenoh.pull_mode in
   let listener buf path = 
-    match TimedValue.decode buf with 
-    | Ok (tv, _) ->
-      notify_call [(Path.of_string path, tv.value)]
-    | Error e ->
-      let%lwt _ = Logs_lwt.warn (fun m -> m "Error while decoding value received for Zenoh subscription: \n%s" @@ Atypes.show_error e) 
-      in Lwt.return_unit
+    Lwt.catch (fun () -> TimedValue.decode buf |> Lwt.return) 
+              (fun e -> Logs_lwt.warn (fun m -> m "Error while decoding value received for Zenoh subscription: \n%s" (Printexc.to_string e)) >>= fun () -> Lwt.fail e) >>= fun tv ->
+    notify_call [(Path.of_string path, tv.value)]
   in
   Zenoh.subscribe (Selector.to_string selector) listener ~mode:sub_mode zenoh
