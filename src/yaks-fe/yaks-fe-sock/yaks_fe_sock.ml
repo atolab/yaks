@@ -27,43 +27,37 @@ module Make (YEngine : Yaks_engine.Engine.S) = struct
 
   type state = state_t Guard.t
 
-  let reader sock  =     
-    let lbuf = IOBuf.create 16 in 
-    let%lwt len = Net.read_vle sock lbuf in    
-
-    let%lwt _ = Logs_lwt.debug (fun m -> m "Message lenght : %d" (Vle.to_int len)) in      
-    let buf = IOBuf.create (Vle.to_int len) in     
-    let%lwt n = Net.read sock buf in
+  let reader sock  = 
+    let open Apero.Infix in
+    let%lwt len = Net.read_vle sock >>= Vle.to_int %> Lwt.return in    
+    let%lwt _ = Logs_lwt.debug (fun m -> m "Message lenght : %d" len) in      
+    let buf = Abuf.create len in     
+    let%lwt n = Net.read_all sock buf len in
     let%lwt _ = Logs_lwt.debug (fun m -> m "Read %d bytes our of the socket" n) >>= fun _ -> Lwt.return_unit in      
-
-    match decode_message buf with 
-    | Ok (msg, _) -> Lwt.return msg
-    | Error e -> 
-      let%lwt _ = Logs_lwt.err (fun m -> m "Failed in parsing message %s" (Apero.show_error e)) in
-      Lwt.fail @@ Exception e
+    Lwt.catch (fun () -> decode_message buf |> Lwt.return)
+              (fun e ->  Logs_lwt.err (fun m -> m "Failed in parsing message %s" (Printexc.to_string e)) >>= fun () -> Lwt.fail e)
 
 
   let rec writer buf sock msg =
-    match encode_message_split msg buf with
-    | Ok (buf, remain_msg) ->
-      let lbuf = IOBuf.create 16 in 
-      let fbuf = (IOBuf.flip buf) in       
-      (match encode_vle (Vle.of_int @@ IOBuf.limit fbuf) lbuf with 
-      | Ok lbuf -> 
-        let%lwt _ = Logs_lwt.debug (fun m -> m "Sending message to socket: %d bytes" (IOBuf.limit fbuf)) in
-        Net.send_vec sock [IOBuf.flip lbuf; fbuf]
-      | Error e -> 
-        let%lwt _ = Logs_lwt.err (fun m -> m "Failed in writing message: %s" (Apero.show_error e)) in
-        Lwt.fail @@ Exception e )
-      >>= fun r -> (match remain_msg with
-        | Some msg -> 
-          writer (IOBuf.clear buf) sock msg
-        | None -> Lwt.return r)
+    Abuf.clear buf; 
+    (try encode_message_split msg buf |> Result.return
+    with e -> Result.fail e)
+    |> function 
+    | Ok remain_msg ->
+      let len = Abuf.readable_bytes buf in
+      let lbuf = Abuf.create 16 in       
+      Lwt.catch (fun () -> encode_vle (Vle.of_int len) lbuf; 
+                           Logs_lwt.debug (fun m -> m "Sending message to socket: %d bytes" len) >>= fun () -> 
+                           Net.write_all sock (Abuf.wrap [lbuf; buf]) >>= fun _ -> 
+                           match remain_msg with
+                           | Some msg -> writer buf sock msg
+                           | None -> Lwt.return_unit)
+                (fun e ->  Logs_lwt.err (fun m -> m "Failed in writing message: %s" (Printexc.to_string e)) >>= fun () -> Lwt.fail e)
     | Error e -> 
-      let%lwt _ = Logs_lwt.err (fun m -> m "Failed in encoding %s message: %s" (message_id_to_string msg.header.mid) (Apero.show_error e)) in
+      let%lwt _ = Logs_lwt.err (fun m -> m "Failed in encoding %s message: %s" (message_id_to_string msg.header.mid) (Printexc.to_string e)) in
       let header = make_header ERROR [] msg.header.corr_id Properties.empty in
       let errormsg = make_message header  @@ YErrorInfo (Vle.of_int @@ error_code_to_int INTERNAL_SERVER_ERROR) in
-      writer (IOBuf.clear buf) sock errormsg
+      writer buf sock errormsg
 
 
   let process_eval (s:state) sock buf (path:Path.t) selector ~fallback =
@@ -108,7 +102,7 @@ module Make (YEngine : Yaks_engine.Engine.S) = struct
     | DELETE -> P.process_delete engine clientid msg
     | SUB -> 
       let sock = TxSession.socket tx_sex in 
-      let buf = IOBuf.create Yaks_fe_sock_types.max_msg_size in 
+      let buf = Abuf.create Yaks_fe_sock_types.max_msg_size in 
       let push_sub buf sid ~fallback pvs =
         let _ = Logs_lwt.debug (fun m -> m "[FES] notify subscriber %s/%s" (ClientId.to_string clientid) (Yaks_core.SubscriberId.to_string sid)) in
         let body = YNotification (Yaks_core.SubscriberId.to_string sid, pvs)  in                 
@@ -122,7 +116,7 @@ module Make (YEngine : Yaks_engine.Engine.S) = struct
     | UNSUB -> P.process_unsub engine clientid msg
     | REG_EVAL ->
       let sock = TxSession.socket tx_sex in
-      let buf = IOBuf.create Yaks_fe_sock_types.max_msg_size in 
+      let buf = Abuf.create Yaks_fe_sock_types.max_msg_size in 
       P.process_reg_eval engine clientid msg (process_eval state sock buf)
     | UNREG_EVAL ->
       P.process_unreg_eval engine clientid msg
@@ -149,7 +143,7 @@ module Make (YEngine : Yaks_engine.Engine.S) = struct
 
 
   let fe_service config  dispatcher tx_sex = 
-    let buf = IOBuf.create ~grow:4096 (Config.buf_size config) in
+    let buf = Abuf.create ~grow:4096 (Config.buf_size config) in
     let sock = TxSession.socket tx_sex in 
     let mwriter = writer buf sock in 
     fun () ->

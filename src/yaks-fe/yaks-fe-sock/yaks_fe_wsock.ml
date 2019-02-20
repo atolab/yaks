@@ -42,16 +42,13 @@ module Make (YEngine : Yaks_engine.Engine.S) = struct
       Frame.(create ~opcode:opcode ~content:content ())
 
   let send_as_frame wbuf client opcode = 
-    let frame = Frame.(create ~opcode:opcode ~content:(Lwt_bytes.to_string (IOBuf.to_bytes wbuf)) ()) in
+    let frame = Frame.(create ~opcode:opcode ~content:(Bytes.unsafe_to_string @@ Abuf.read_bytes (Abuf.readable_bytes wbuf) wbuf) ()) in
     Connected_client.send client frame
       
-  let send_msg wbuf client opcode msg  =     
-    match encode_message msg (IOBuf.clear wbuf) with 
-    | Ok buf -> 
-      send_as_frame buf client opcode
-    | Error e -> 
-      let%lwt _ = Logs_lwt.err (fun m -> m "Failed in parsing message %s" (Apero.show_error e)) in
-      Lwt.fail @@ Exception e
+  let send_msg wbuf client opcode msg  = 
+    Abuf.clear wbuf;
+    Lwt.catch (fun () -> encode_message msg wbuf; send_as_frame wbuf client opcode) 
+              (fun e ->  Logs_lwt.err (fun m -> m "Failed to send message : %s" (Printexc.to_string e)) >>= fun () -> Lwt.fail e)
 
   let process_eval (s:state) client buf (path:Path.t) selector ~fallback =
     let _ = Logs_lwt.debug (fun m -> m "[FEWS] send GET(%s) for eval %s" (Selector.to_string selector) (Path.to_string path)) in
@@ -145,9 +142,9 @@ module Make (YEngine : Yaks_engine.Engine.S) = struct
           close 1000
 
         | Frame.Opcode.Binary ->      
-          let buf = IOBuf.from_bytes @@ Lwt_bytes.of_string fr.content in 
-          (match decode_message buf with 
-          | Ok(msg, _) -> 
+          let buf = Abuf.from_bytes @@ Bytes.of_string fr.content in 
+          ((try decode_message buf |> Result.return with e -> Error e) |> function
+          | Ok msg -> 
            (* Note: return unit as soon as a message is read. 
               The message is dispatched as another promise.
               This is to allow the engine to not block on a GET request that might require to be resolved
