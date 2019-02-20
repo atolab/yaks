@@ -139,24 +139,16 @@ let kv_table_schema = "k"::"v"::"e"::"t"::[], Dyntype.(add string (add string (a
 
 let create_kv_table conx table_name props =
   let open Apero.Option.Infix in
-  let key_size = Properties.get Be_sql_property.Key.key_size props >>= int_of_string_opt >?= default_key_size in
+  let key_size = Properties.get Be_sql_properties.Key.key_size props >>= int_of_string_opt >?= default_key_size in
   let query = "CREATE TABLE "^table_name^" (k VARCHAR("^(string_of_int key_size)^") NOT NULL PRIMARY KEY, v TEXT, e VARCHAR(10), t VARCHAR(60))" in
   let open Apero.LwtM.InfixM in
   exec_query conx query >> Lwt.return kv_table_schema
-
-let get_keys_kv_table conx ?condition table_name =
-  let query = match condition with 
-    | Some cond -> "SELECT k FROM "^table_name^" WHERE "^cond
-    | None -> "SELECT k FROM "^table_name
-  in
-  collect_query conx query Caqti_type.string
 
 let get_timestamp_kv_table conx table_name key =
   let query = "SELECT t FROM "^table_name^" WHERE k = "^key in
   match%lwt collect_query conx query Caqti_type.string with
   | [] -> Lwt.return_none
   | t::_ -> Lwt.return_some t
-
 
 let trunc_table conx table_name =
   let query = "TRUNCATE TABLE "^table_name in
@@ -166,11 +158,11 @@ let drop_table conx table_name =
   let query = "DROP TABLE "^table_name in
   fun () -> exec_query conx query
 
-let get conx table_name ?condition (Dyntype.Pack (typ, typ_to_s)) =
+let get conx table_name ?(columns="*") ?condition (Dyntype.Pack (typ, typ_to_s)) =
   let open Lwt.Infix in
   let query = match condition with
-    | Some cond -> "SELECT * FROM "^table_name^" WHERE "^cond
-    | None -> "SELECT * FROM "^table_name
+    | Some cond -> Printf.sprintf "SELECT %s FROM %s WHERE %s" columns table_name cond
+    | None -> Printf.sprintf "SELECT %s FROM %s" columns table_name
   in
   fun () -> collect_query conx query typ >|= (fun rows -> List.map (fun row -> typ_to_s row) rows)
 

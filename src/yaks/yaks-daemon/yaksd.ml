@@ -47,7 +47,7 @@ let add_mem_be engine =
 
 let add_sql_be engine sql_url =
   if String.length sql_url > 0 then
-    let sql_props = Properties.singleton Be_sql_property.Key.url sql_url in
+    let sql_props = Properties.singleton Be_sql_properties.Key.url sql_url in
     YEngine.add_backend_TMP engine @@
       Yaks_be_sql.SQLBEF.make (BeId.of_string "SQL") sql_props
   else Lwt.return_unit

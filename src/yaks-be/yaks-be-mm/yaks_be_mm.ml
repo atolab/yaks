@@ -67,18 +67,17 @@ module MainMemoryBE = struct
         | None ->
           Guard.return  () (SMap.add path (Present value) self)
 
-    let try_update (tv:TimedValue.t) (d:TimedValue.t) : TimedValue.t = match Value.update tv.value d.value with
-      | Ok r -> { time=tv.time; value=r }
-      | Error _ -> { time=tv.time; value=tv.value }
-
     let update path (delta:TimedValue.t) =       
       Guard.guarded state
       @@ fun self -> 
         match SMap.find_opt path self with 
-        | Some Present {time=t; value=v} ->
-          let open Timestamp.Infix in
-          if (t < delta.time)
-          then Guard.return () (SMap.add path (Present (try_update {time=t; value=v} delta)) self)
+        | Some Present tv ->
+          if TimedValue.preceeds ~first:tv ~second:delta
+          then 
+            (match TimedValue.update tv ~delta with
+            | Ok tv' -> Guard.return () (SMap.add path (Present tv') self)
+            | Error e -> let _ = Logs_lwt.warn (fun m -> m "[MEM] update on %s failed: %s" (Path.to_string path) (show_yerror e)) in Guard.return () self
+            )
           else 
             let _ = Logs_lwt.debug (fun m -> m "[MEM] update on %s dropped: out-of-date" (Path.to_string path)) in 
             Guard.return () self
