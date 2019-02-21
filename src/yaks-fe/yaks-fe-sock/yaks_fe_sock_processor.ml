@@ -57,21 +57,18 @@ module Processor = struct
       WsId.of_string_opt
 
     let process_login engine clientid msg = 
-      let%lwt _ = Logs_lwt.debug (fun m -> m "FES: processing LOGIN") in
       Lwt.try_bind
         (fun () -> YEngine.login engine clientid msg.header.properties)
         (fun () -> Lwt.return @@ reply_with_ok msg Properties.empty)
         (fun ex -> Lwt.return @@ ex_to_reply msg ex)
 
     let process_logout engine clientid msg = 
-      let%lwt _ = Logs_lwt.debug (fun m -> m "FES: processing LOGOUT") in
       Lwt.try_bind
         (fun () -> YEngine.logout engine clientid)
         (fun () -> Lwt.return @@ reply_with_ok msg Properties.empty)
         (fun ex -> Lwt.return @@ ex_to_reply msg ex)
 
     let process_workspace engine clientid msg = 
-      let%lwt _ = Logs_lwt.debug (fun m -> m "FES: processing WORKSPACE") in
       match get_path_payload msg with 
       | Some path ->
         Lwt.try_bind
@@ -82,7 +79,6 @@ module Processor = struct
       | None -> Lwt.return @@ reply_with_error msg BAD_REQUEST
 
     let process_put engine clientid msg = 
-      let%lwt _ = Logs_lwt.debug (fun m -> m "FES: processing PUT") in
       match get_path_value_list_payload msg with
       | Some pvs ->
         let workspace = workspace_from_props msg.header.properties in
@@ -94,7 +90,6 @@ module Processor = struct
 
 
     let process_get engine clientid msg =
-      let%lwt _ = Logs_lwt.debug (fun m -> m "FES: processing GET") in
       match get_selector_payload msg with
       | Some s ->
         let workspace = workspace_from_props msg.header.properties in
@@ -105,7 +100,6 @@ module Processor = struct
       | None -> Lwt.return @@ reply_with_error msg BAD_REQUEST
 
     let process_delete engine clientid msg = 
-      let%lwt _ = Logs_lwt.debug (fun m -> m "FES: processing DELETE") in
       match get_path_payload msg with 
       | Some path ->
         let workspace = workspace_from_props msg.header.properties in
@@ -116,7 +110,6 @@ module Processor = struct
       | None -> Lwt.return @@ reply_with_error msg BAD_REQUEST
 
     let process_sub engine clientid msg pusher  = 
-      let%lwt _ = Logs_lwt.debug (fun m -> m "FES: processing SUB") in
       match get_selector_payload msg with
       | Some s ->
         let workspace = workspace_from_props msg.header.properties in
@@ -129,7 +122,6 @@ module Processor = struct
       | None -> Lwt.return @@ reply_with_error msg BAD_REQUEST
 
     let process_unsub engine clientid msg = 
-      let%lwt _ = Logs_lwt.debug (fun m -> m "FES: processing UNSUB") in
       let open Apero.Option.Infix in 
       match get_subscription_payload msg >>= SubscriberId.of_string_opt with
       | Some sid -> 
@@ -141,7 +133,6 @@ module Processor = struct
 
 
     let process_reg_eval engine clientid msg eval =
-      let%lwt _ = Logs_lwt.debug (fun m -> m "FES: processing REG_EVAL") in
       match get_path_payload msg with
       | Some p ->
         let workspace = workspace_from_props msg.header.properties in
@@ -152,7 +143,6 @@ module Processor = struct
       | None -> Lwt.return @@ reply_with_error msg BAD_REQUEST
 
     let process_unreg_eval engine clientid msg =
-      let%lwt _ = Logs_lwt.debug (fun m -> m "FES: processing UNREG_EVAL") in
       match get_path_payload msg with
       | Some p ->
         let workspace = workspace_from_props msg.header.properties in
@@ -163,7 +153,6 @@ module Processor = struct
       | None -> Lwt.return @@ reply_with_error msg BAD_REQUEST
 
     let process_eval engine clientid msg =
-      let%lwt _ = Logs_lwt.debug (fun m -> m "FES: processing EVAL") in
       match get_selector_payload msg with
       | Some s ->
         let workspace = workspace_from_props msg.header.properties in
@@ -174,7 +163,6 @@ module Processor = struct
       | None -> Lwt.return @@ reply_with_error msg BAD_REQUEST
 
     let process_values msg resolver =
-      let%lwt _ = Logs_lwt.debug (fun m -> m "FES: processing VALUES") in
       match get_path_value_list_payload msg with
       | Some ((_,v)::l) ->
         let%lwt _ = if List.length l > 0 then
@@ -191,7 +179,6 @@ module Processor = struct
         Lwt.return @@ reply_with_error msg BAD_REQUEST
 
     let process_error_on_eval msg resolver =
-      let%lwt _ = Logs_lwt.debug (fun m -> m "FES: processing ERROR in response of EVAL") in
       match get_error_info msg with
       | Some errcode ->
         let _ = Lwt.wakeup_later_exn resolver @@ YException (`InternalError (`Msg ("Received ERROR with code "^(error_code_to_string errcode)^"on eval "))) in
