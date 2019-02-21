@@ -598,23 +598,27 @@ module AdminSpace = struct
       | None -> 
         Logs_lwt.warn (fun m -> m "[YAdm]: Received data for key %s which I cannot store" key) 
 
-    let incoming_admin_query_handler admin resname predicate = 
-      let s = if predicate = "" then resname else resname ^"?"^predicate in
-      match Selector.of_string_opt s with
-      | Some selector ->
-        let%lwt _ = Logs_lwt.debug (fun m -> m "[YAdm]: handle remote query for %s" s) in
-        let%lwt kvs = get admin local_client selector in
-        let%lwt _ = Logs_lwt.debug (fun m -> m "[YAdm]: remote query for %s : replying with %d keys" s (List.length kvs)) in
-        let evs = List.map
-          (fun (path,value) ->
-            let spath = Path.to_string path in
-            let buf = Abuf.create ~grow:4096 4096 in
-            TimedValue.encode value buf; 
-            (spath, buf)) kvs in
-        Lwt.return evs
-      | _ ->
-        let%lwt _ = Logs_lwt.debug (fun m -> m "[YAdm]: Unable to resolve query for %s?%s" resname predicate) in
-        Lwt.return []
+    let incoming_admin_query_handler admin resname predicate =
+      if Astring.is_prefix ~affix:"/@/" resname then
+        begin
+          let s = if predicate = "" then resname else resname ^"?"^predicate in
+          match Selector.of_string_opt s with
+          | Some selector ->
+            let%lwt _ = Logs_lwt.debug (fun m -> m "[YAdm]: handle remote query for %s" s) in
+            let%lwt kvs = get admin local_client selector in
+            let%lwt _ = Logs_lwt.debug (fun m -> m "[YAdm]: remote query for %s : replying with %d keys" s (List.length kvs)) in
+            let evs = List.map
+              (fun (path,value) ->
+                let spath = Path.to_string path in
+                let buf = Abuf.create ~grow:4096 4096 in
+                TimedValue.encode value buf; 
+                (spath, buf)) kvs in
+            Lwt.return evs
+          | _ ->
+            let%lwt _ = Logs_lwt.debug (fun m -> m "[YAdm]: Unable to resolve query for %s?%s" resname predicate) in
+            Lwt.return []
+        end
+      else Lwt.return []
 
     let make yid hlc zenoh =
       let admin_prefix = "/@/"^(Uuid.to_string yid) in
