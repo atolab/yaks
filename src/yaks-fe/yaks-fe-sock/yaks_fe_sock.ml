@@ -41,7 +41,7 @@ module Make (YEngine : Yaks_engine.Engine.S) = struct
 
 
   let rec writer buf clientid sock msg =
-    let%lwt _ = Logs_lwt.debug (fun m -> m "[FES] send %s to %s" (message_id_to_string msg.header.mid) (ClientId.to_string clientid)) in
+    let%lwt _ = Logs_lwt.debug (fun m -> m "[FES] send %s #%Ld to %s" (message_id_to_string msg.header.mid) msg.header.corr_id (ClientId.to_string clientid)) in
     Abuf.clear buf; 
     (try encode_message_split msg buf |> Result.return
     with e -> Result.fail e)
@@ -92,7 +92,7 @@ module Make (YEngine : Yaks_engine.Engine.S) = struct
 
 
   let dispatch_message state engine clientid tx_sex msg =
-    let%lwt _ = Logs_lwt.debug (fun m -> m "[FES] received %s from %s" (message_id_to_string msg.header.mid) (ClientId.to_string clientid)) in
+    let%lwt _ = Logs_lwt.debug (fun m -> m "[FES] received %s #%Ld from %s" (message_id_to_string msg.header.mid) msg.header.corr_id (ClientId.to_string clientid)) in
     match msg.header.mid with 
     | LOGIN -> P.process_login engine clientid msg >|= fun response ->
       if response.header.mid = OK then Lwt.async (fun () -> Lwt.bind (TxSession.when_closed tx_sex) (fun _ -> P.process_logout engine clientid msg));
