@@ -1,9 +1,22 @@
+## 0.2.5 (2019-02-21)
+ - Fixed client hang when it invokes a remote eval function using a selector with wildcards (#22)
+ - Fixed cleanup of Zenoh subscriptions made for a client when this clients logtous (#23)
+ - Fixed Yaks to update its HLC for each received timestamp
+ - Fixed admin space to not answer remote (via Zenoh) 'get' operations made on '/**' 
+   (the admin space should only answer to selectors starting with '/@/')
+ - In yaks-python API:
+    - Fixed encoding of RAW Value when created with bytes
+    - Fixed decoding of an empty list of properties
+    - Fixed concurrency issue when sending messages to the Socket frontend
+ - Updated Zenoh to 0.2.3 which brings these changes:
+    - Better performances (throughput) via changes in buffers and I/O management
+
 ## 0.2.4 (2019-02-11)
  - Added storage alignement: when a storage is created, it first retrieves already existing key/values from remote storages (#16).
  - Fixed warning *InternalError (Msg ("No frontend with id: Yaks"))* displayed when a subscriber is not reachable (#15).
  - Fixed the automatic session/subscriptions/eval removal whenever a TCP client is disconnected (#17).
  - Fixed calls to a remote *eval* function (via Zenoh) that returned nothing (#19).
- - Updated Zenoh to 0.2.2 which brings these changes
+ - Updated Zenoh to 0.2.2 which brings these changes:
     - Fix bug when multiple storage declarations in the same client
     - Fix bugs in high throughput situations
 
