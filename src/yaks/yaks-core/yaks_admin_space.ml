@@ -582,7 +582,8 @@ module AdminSpace = struct
         Lwt.fail @@ YException (`InternalError (`Msg ("put on remote Yaks admin not yet implemented")))
 
 
-    let incoming_admin_storage_data_handler admin (sample:Abuf.t) (key:string) =
+    let incoming_admin_storage_data_handler admin (samples:Abuf.t list) (key:string) =
+      Lwt_list.iter_s (fun sample -> 
       let%lwt _ = Logs_lwt.debug (fun m -> m "[YAdm]: Received remote update for key %s" key) in
       match Path.of_string_opt key with
       | Some path -> 
@@ -596,7 +597,7 @@ module AdminSpace = struct
         | Error e ->
           Logs_lwt.warn (fun m -> m "[YAdm]: Failed to decode TimedValue.t received for key %s: %s" key (Printexc.to_string e)))
       | None -> 
-        Logs_lwt.warn (fun m -> m "[YAdm]: Received data for key %s which I cannot store" key) 
+        Logs_lwt.warn (fun m -> m "[YAdm]: Received data for key %s which I cannot store" key)) samples 
 
     let incoming_admin_query_handler admin resname predicate =
       if Astring.is_prefix ~affix:"/@/" resname then

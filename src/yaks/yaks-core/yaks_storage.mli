@@ -40,7 +40,7 @@ module Storage : sig
 
   val remove : t -> Path.t -> unit Lwt.t
 
-  val on_zenoh_write : t -> Abuf.t -> string -> unit Lwt.t
+  val on_zenoh_write : t -> Abuf.t list -> string -> unit Lwt.t
   val on_zenoh_query : t -> string -> string -> (string * Abuf.t) list Lwt.t
   val align : t -> Zenoh.t -> Selector.t -> unit Lwt.t
 

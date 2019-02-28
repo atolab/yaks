@@ -61,9 +61,10 @@ let write path value zenoh =
 let subscribe zenoh selector is_push notify_call =
   let open Lwt.Infix in
   let sub_mode = if is_push then Zenoh.push_mode else Zenoh.pull_mode in
-  let listener buf path = 
-    Lwt.catch (fun () -> TimedValue.decode buf |> Lwt.return) 
-              (fun e -> Logs_lwt.warn (fun m -> m "Error while decoding value received for Zenoh subscription: \n%s" (Printexc.to_string e)) >>= fun () -> Lwt.fail e) >>= fun tv ->
-    notify_call [(Path.of_string path, tv.value)]
+  let listener bufs path = 
+    Lwt_list.iter_s (fun buf ->
+        Lwt.catch (fun () -> TimedValue.decode buf |> Lwt.return) 
+                (fun e -> Logs_lwt.warn (fun m -> m "Error while decoding value received for Zenoh subscription: \n%s" (Printexc.to_string e)) >>= fun () -> Lwt.fail e) >>= fun tv ->
+        notify_call [(Path.of_string path, tv.value)]) bufs
   in
   Zenoh.subscribe (Selector.to_string selector) listener ~mode:sub_mode zenoh
