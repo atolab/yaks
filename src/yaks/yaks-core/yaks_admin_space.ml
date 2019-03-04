@@ -568,8 +568,9 @@ module AdminSpace = struct
       else
         Lwt.fail @@ YException (`InternalError (`Msg ("put on remote Yaks admin not yet implemented")))
 
-    let remove admin (clientid:ClientId.t) path =
+    let remove admin (clientid:ClientId.t) path time =
       let _ = ignore clientid in  (* will be used for access control*)
+      let _ = ignore time in (* TODO: removed map ?? *)
       let%lwt _ = Logs_lwt.debug (fun m -> m "[Yadm] %s: remove %s" (ClientId.to_string clientid) (Path.to_string path)) in
       let self = Guard.get admin in 
       if Astring.is_prefix ~affix:self.admin_prefix (Path.to_string path) then

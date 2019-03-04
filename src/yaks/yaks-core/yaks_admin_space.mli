@@ -19,7 +19,7 @@ module AdminSpace : sig
 
     val get : t -> ClientId.t -> Selector.t -> (Path.t * TimedValue.t) list  Lwt.t
     val put : t -> ClientId.t -> Path.t -> TimedValue.t -> unit Lwt.t
-    val remove : t -> ClientId.t -> Path.t -> unit Lwt.t
+    val remove : t -> ClientId.t -> Path.t -> Timestamp.t -> unit Lwt.t
 
     val create_subscriber : t -> ClientId.t -> Selector.t -> bool -> notify_subscriber -> SubscriberId.t Lwt.t  
     val remove_subscriber : t -> ClientId.t -> SubscriberId.t -> unit Lwt.t

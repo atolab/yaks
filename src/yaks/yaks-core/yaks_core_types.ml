@@ -65,18 +65,22 @@ module Timestamp = HLC.Timestamp
 
 module TimedValue = struct
 
-    type t = { time:Timestamp.t; value:Value.t }
+  type t = { time:Timestamp.t; value:Value.t }
 
-    let encode tv buf = 
-      Timestamp.encode tv.time buf;
-      Yaks_fe_sock_codec.encode_value tv.value buf
+  let encode tv buf = 
+    Timestamp.encode tv.time buf;
+    Yaks_fe_sock_codec.encode_value tv.value buf
 
-    let decode buf =
-      Timestamp.decode buf |> fun time ->
-      Yaks_fe_sock_codec.decode_value buf |> fun value ->
-      {time; value}
+  let decode buf =
+    Timestamp.decode buf |> fun time ->
+    Yaks_fe_sock_codec.decode_value buf |> fun value ->
+    {time; value}
 
-    let preceeds ~first ~second = Timestamp.compare first.time second.time < 0
-    (** [preceeds first second] returns true if timestamp of [first] < timestamp of [second] *)
+  let update tv ~delta =
+    let open Result.Infix in
+    Value.update tv.value delta.value >>> fun v -> { time=delta.time; value=v }
+
+  let preceeds ~first ~second = Timestamp.compare first.time second.time < 0
+  (** [preceeds first second] returns true if timestamp of [first] < timestamp of [second] *)
 
 end

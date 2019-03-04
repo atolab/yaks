@@ -16,7 +16,7 @@ module Storage = struct
     ; get : Selector.t -> (Path.t * TimedValue.t) list Lwt.t
     ; put : Path.t -> TimedValue.t -> unit Lwt.t 
     ; put_delta : Path.t -> TimedValue.t -> unit Lwt.t 
-    ; remove : Path.t -> unit Lwt.t
+    ; remove : Path.t -> Timestamp.t -> unit Lwt.t
     ; as_string : string
     }
 
