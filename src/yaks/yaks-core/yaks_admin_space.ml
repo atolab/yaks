@@ -191,7 +191,7 @@ module AdminSpace = struct
           match self.zenoh with 
           | Some zenoh ->
             Storage.align storage zenoh selector >>
-            Zenoh.store (Selector.to_string selector) (Storage.on_zenoh_write storage) (Storage.on_zenoh_query storage) zenoh >>=
+            Zenoh.store zenoh (Selector.to_string selector) (Storage.on_zenoh_write storage) (Storage.on_zenoh_query storage) >>=
             Lwt.return_some
           | None -> Lwt.return_none
         in
@@ -220,7 +220,7 @@ module AdminSpace = struct
         let open Apero.Option.Infix in 
         let _ = self.zenoh 
         >>= fun zenoh -> 
-          zenoh_storage >|= fun storage ->  Zenoh.unstore storage zenoh 
+          zenoh_storage >|= fun storage ->  Zenoh.unstore zenoh storage 
         in 
         Guard.return () { self with backends = BackendMap.add beid' be' self.backends; kvs}
       | None -> 
@@ -308,7 +308,7 @@ module AdminSpace = struct
 
     let remove_zenoh_subscriber zenoh subscriber =
       match subscriber.zenoh_sub with
-      | Some sub -> Zenoh.unsubscribe sub zenoh
+      | Some sub -> Zenoh.unsubscribe zenoh sub
       | None -> Lwt.return_unit
 
      let remove_subscriber admin (clientid:ClientId.t) subid =
@@ -368,7 +368,7 @@ module AdminSpace = struct
     (*****************************)
     let remove_zenoh_eval zenoh eval =
       match eval with
-      | (_, Some zstore) -> Zenoh.unstore zstore zenoh
+      | (_, Some zstore) -> Zenoh.unstore zenoh zstore
       | _, _ -> Lwt.return_unit
 
     let remove_eval admin (clientid:ClientId.t) path =
@@ -416,7 +416,7 @@ module AdminSpace = struct
       |> List.map (fun (p,l) -> invoke p l (max multiplicity @@ List.length l) |> LwtM.flatten >>= fun l' -> Lwt.return (p,l'))
       |> LwtM.flatten
 
-    let incoming_eval_data_handler _ resname =
+    let incoming_eval_data_handler resname _ =
       let%lwt _ = Logs_lwt.warn (fun m -> m "[YAdm]: Received pushed data for eval %s - Ignore it!!" resname) in
       Lwt.return_unit (* Eval should never get value "put" *)
 
@@ -433,7 +433,7 @@ module AdminSpace = struct
           let spath = Path.to_string path in
           let buf = Abuf.create ~grow:4096 4096 in
           encode_value value buf;
-          Lwt.return [(spath, buf)]
+          Lwt.return [(spath, buf, Ztypes.empty_data_info)]
         | _ -> 
           let%lwt _ = Logs_lwt.debug (fun m -> m "[YAdm]: Unable to run eval for %s - not a Selector" s) in
           Lwt.return []
@@ -448,7 +448,7 @@ module AdminSpace = struct
             transition to that abstraction to avoid bu construction the progagation of spurious values.
           - The Zenoh storage selector for eval is the eval's path prefixed with '+'
       *)
-      | Some zenoh -> Zenoh.store ("+"^(Path.to_string path)) incoming_eval_data_handler (incoming_eval_query_handler path eval_call) zenoh >>= Lwt.return_some
+      | Some zenoh -> Zenoh.store zenoh ("+"^(Path.to_string path)) incoming_eval_data_handler (incoming_eval_query_handler path eval_call) >>= Lwt.return_some
       | None -> Lwt.return_none
 
     let create_eval admin (clientid:ClientId.t) path (eval:eval_function) =
@@ -583,22 +583,22 @@ module AdminSpace = struct
         Lwt.fail @@ YException (`InternalError (`Msg ("put on remote Yaks admin not yet implemented")))
 
 
-    let incoming_admin_storage_data_handler admin (samples:Abuf.t list) (key:string) =
-      Lwt_list.iter_s (fun sample -> 
-      let%lwt _ = Logs_lwt.debug (fun m -> m "[YAdm]: Received remote update for key %s" key) in
-      match Path.of_string_opt key with
-      | Some path -> 
-        ((try TimedValue.decode sample |> Result.return with e -> Error e) |> function
-        | Ok v ->
-          let self = Guard.get admin in
-          (match%lwt HLC.update_with_timestamp v.time self.hlc with
-          | Ok () -> put admin local_client path v
-          | Error e -> 
-            Logs_lwt.warn (fun m -> m "[YAdm]: Remote update for key %s refused: timestamp differs too much from local clock: %s" key (Apero.show_error e)))
-        | Error e ->
-          Logs_lwt.warn (fun m -> m "[YAdm]: Failed to decode TimedValue.t received for key %s: %s" key (Printexc.to_string e)))
-      | None -> 
-        Logs_lwt.warn (fun m -> m "[YAdm]: Received data for key %s which I cannot store" key)) samples 
+    let incoming_admin_storage_data_handler admin (key:string) (samples:(Abuf.t * Ztypes.data_info) list) =
+      Lwt_list.iter_s (fun (sample, _) -> 
+        let%lwt _ = Logs_lwt.debug (fun m -> m "[YAdm]: Received remote update for key %s" key) in
+        match Path.of_string_opt key with
+        | Some path -> 
+          ((try TimedValue.decode sample |> Result.return with e -> Error e) |> function
+          | Ok v ->
+            let self = Guard.get admin in
+            (match%lwt HLC.update_with_timestamp v.time self.hlc with
+            | Ok () -> put admin local_client path v
+            | Error e -> 
+              Logs_lwt.warn (fun m -> m "[YAdm]: Remote update for key %s refused: timestamp differs too much from local clock: %s" key (Apero.show_error e)))
+          | Error e ->
+            Logs_lwt.warn (fun m -> m "[YAdm]: Failed to decode TimedValue.t received for key %s: %s" key (Printexc.to_string e)))
+        | None -> 
+          Logs_lwt.warn (fun m -> m "[YAdm]: Received data for key %s which I cannot store" key)) samples 
 
     let incoming_admin_query_handler admin resname predicate =
       if Astring.is_prefix ~affix:"/@/" resname then
@@ -614,7 +614,7 @@ module AdminSpace = struct
                 let spath = Path.to_string path in
                 let buf = Abuf.create ~grow:4096 4096 in
                 TimedValue.encode value buf; 
-                (spath, buf)) kvs in
+                (spath, buf, Ztypes.empty_data_info)) kvs in
             Lwt.return evs
           | _ ->
             let%lwt _ = Logs_lwt.debug (fun m -> m "[YAdm]: Unable to resolve query for %s?%s" resname predicate) in
@@ -648,7 +648,7 @@ module AdminSpace = struct
       let zenoh_storage_lwt = match zenoh with  
       | Some z -> 
         let selector = (admin_prefix ^ "/**") in
-        let%lwt s = Zenoh.store selector (incoming_admin_storage_data_handler admin) (incoming_admin_query_handler admin) z in
+        let%lwt s = Zenoh.store z selector (incoming_admin_storage_data_handler admin) (incoming_admin_query_handler admin) in
         Lwt.return @@ Some s
       | None -> Lwt.return None 
       in 

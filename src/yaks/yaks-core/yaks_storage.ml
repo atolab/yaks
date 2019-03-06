@@ -44,8 +44,8 @@ module Storage = struct
   let remove s = s.remove
 
 
-  let on_zenoh_write s (samples:Abuf.t list) (key:string) =
-    Lwt_list.iter_s (fun sample -> 
+  let on_zenoh_write s (key:string) (samples:(Abuf.t * Ztypes.data_info) list) =
+    Lwt_list.iter_s (fun (sample, _) -> 
       let%lwt _ = Logs_lwt.debug (fun m -> m "[Sto] %s: Received remote update for key %s" (Id.to_string s.id) key) in
       match Path.of_string_opt key with 
       | Some path ->
@@ -69,7 +69,7 @@ module Storage = struct
           let spath = Path.to_string path in
           let buf = Abuf.create ~grow:4096 4096 in 
           TimedValue.encode value buf;
-          (spath, buf)) kvs in
+          (spath, buf, Ztypes.empty_data_info)) kvs in
       Lwt.return evs 
     | _ -> 
       let%lwt _ = Logs_lwt.debug (fun m -> m "[Sto] %s: Unable to resolve query for %s - not a Selector" (Id.to_string s.id) sel) in 
@@ -78,8 +78,8 @@ module Storage = struct
   let align s zenoh selector =
     let%lwt _ = Logs_lwt.debug (fun m -> m "[Sto] %s: align with remote storages..." (Id.to_string s.id)) in
     (* create a temporary Zenoh listener (to not miss ongoing updates) *)
-    let listener bufs path =
-      Lwt_list.iter_s (fun buf -> 
+    let listener path samples =
+      Lwt_list.iter_s (fun (buf, _) -> 
         if Astring.is_prefix ~affix:"/@" path then Lwt.return_unit
         else 
         (try TimedValue.decode buf |> Result.return with e -> Error e)|> function 
@@ -87,9 +87,9 @@ module Storage = struct
           (match%lwt HLC.update_with_timestamp tv.time s.hlc with
           | Ok () -> put s (Path.of_string path) tv
           | Error e -> Logs_lwt.warn (fun m -> m "[Sto] %s: align refuses update for key %s: timestamp differs too much from local clock: %s" (Id.to_string s.id) path (Apero.show_error e)))
-        | Error e -> Logs_lwt.warn (fun m -> m "[Sto] %s: Error while decoding value received for alignment: \n%s"  (Id.to_string s.id) (Printexc.to_string e))) bufs
+        | Error e -> Logs_lwt.warn (fun m -> m "[Sto] %s: Error while decoding value received for alignment: \n%s"  (Id.to_string s.id) (Printexc.to_string e))) samples
     in
-    let%lwt tmp_sub = Zenoh.subscribe (Selector.to_string selector) listener ~mode:Zenoh.push_mode zenoh in
+    let%lwt tmp_sub = Zenoh.subscribe zenoh (Selector.to_string selector) listener ~mode:Zenoh.push_mode in
     (* query the remote storages (to get historical data) *)
     let%lwt kvs = Yaks_zenoh_utils.query zenoh selector TimedValue.decode in
     let%lwt () = List.map (fun (path, (tv:TimedValue.t)) ->
@@ -106,7 +106,7 @@ module Storage = struct
     let%lwt _ = Logs_lwt.debug (fun m -> m "[Sto] %s: alignment done" (Id.to_string s.id)) in
     let open Apero.LwtM.InfixM in
     (* program the removal of the temporary Zenoh listener after a while *)
-    Lwt.async (fun() -> Lwt_unix.sleep 10.0 >> Zenoh.unsubscribe tmp_sub zenoh);
+    Lwt.async (fun() -> Lwt_unix.sleep 10.0 >> Zenoh.unsubscribe zenoh tmp_sub);
     Lwt.return_unit
 
 end  [@@deriving show]
