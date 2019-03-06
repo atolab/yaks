@@ -16,8 +16,8 @@ module Make (YEngine : Yaks_engine.Engine.S) = struct
 
   
   type t = 
-    { tcp_fe: NetServiceTcp.t
-    ; io_svc: NetServiceTcp.io_service }
+    { tcp_fe: unit NetServiceTcp.t
+    ; io_svc: unit NetServiceTcp.io_service }
 
   module WorkingMap = Map.Make(Apero.Vle)
 
@@ -170,7 +170,7 @@ module Make (YEngine : Yaks_engine.Engine.S) = struct
 
   let start svc = 
     let _ = Logs_lwt.debug (fun m -> m "[FES] Sock-FE starting TCP/IP server") in
-    NetServiceTcp.start svc.tcp_fe svc.io_svc
+    NetServiceTcp.start svc.tcp_fe (fun _ -> Lwt.return_unit) svc.io_svc
 
   let stop svc = NetServiceTcp.stop svc.tcp_fe
 
