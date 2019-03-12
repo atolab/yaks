@@ -40,8 +40,7 @@ module Storage : sig
 
   val remove : t -> Path.t -> Timestamp.t -> unit Lwt.t
 
-  val on_zenoh_write : t -> string -> (Abuf.t * Ztypes.data_info) list -> unit Lwt.t
-  val on_zenoh_query : t -> string -> string -> (string * Abuf.t * Ztypes.data_info) list Lwt.t
+  val on_zenoh_write : t -> Path.t -> change list -> unit Lwt.t
   val align : t -> Zenoh.t -> Selector.t -> unit Lwt.t
 
 end  [@@deriving show]

@@ -94,6 +94,37 @@ let subscribe zenoh hlc selector is_push notify_call =
   in
   Zenoh.subscribe zenoh (Selector.to_string selector) listener ~mode:sub_mode
 
+let unsubscribe = Zenoh.unsubscribe
+
+
+let store zenoh hlc selector (sublistener:Path.t -> change list -> unit Lwt.t) (query_handler:Selector.t -> (Path.t * TimedValue.t) list Lwt.t) =
+  let zsublistener (resname:string) (samples:(Abuf.t * Ztypes.data_info) list) =
+    let open Lwt.Infix in
+    match Path.of_string_opt resname with
+    | Some path -> decode_changes hlc samples >>= sublistener path
+    | None -> let _ = Logs_lwt.warn (fun m -> m "[Zenh]: Store received data for resource %s which is not a valid path" resname) in Lwt.return_unit
+  in
+  let zquery_handler resname predicate =
+    let s = if predicate = "" then resname else resname ^"?"^predicate in
+    match Selector.of_string_opt s with
+    | Some selector ->
+      let%lwt kvs = query_handler selector in
+      Lwt.return @@ List.map (fun ((path,tv):(Path.t*TimedValue.t)) ->
+        let spath = Path.to_string path in
+        let encoding = Some(encoding_to_flag tv.value) in
+        let data_info = { Ztypes.empty_data_info with encoding; ts=Some(tv.time) } in
+        let buf = Abuf.create ~grow:8192 8192 in
+        encode_value tv.value buf;
+        (spath, buf, data_info)) kvs
+    | None -> let _ = Logs_lwt.warn (fun m -> m "[Zenh]: Store received query for resource/predicate %s?%s which is not a valid selector" resname predicate) in Lwt.return []
+
+  in
+  Zenoh.store zenoh (Selector.to_string selector) zsublistener zquery_handler
+
+let unstore = Zenoh.unstore
+
+
+
 let send_put path (tv:TimedValue.t) zenoh =
   let res = Path.to_string path in
   let buf = Abuf.create ~grow:8192 8192 in

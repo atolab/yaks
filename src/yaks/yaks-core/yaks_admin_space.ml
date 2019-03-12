@@ -191,7 +191,7 @@ module AdminSpace = struct
           match self.zenoh with 
           | Some zenoh ->
             Storage.align storage zenoh selector >>
-            Zenoh.store zenoh (Selector.to_string selector) (Storage.on_zenoh_write storage) (Storage.on_zenoh_query storage) >>=
+            ZUtils.store zenoh self.hlc selector (Storage.on_zenoh_write storage) (Storage.get storage) >>=
             Lwt.return_some
           | None -> Lwt.return_none
         in
@@ -220,7 +220,7 @@ module AdminSpace = struct
         let open Apero.Option.Infix in 
         let _ = self.zenoh 
         >>= fun zenoh -> 
-          zenoh_storage >|= fun storage ->  Zenoh.unstore zenoh storage 
+          zenoh_storage >|= fun storage ->  ZUtils.unstore zenoh storage 
         in 
         Guard.return () { self with backends = BackendMap.add beid' be' self.backends; kvs}
       | None -> 
@@ -308,7 +308,7 @@ module AdminSpace = struct
 
     let remove_zenoh_subscriber zenoh subscriber =
       match subscriber.zenoh_sub with
-      | Some sub -> Zenoh.unsubscribe zenoh sub
+      | Some sub -> ZUtils.unsubscribe zenoh sub
       | None -> Lwt.return_unit
 
      let remove_subscriber admin (clientid:ClientId.t) subid =
@@ -368,7 +368,7 @@ module AdminSpace = struct
     (*****************************)
     let remove_zenoh_eval zenoh eval =
       match eval with
-      | (_, Some zstore) -> Zenoh.unstore zenoh zstore
+      | (_, Some zstore) -> ZUtils.unstore zenoh zstore
       | _, _ -> Lwt.return_unit
 
     let remove_eval admin (clientid:ClientId.t) path =
@@ -416,39 +416,34 @@ module AdminSpace = struct
       |> List.map (fun (p,l) -> invoke p l (max multiplicity @@ List.length l) |> LwtM.flatten >>= fun l' -> Lwt.return (p,l'))
       |> LwtM.flatten
 
-    let incoming_eval_data_handler resname _ =
-      let%lwt _ = Logs_lwt.warn (fun m -> m "[YAdm]: Received pushed data for eval %s - Ignore it!!" resname) in
+    let incoming_eval_data_handler path _ =
+      let%lwt _ = Logs_lwt.warn (fun m -> m "[YAdm]: Received pushed data for eval %s - Ignore it!!" (Path.to_string path)) in
       Lwt.return_unit (* Eval should never get value "put" *)
 
-    let incoming_eval_query_handler path (eval_call:eval_call) resname predicate = 
-      let%lwt _ = Logs_lwt.debug (fun m -> m "[YAdm]: Handling remote Zenoh query on eval '%s' for '%s' '%s'" (Path.to_string path) resname predicate) in
-      if Astring.is_prefix ~affix:"+" resname then
-        let resname = Astring.with_range ~first:1 resname in
-        let s = if String.length predicate = 0 then resname else resname ^"?"^predicate in
-        match Selector.of_string_opt s with
-        | Some selector ->
-          let open Yaks_fe_sock_codec in
-          (* Note: we can't use the received selector; we must use the registered eval's path adding the properties *)
-          let%lwt value = eval_call (Selector.with_path path selector) in
-          let spath = Path.to_string path in
-          let buf = Abuf.create ~grow:4096 4096 in
-          encode_value value buf;
-          Lwt.return [(spath, buf, Ztypes.empty_data_info)]
-        | _ -> 
-          let%lwt _ = Logs_lwt.debug (fun m -> m "[YAdm]: Unable to run eval for %s - not a Selector" s) in
-          Lwt.return []
+    let zenoh_eval_prefix = "+"
+
+    let incoming_eval_query_handler path hlc (eval_call:eval_call) zselector = 
+      let%lwt _ = Logs_lwt.debug (fun m -> m "[YAdm]: Handling remote Zenoh query on eval '%s' for '%s'" (Path.to_string path) (Selector.to_string zselector)) in
+      if Astring.is_prefix ~affix:zenoh_eval_prefix (Selector.path zselector) then
+        let selector = Selector.of_string @@ Astring.with_range ~first:1 (Selector.to_string zselector) in
+        let%lwt value = eval_call (Selector.with_path path selector) in
+        let%lwt time = HLC.new_timestamp hlc in
+        let (tv:TimedValue.t) =  {time; value} in
+        Lwt.return [path, tv]
       else
-        let%lwt _ = Logs_lwt.debug (fun m -> m "[YAdm]: Internal error the Zenoh resource name for eval doesn't start with + : %s" resname) in
+        let%lwt _ = Logs_lwt.err (fun m -> m "[YAdm]: Internal error the Zenoh resource name for eval doesn't start with + : %s" (Selector.to_string zselector)) in
         Lwt.return []
 
-    let create_zenoh_eval zenoh_opt path eval_call =
+    let create_zenoh_eval zenoh_opt hlc path eval_call =
       match zenoh_opt with
       (* NB:
           - Currently an eval is represented with a storage, once zenoh will support something like evals, we'll
             transition to that abstraction to avoid bu construction the progagation of spurious values.
           - The Zenoh storage selector for eval is the eval's path prefixed with '+'
       *)
-      | Some zenoh -> Zenoh.store zenoh ("+"^(Path.to_string path)) incoming_eval_data_handler (incoming_eval_query_handler path eval_call) >>= Lwt.return_some
+      | Some zenoh ->
+        let zenoh_eval_path = Selector.add_prefix ~prefix:(Path.of_string zenoh_eval_prefix) (Selector.of_path path) in
+        ZUtils.store zenoh hlc zenoh_eval_path incoming_eval_data_handler (incoming_eval_query_handler path hlc eval_call) >>= Lwt.return_some
       | None -> Lwt.return_none
 
     let create_eval admin (clientid:ClientId.t) path (eval:eval_function) =
@@ -466,7 +461,7 @@ module AdminSpace = struct
       Guard.guarded admin 
       @@ fun self ->
         let%lwt (fe, s) = get_frontend_session self clientid.feid clientid.sid in
-        let%lwt zenoh_eval = create_zenoh_eval self.zenoh path eval_call in
+        let%lwt zenoh_eval = create_zenoh_eval self.zenoh self.hlc path eval_call in
         let s' = { s with evals = EvalMap.add path (eval_call, zenoh_eval) s.evals } in
         let fe' = {fe with sessions = SessionMap.add clientid.sid s' fe.sessions} in
         let kvs = kvmap_add
@@ -583,48 +578,28 @@ module AdminSpace = struct
         Lwt.fail @@ YException (`InternalError (`Msg ("put on remote Yaks admin not yet implemented")))
 
 
-    let incoming_admin_storage_data_handler admin (key:string) (samples:(Abuf.t * Ztypes.data_info) list) =
-      let%lwt _ = Logs_lwt.debug (fun m -> m "[YAdm]: Received remote changes for key %s" key) in
-      match Path.of_string_opt key with
-      | Some path ->
+    let incoming_admin_storage_data_handler admin (path:Path.t) (changes:change list) =
+      let%lwt _ = Logs_lwt.debug (fun m -> m "[YAdm]: Received remote changes for key %s" (Path.to_string path)) in
         let self = Guard.get admin in
         let check_time_validity time =
           match%lwt HLC.update_with_timestamp time self.hlc with
           | Ok () -> Lwt.return_true
-          | Error e -> let _ = Logs_lwt.warn (fun m -> m "[Yadm]: Incoming change from Zenoh for key %s refused: timestamp differs too much from local clock: %s" key (Apero.show_error e)) in Lwt.return_false
+          | Error e -> let _ = Logs_lwt.warn (fun m -> m "[Yadm]: Incoming change from Zenoh for %s refused: timestamp differs too much from local clock: %s" (Path.to_string path) (Apero.show_error e)) in Lwt.return_false
         in
-        ZUtils.decode_changes self.hlc samples >>=
         Lwt_list.iter_s (function
           | Put(tv)      -> if%lwt check_time_validity tv.time then put admin local_client path tv
           | Remove(time) -> if%lwt check_time_validity time then remove admin local_client path time
-          | Update(_)    -> let _ = Logs_lwt.warn (fun m -> m "[YAdm]: Received update for key %s : only put or remove are supported by Admin space" key) in Lwt.return_unit
-        )
-      | None -> 
-        let _ = Logs_lwt.warn (fun m -> m "[YAdm]: Received data for key %s which I cannot store" key) in Lwt.return_unit
+          | Update(_)    -> let _ = Logs_lwt.warn (fun m -> m "[YAdm]: Received update for %s : only put or remove are supported by Admin space" (Path.to_string path)) in Lwt.return_unit
+        ) changes
 
-    let incoming_admin_query_handler admin resname predicate =
-      if Astring.is_prefix ~affix:"/@/" resname then
+    let incoming_admin_query_handler admin selector =
+      (* NOTE: check if selector starts with "/@/"" to not answer to "/**"" queries *)
+      if Astring.is_prefix ~affix:"/@/" (Selector.path selector) then
         begin
-          let s = if predicate = "" then resname else resname ^"?"^predicate in
-          match Selector.of_string_opt s with
-          | Some selector ->
-            let%lwt _ = Logs_lwt.debug (fun m -> m "[YAdm]: handle remote query for %s" s) in
-            let%lwt kvs = get admin local_client selector in
-            let%lwt _ = Logs_lwt.debug (fun m -> m "[YAdm]: remote query for %s : replying with %d keys" s (List.length kvs)) in
-            let evs = List.map
-              (fun ((path,tv):(Path.t*TimedValue.t)) ->
-                let spath = Path.to_string path in
-                let encoding = Some(ZUtils.encoding_to_flag tv.value) in
-                let data_info = { Ztypes.empty_data_info with encoding; ts=Some(tv.time) } in
-                let buf = Abuf.create ~grow:8192 8192 in
-                ZUtils.encode_value tv.value buf;
-                (spath, buf, data_info)) kvs in
-            Lwt.return evs
-          | _ ->
-            let%lwt _ = Logs_lwt.debug (fun m -> m "[YAdm]: Unable to resolve query for %s?%s" resname predicate) in
-            Lwt.return []
+          get admin local_client selector
         end
-      else Lwt.return []
+      else
+        Lwt.return []
 
     let make yid hlc zenoh =
       let admin_prefix = "/@/"^(Uuid.to_string yid) in
@@ -651,8 +626,8 @@ module AdminSpace = struct
       in 
       let zenoh_storage_lwt = match zenoh with  
       | Some z -> 
-        let selector = (admin_prefix ^ "/**") in
-        let%lwt s = Zenoh.store z selector (incoming_admin_storage_data_handler admin) (incoming_admin_query_handler admin) in
+        let selector = Selector.of_string @@ admin_prefix^"/**" in
+        let%lwt s = ZUtils.store z hlc selector (incoming_admin_storage_data_handler admin) (incoming_admin_query_handler admin) in
         Lwt.return @@ Some s
       | None -> Lwt.return None 
       in 

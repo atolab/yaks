@@ -85,7 +85,6 @@ let get_key_status ?(with_value=false) storage_info key =
 
 
 let do_sql_put storage_info key tv =
-  let _ = Logs_lwt.debug (fun m -> m "[SQL] ***** do_sql_put %s" key) in
   Caqti_driver.put storage_info.connection storage_info.table_name storage_info.schema (key::(sql_values_from_timed_value tv)) ()
 
 let put storage_info (path:Path.t) (tv:TimedValue.t) =

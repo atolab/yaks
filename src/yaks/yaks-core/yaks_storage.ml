@@ -45,43 +45,17 @@ module Storage = struct
   let remove s = s.remove
 
 
-  let on_zenoh_write s (resid:string) (samples:(Abuf.t * Ztypes.data_info) list) =
-    let open Lwt.Infix in
+  let on_zenoh_write s path changes =
     let check_time_validity time =
       match%lwt HLC.update_with_timestamp time s.hlc with
       | Ok () -> Lwt.return_true
-      | Error e -> let _ = Logs_lwt.warn (fun m -> m "[Sto] %s: Remote change for key %s refused: timestamp differs too much from local clock: %s" (Id.to_string s.id) resid (Apero.show_error e)) in Lwt.return_false
+      | Error e -> let _ = Logs_lwt.warn (fun m -> m "[Sto] %s: Remote change for path %s refused: timestamp differs too much from local clock: %s" (Id.to_string s.id) (Path.to_string path) (Apero.show_error e)) in Lwt.return_false
     in
-    match Path.of_string_opt resid with
-    | Some path ->
-      ZUtils.decode_changes s.hlc samples >>=
-      Lwt_list.iter_s (function
-        | Put(tv)      -> if%lwt check_time_validity tv.time then put s path tv
-        | Update(tv)   -> if%lwt check_time_validity tv.time then update s path tv
-        | Remove(time) -> if%lwt check_time_validity time then remove s path time
-      )
-    | None -> let _ = Logs_lwt.err (fun m -> m "[Sto] %s: INTERNAL ERROR receiving data via Zenoh for an invalid path: %s" (Id.to_string s.id) resid) in Lwt.return_unit
-
-  let on_zenoh_query s resname predicate = 
-    let sel = if predicate = "" then resname else resname ^"?"^predicate in 
-    let%lwt _ = Logs_lwt.debug (fun m -> m "[Sto] %s: Handling remote query on storage for %s?%s" (Id.to_string s.id) resname predicate) in 
-    match Selector.of_string_opt sel with 
-    | Some selector ->
-      let%lwt (kvs:(Path.t*TimedValue.t) list) = get s selector in
-      let evs = List.map
-        (fun ((path,tv):(Path.t*TimedValue.t)) ->
-          let spath = Path.to_string path in
-          let encoding = Some(ZUtils.encoding_to_flag tv.value) in
-          let data_info = { Ztypes.empty_data_info with encoding; ts=Some(tv.time) } in
-          let buf = Abuf.create ~grow:8192 8192 in
-          ZUtils.encode_value tv.value buf;
-          (spath, buf, data_info)) kvs
-      in
-      Lwt.return evs 
-    | _ -> 
-      let%lwt _ = Logs_lwt.debug (fun m -> m "[Sto] %s: Unable to resolve query for %s - not a Selector" (Id.to_string s.id) sel) in 
-      Lwt.return []
-
+    Lwt_list.iter_s (function
+      | Put(tv)      -> if%lwt check_time_validity tv.time then put s path tv
+      | Update(tv)   -> if%lwt check_time_validity tv.time then update s path tv
+      | Remove(time) -> if%lwt check_time_validity time then remove s path time
+    ) changes
 
   let align s zenoh selector =
     let%lwt _ = Logs_lwt.debug (fun m -> m "[Sto] %s: align with remote storages..." (Id.to_string s.id)) in
@@ -118,7 +92,7 @@ module Storage = struct
     let%lwt _ = Logs_lwt.debug (fun m -> m "[Sto] %s: alignment done" (Id.to_string s.id)) in
     let open Apero.LwtM.InfixM in
     (* program the removal of the temporary Zenoh listener after a while *)
-    Lwt.async (fun() -> Lwt_unix.sleep 10.0 >> Zenoh.unsubscribe zenoh tmp_sub);
+    Lwt.async (fun() -> Lwt_unix.sleep 10.0 >> ZUtils.unsubscribe zenoh tmp_sub);
     Lwt.return_unit
 
 end  [@@deriving show]
