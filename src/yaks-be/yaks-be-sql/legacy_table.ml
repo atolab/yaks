@@ -21,7 +21,7 @@ let put_sql_table storage_info (path:Path.t) (value:Value.t) =
     let%lwt _ = Logs_lwt.debug (fun m -> m "[SQL]: put(%s) into legacy table %s"
                 (Path.to_string path) (storage_info.table_name)) in
     let open Value in 
-    match transcode value Sql_Encoding with 
+    match transcode value SQL with 
     | Ok SqlValue (row, _) -> Caqti_driver.put storage_info.connection storage_info.table_name storage_info.schema row ()
     | Ok _ -> Lwt.fail @@ YException (`UnsupportedTranscoding (`Msg "Transcoding to SQL didn't return an SqlValue"))
     | Error e -> Lwt.fail @@ YException e

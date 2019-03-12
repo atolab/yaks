@@ -25,7 +25,7 @@ module AdminSpace = struct
     type subscriber =
       { selector : Selector.t
       ; is_push : bool
-      ; notify_call : (Path.t * Value.t) list -> unit Lwt.t
+      ; notify_call : Path.t -> change list -> unit Lwt.t
       ; zenoh_sub : Zenoh.sub option
       }
 
@@ -301,9 +301,9 @@ module AdminSpace = struct
     (*******************************)
     (*   Subscriptions management  *)
     (*******************************)
-    let create_zenoh_subscriber zenoh_opt selector is_push notify_call =
+    let create_zenoh_subscriber zenoh_opt hlc selector is_push notify_call =
       match zenoh_opt with
-      | Some zenoh -> ZUtils.subscribe zenoh selector is_push notify_call >>= Lwt.return_some
+      | Some zenoh -> ZUtils.subscribe zenoh hlc selector is_push notify_call >>= Lwt.return_some
       | None -> Lwt.return_none
 
     let remove_zenoh_subscriber zenoh subscriber =
@@ -337,11 +337,11 @@ module AdminSpace = struct
       @@ fun self ->
         let%lwt (fe, s) = get_frontend_session self clientid.feid clientid.sid in
         let subid = SubscriberId.next_id () in
-        let notify_call pvs =
-          Logs_lwt.debug (fun m -> m "[Yadm] notify subscriber %s/%s for %d k/v changes" (ClientId.to_string clientid) (SubscriberId.to_string subid) (List.length pvs)) >>
-          notifier subid ~fallback:(remove_subscriber admin clientid) pvs 
+        let notify_call path changes =
+          Logs_lwt.debug (fun m -> m "[Yadm] notify subscriber %s/%s for %d changes on %s" (ClientId.to_string clientid) (SubscriberId.to_string subid) (List.length changes) (Path.to_string path)) >>
+          notifier subid ~fallback:(remove_subscriber admin clientid) path changes 
         in
-        let%lwt zenoh_sub = create_zenoh_subscriber self.zenoh selector is_push notify_call in
+        let%lwt zenoh_sub = create_zenoh_subscriber self.zenoh self.hlc selector is_push notify_call in
         let sub = {selector; is_push; notify_call; zenoh_sub} in
         let s' = { s with subs = SubscriberMap.add subid sub s.subs } in
         let fe' = { fe with sessions = SessionMap.add clientid.sid s' fe.sessions } in
@@ -352,11 +352,11 @@ module AdminSpace = struct
         in
         Guard.return subid { self with frontends = FrontendMap.add clientid.feid fe' self.frontends; kvs}
 
-    let notify_subscribers admin path value =
+    let notify_subscribers admin path changes =
       let iter_session _ _ s = SubscriberMap.iter
         (fun _ sub ->
           if Selector.is_matching_path path sub.selector then
-            Lwt.ignore_result @@ sub.notify_call [(path, value)]
+            Lwt.ignore_result @@ sub.notify_call path changes
           else ()) s.subs
       in
       let iter_frontend feid fe = SessionMap.iter (fun sid session -> iter_session feid sid session) fe.sessions in
@@ -551,7 +551,7 @@ module AdminSpace = struct
       let time = tvalue.time in
       let%lwt properties = 
         let open Value in
-        match transcode tvalue.value Properties_encoding with
+        match transcode tvalue.value PROPERTIES with
         | Ok PropertiesValue p -> Lwt.return p
         | Ok _ -> Lwt.fail @@ YException (`UnsupportedTranscoding (`Msg "Transcoding to Properties didn't return a PropertiesValie"))
         | Error e -> Lwt.fail @@ YException e
@@ -584,21 +584,23 @@ module AdminSpace = struct
 
 
     let incoming_admin_storage_data_handler admin (key:string) (samples:(Abuf.t * Ztypes.data_info) list) =
-      Lwt_list.iter_s (fun (sample, _) -> 
-        let%lwt _ = Logs_lwt.debug (fun m -> m "[YAdm]: Received remote update for key %s" key) in
-        match Path.of_string_opt key with
-        | Some path -> 
-          ((try TimedValue.decode sample |> Result.return with e -> Error e) |> function
-          | Ok v ->
-            let self = Guard.get admin in
-            (match%lwt HLC.update_with_timestamp v.time self.hlc with
-            | Ok () -> put admin local_client path v
-            | Error e -> 
-              Logs_lwt.warn (fun m -> m "[YAdm]: Remote update for key %s refused: timestamp differs too much from local clock: %s" key (Apero.show_error e)))
-          | Error e ->
-            Logs_lwt.warn (fun m -> m "[YAdm]: Failed to decode TimedValue.t received for key %s: %s" key (Printexc.to_string e)))
-        | None -> 
-          Logs_lwt.warn (fun m -> m "[YAdm]: Received data for key %s which I cannot store" key)) samples 
+      let%lwt _ = Logs_lwt.debug (fun m -> m "[YAdm]: Received remote changes for key %s" key) in
+      match Path.of_string_opt key with
+      | Some path ->
+        let self = Guard.get admin in
+        let check_time_validity time =
+          match%lwt HLC.update_with_timestamp time self.hlc with
+          | Ok () -> Lwt.return_true
+          | Error e -> let _ = Logs_lwt.warn (fun m -> m "[Yadm]: Incoming change from Zenoh for key %s refused: timestamp differs too much from local clock: %s" key (Apero.show_error e)) in Lwt.return_false
+        in
+        ZUtils.decode_changes self.hlc samples >>=
+        Lwt_list.iter_s (function
+          | Put(tv)      -> if%lwt check_time_validity tv.time then put admin local_client path tv
+          | Remove(time) -> if%lwt check_time_validity time then remove admin local_client path time
+          | Update(_)    -> let _ = Logs_lwt.warn (fun m -> m "[YAdm]: Received update for key %s : only put or remove are supported by Admin space" key) in Lwt.return_unit
+        )
+      | None -> 
+        let _ = Logs_lwt.warn (fun m -> m "[YAdm]: Received data for key %s which I cannot store" key) in Lwt.return_unit
 
     let incoming_admin_query_handler admin resname predicate =
       if Astring.is_prefix ~affix:"/@/" resname then
@@ -610,11 +612,13 @@ module AdminSpace = struct
             let%lwt kvs = get admin local_client selector in
             let%lwt _ = Logs_lwt.debug (fun m -> m "[YAdm]: remote query for %s : replying with %d keys" s (List.length kvs)) in
             let evs = List.map
-              (fun (path,value) ->
+              (fun ((path,tv):(Path.t*TimedValue.t)) ->
                 let spath = Path.to_string path in
-                let buf = Abuf.create ~grow:4096 4096 in
-                TimedValue.encode value buf; 
-                (spath, buf, Ztypes.empty_data_info)) kvs in
+                let encoding = Some(ZUtils.encoding_to_flag tv.value) in
+                let data_info = { Ztypes.empty_data_info with encoding; ts=Some(tv.time) } in
+                let buf = Abuf.create ~grow:8192 8192 in
+                ZUtils.encode_value tv.value buf;
+                (spath, buf, data_info)) kvs in
             Lwt.return evs
           | _ ->
             let%lwt _ = Logs_lwt.debug (fun m -> m "[YAdm]: Unable to resolve query for %s?%s" resname predicate) in

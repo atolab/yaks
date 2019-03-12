@@ -23,7 +23,7 @@ module AdminSpace : sig
 
     val create_subscriber : t -> ClientId.t -> Selector.t -> bool -> notify_subscriber -> SubscriberId.t Lwt.t  
     val remove_subscriber : t -> ClientId.t -> SubscriberId.t -> unit Lwt.t
-    val notify_subscribers : t -> Path.t -> Value.t -> unit
+    val notify_subscribers : t -> Path.t -> change list -> unit
 
     val create_eval : t -> ClientId.t -> Path.t -> eval_function -> unit Lwt.t
     val remove_eval : t -> ClientId.t -> Path.t -> unit Lwt.t

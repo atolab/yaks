@@ -54,14 +54,8 @@ module ClientId = struct
 end
 
 
-type notify_subscriber =  SubscriberId.t -> fallback:(SubscriberId.t -> unit Lwt.t) -> (Path.t * Value.t) list -> unit Lwt.t
-
-type eval_function = Path.t -> Selector.t -> fallback:(Path.t -> Value.t Lwt.t) -> Value.t Lwt.t
-
-
-
-module HLC = Apero_time.HLC.Make (Apero_time.Clock_unix)
-module Timestamp = HLC.Timestamp
+module HLC = Ztypes.HLC
+module Timestamp = Ztypes.Timestamp
 
 module TimedValue = struct
 
@@ -84,3 +78,12 @@ module TimedValue = struct
   (** [preceeds first second] returns true if timestamp of [first] < timestamp of [second] *)
 
 end
+
+type change =
+  | Put of TimedValue.t
+  | Update of TimedValue.t
+  | Remove of Timestamp.t
+
+type notify_subscriber =  SubscriberId.t -> fallback:(SubscriberId.t -> unit Lwt.t) -> Path.t -> change list -> unit Lwt.t
+
+type eval_function = Path.t -> Selector.t -> fallback:(Path.t -> Value.t Lwt.t) -> Value.t Lwt.t

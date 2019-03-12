@@ -77,6 +77,15 @@ module Make (YEngine : Yaks_engine.Engine.S) = struct
         in
         fallback path)
 
+  let make_ynotification sid path changes =
+    let pvs = List.fold_left (fun acc c -> 
+        match c with
+        | Put(tv) -> (path, tv.value)::acc  (* NOTE: only notification of 'put' are supported yet *)
+        | _ -> acc
+      ) [] changes
+    in
+    YNotification (Yaks_core.SubscriberId.to_string sid, pvs) 
+
 
   let dispatch_message feid wbuf state engine client msg = 
     let sid = sessionid_of_source @@ Connected_client.source client in
@@ -89,8 +98,8 @@ module Make (YEngine : Yaks_engine.Engine.S) = struct
     | GET -> P.process_get engine clientid msg 
     | DELETE -> P.process_delete engine clientid msg
     | SUB ->       
-      let push_sub buf sid ~fallback pvs = 
-        let body = YNotification (Yaks_core.SubscriberId.to_string sid, pvs)  in                 
+      let push_sub buf sid ~fallback path changes = 
+        let body = make_ynotification sid path changes  in                 
         let h = make_header NOTIFY [] Vle.zero Properties.empty in         
         let msg = make_message h body in         
         Lwt.catch (fun () -> send_msg buf client Frame.Opcode.Binary msg   >|= fun _ -> ()) (fun _ -> fallback sid)
