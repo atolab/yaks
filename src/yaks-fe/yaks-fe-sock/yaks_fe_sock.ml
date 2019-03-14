@@ -92,13 +92,8 @@ module Make (YEngine : Yaks_engine.Engine.S) = struct
 
 
   let make_ynotification sid path changes =
-    let pvs = List.fold_left (fun acc c -> 
-        match c with
-        | Put(tv) -> (path, tv.value)::acc  (* NOTE: only notification of 'put' are supported yet *)
-        | _ -> acc
-      ) [] changes
-    in
-    YNotification (Yaks_core.SubscriberId.to_string sid, pvs) 
+    let pcs = List.map (fun c -> (path, c)) changes in
+    YNotification (Yaks_core.SubscriberId.to_string sid, pcs)
 
   let dispatch_message state engine clientid tx_sex msg =
     let%lwt _ = Logs_lwt.debug (fun m -> m "[FES] received %s #%Ld from %s" (message_id_to_string msg.header.mid) msg.header.corr_id (ClientId.to_string clientid)) in

@@ -32,7 +32,7 @@ let update_sql_table storage_info path delta =
                 (Path.to_string path) (storage_info.table_name)) in
     get_sql_table storage_info (Selector.of_path path)
     >>= Lwt_list.iter_p (fun (_,v) -> 
-        match Value.update v delta with
+        match Value.update v ~delta with
         | Ok SqlValue (row, _) ->
         Caqti_driver.put storage_info.connection storage_info.table_name storage_info.schema row ()
         | Ok _ -> Logs_lwt.warn (

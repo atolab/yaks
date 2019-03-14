@@ -1,6 +1,5 @@
 open Apero
 open Yaks_types
-open Yaks_core_types
 open Yaks_common_errors
 
 let kind_put = 0L
@@ -60,7 +59,7 @@ let remote_query_handler promise mlist hlc sample =
     let encoding = encoding_of_flag info.encoding in
     (try decode_value data encoding |> fun value -> 
         Logs.debug (fun m -> m ">>> Query Handler parsed data for key: %s" resname);
-        let (tv:TimedValue.t) = {time; value} in
+        let tv = TimedValue.{time; value} in
         Guard.return () ((store_id, Path.of_string(resname), tv)::xs)
     with e -> 
         Logs.err (fun m -> m ">>> Query Handler failed to parse data for key %s : %s \n %s" resname (Printexc.to_string e) (Printexc.get_backtrace ()));

@@ -78,14 +78,8 @@ module Make (YEngine : Yaks_engine.Engine.S) = struct
         fallback path)
 
   let make_ynotification sid path changes =
-    let pvs = List.fold_left (fun acc c -> 
-        match c with
-        | Put(tv) -> (path, tv.value)::acc  (* NOTE: only notification of 'put' are supported yet *)
-        | _ -> acc
-      ) [] changes
-    in
-    YNotification (Yaks_core.SubscriberId.to_string sid, pvs) 
-
+    let pcs = List.map (fun c -> (path, c)) changes in
+    YNotification (Yaks_core.SubscriberId.to_string sid, pcs)
 
   let dispatch_message feid wbuf state engine client msg = 
     let sid = sessionid_of_source @@ Connected_client.source client in

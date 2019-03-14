@@ -54,36 +54,6 @@ module ClientId = struct
 end
 
 
-module HLC = Ztypes.HLC
-module Timestamp = Ztypes.Timestamp
-
-module TimedValue = struct
-
-  type t = { time:Timestamp.t; value:Value.t }
-
-  let encode tv buf = 
-    Timestamp.encode tv.time buf;
-    Yaks_fe_sock_codec.encode_value tv.value buf
-
-  let decode buf =
-    Timestamp.decode buf |> fun time ->
-    Yaks_fe_sock_codec.decode_value buf |> fun value ->
-    {time; value}
-
-  let update tv ~delta =
-    let open Result.Infix in
-    Value.update tv.value delta.value >>> fun v -> { time=delta.time; value=v }
-
-  let preceeds ~first ~second = Timestamp.compare first.time second.time < 0
-  (** [preceeds first second] returns true if timestamp of [first] < timestamp of [second] *)
-
-end
-
-type change =
-  | Put of TimedValue.t
-  | Update of TimedValue.t
-  | Remove of Timestamp.t
-
 type notify_subscriber =  SubscriberId.t -> fallback:(SubscriberId.t -> unit Lwt.t) -> Path.t -> change list -> unit Lwt.t
 
 type eval_function = Path.t -> Selector.t -> fallback:(Path.t -> Value.t Lwt.t) -> Value.t Lwt.t
