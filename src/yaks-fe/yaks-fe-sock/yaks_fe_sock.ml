@@ -91,6 +91,10 @@ module Make (YEngine : Yaks_engine.Engine.S) = struct
         fallback path)
 
 
+  let make_ynotification sid path changes =
+    let pcs = List.map (fun c -> (path, c)) changes in
+    YNotification (Yaks_core.SubscriberId.to_string sid, pcs)
+
   let dispatch_message state engine clientid tx_sex msg =
     let%lwt _ = Logs_lwt.debug (fun m -> m "[FES] received %s #%Ld from %s" (message_id_to_string msg.header.mid) msg.header.corr_id (ClientId.to_string clientid)) in
     match msg.header.mid with 
@@ -105,9 +109,9 @@ module Make (YEngine : Yaks_engine.Engine.S) = struct
     | SUB -> 
       let sock = TxSession.socket tx_sex in 
       let buf = Abuf.create Yaks_fe_sock_types.max_msg_size in 
-      let push_sub buf sid ~fallback pvs =
+      let push_sub buf sid ~fallback path changes =
         let _ = Logs_lwt.debug (fun m -> m "[FES] notify subscriber %s/%s" (ClientId.to_string clientid) (Yaks_core.SubscriberId.to_string sid)) in
-        let body = YNotification (Yaks_core.SubscriberId.to_string sid, pvs)  in                 
+        let body = make_ynotification sid path changes in                 
         let h = make_header NOTIFY [] (Random.int64 Int64.max_int) Properties.empty in
         let msg = make_message h body in
         Lwt.catch 

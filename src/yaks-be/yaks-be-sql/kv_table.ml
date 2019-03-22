@@ -14,16 +14,18 @@ let get_kv_condition sub_selector =
 
 
 let timed_value_of_strings storage_info k v e t : TimedValue.t option =
-  let encoding = Value.encoding_of_string e in
-  match Value.of_string v encoding with 
-  | Ok value ->
-    (match Timestamp.of_string t with
-    | Some time -> Some {time; value}
-    | None -> let _ = Logs_lwt.warn (fun m -> m "[SQL]: In KV table %s for key %s: failed to read timestamp: '%s'" storage_info.table_name k t) in None
-    )
-  | Error err ->
-    let _ = Logs_lwt.warn (fun m -> m "[SQL]: In KV table %s for key %s: failed to decode value '%s' with encoding '%s': %s"
-          storage_info.table_name k v e (show_yerror err)) in None
+  match Value.string_to_encoding e with
+  | Some encoding ->
+    (match Value.of_string v encoding with 
+    | Ok value ->
+      (match Timestamp.of_string t with
+      | Some time -> Some {time; value}
+      | None -> let _ = Logs_lwt.warn (fun m -> m "[SQL]: In KV table %s for key %s: failed to read timestamp: '%s'" storage_info.table_name k t) in None
+      )
+    | Error err ->
+      let _ = Logs_lwt.warn (fun m -> m "[SQL]: In KV table %s for key %s: failed to decode value '%s' with encoding '%s': %s"
+            storage_info.table_name k v e (show_yerror err)) in None)
+  | None -> let _ = Logs_lwt.warn (fun m -> m "[SQL]: In KV table %s for key %s: unkown encoding: '%s'" storage_info.table_name k e) in None
 
 
 let get storage_info (selector:Selector.t) =
@@ -83,7 +85,6 @@ let get_key_status ?(with_value=false) storage_info key =
 
 
 let do_sql_put storage_info key tv =
-  let _ = Logs_lwt.debug (fun m -> m "[SQL] ***** do_sql_put %s" key) in
   Caqti_driver.put storage_info.connection storage_info.table_name storage_info.schema (key::(sql_values_from_timed_value tv)) ()
 
 let put storage_info (path:Path.t) (tv:TimedValue.t) =

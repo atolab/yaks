@@ -1,6 +1,5 @@
 open Apero
 open Yaks_types
-open Yaks_core_types
 
 module Storage : sig 
 
@@ -40,8 +39,7 @@ module Storage : sig
 
   val remove : t -> Path.t -> Timestamp.t -> unit Lwt.t
 
-  val on_zenoh_write : t -> Abuf.t list -> string -> unit Lwt.t
-  val on_zenoh_query : t -> string -> string -> (string * Abuf.t) list Lwt.t
+  val on_zenoh_write : t -> Path.t -> change list -> unit Lwt.t
   val align : t -> Zenoh.t -> Selector.t -> unit Lwt.t
 
 end  [@@deriving show]

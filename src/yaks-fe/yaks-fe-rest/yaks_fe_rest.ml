@@ -82,7 +82,7 @@ module Make (YEngine : Yaks_engine.Engine.S) = struct
   (*      Key/Value operations      *)
   (**********************************)
   let json_string_of_key_values (kvs : (Path.t * Value.t) list) =
-    let to_json v = match Value.transcode v Value.Json_Encoding with
+    let to_json v = match Value.transcode v Value.JSON with
      | Ok v' -> v'
      | _ -> v 
     in
