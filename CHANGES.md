@@ -1,3 +1,13 @@
+## 0.2.6 (2019-03-25)
+ - Added the management of removal with timestamps. Thus, in case for a same key, a *put* message with an old timestamp
+   arrives after a *remove* message with more recent timestamp, the key will not be re-inserted and will be kept as removed. (#20)
+ - In yaks-ocaml and yaks-python API:
+    - Changed the signature of the listener callback passed to the subscribe operation. 
+      Now the listener receives a list pof `(path * change)` instead of a list of `(path * value)`.
+      A **change** can correspond to either a *put*, and *update* or a *remove*. (#21)
+ - Updated Zenoh to 0.2.4 which brings these changes:
+    - Better performances (throughput) via batching of small messages and other I/O improvements
+
 ## 0.2.5 (2019-02-21)
  - Fixed client hang when it invokes a remote eval function using a selector with wildcards (#22)
  - Fixed cleanup of Zenoh subscriptions made for a client when this clients logtous (#23)
