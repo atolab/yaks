@@ -113,6 +113,29 @@ module AdminSpace = struct
           | None -> Lwt.fail @@ YException (`InternalError (`Msg ("No session with id: "^(SessionId.to_string sid))))
           | Some s -> Lwt.return (fe, s))
 
+    let update_yaks_json_view prefix time kvs =
+      let rec add_to_json (json:Yojson.Basic.json) (path:string list) (v:Yojson.Basic.json) =
+        match json, path with
+        | `Assoc l , [] -> `Assoc l
+        | `Assoc l , p::[] -> `Assoc ((p, v)::l)
+        | `Assoc l , p::tl -> (match List.find_opt (fun (s,_) -> s = p) l with
+          | Some (_,j) -> let l' = List.filter (fun (s,_) -> s <> p) l in `Assoc ((p, add_to_json j tl v)::l')
+          | None -> `Assoc ((p, add_to_json (`Assoc []) tl v)::l)
+        )
+        | _, _ -> failwith ("INTERNAL ERROR: Unexpected JSON type reconstructing value for "^prefix)
+      in
+      let selector = Selector.of_string @@ prefix^"/**" in
+      let keys = KVMap.filter (fun path _ -> (not @@ (Path.to_string path = prefix)) && Selector.is_matching_path path selector) kvs
+        |> KVMap.bindings
+        |> List.map (fun (p,(v:TimedValue.t)) ->
+            let subpath = Path.remove_prefix (String.length prefix +1) p |> Path.to_string in
+            match Value.transcode v.value Value.JSON with
+            | Ok js -> let json = Yojson.Basic.from_string @@ Value.to_string js in (String.split_on_char '/' subpath, json)
+            | Error _ -> failwith ("INTERNAL ERROR: failed to transcode to JSON the value of  "^(Path.to_string p)))
+      in
+      let json = List.fold_left (fun json (path, v) -> add_to_json json path v)
+       (`Assoc []) keys |> Yojson.Basic.to_string in
+      kvmap_add (Path.of_string prefix) (Value.JSonValue json) time kvs
 
     (**************************)
     (*   Backends management  *)
@@ -136,6 +159,7 @@ module AdminSpace = struct
         let kvs = kvmap_add
           (Path.of_string @@ Printf.sprintf "%s/backend/%s/" self.admin_prefix id)
           (Value.PropertiesValue BE.properties) time self.kvs
+          |> update_yaks_json_view self.admin_prefix time
         in
         Guard.return () { self with backends = BackendMap.add BE.id backend self.backends; kvs }
 
@@ -199,8 +223,9 @@ module AdminSpace = struct
         let kvs = kvmap_add
           (Path.of_string @@ Printf.sprintf "%s/backend/%s/storage/%s" self.admin_prefix (BeId.to_string beid') stid)
           (Value.PropertiesValue properties) time self.kvs
+          |> update_yaks_json_view self.admin_prefix time
         in
-        Guard.return () { self with backends = BackendMap.add beid' be' self.backends; kvs}
+        Guard.return () { self with backends = BackendMap.add beid' be' self.backends; kvs }
 
     let remove_storage admin beid stid =
       let beid' = BeId.of_string beid in
@@ -216,13 +241,16 @@ module AdminSpace = struct
       | Some (storage, zenoh_storage) ->
         Storage.dispose storage >>
         let be' = { be with storages = StorageMap.remove stid' be.storages } in
-        let kvs = KVMap.remove (Path.of_string @@ Printf.sprintf "%s/backend/%s/storage/%s" self.admin_prefix beid stid) self.kvs in
+        let time = now self.hlc in
+        let kvs = KVMap.remove (Path.of_string @@ Printf.sprintf "%s/backend/%s/storage/%s" self.admin_prefix beid stid) self.kvs
+          |> update_yaks_json_view self.admin_prefix time
+        in
         let open Apero.Option.Infix in 
         let _ = self.zenoh 
         >>= fun zenoh -> 
           zenoh_storage >|= fun storage ->  ZUtils.unstore zenoh storage 
         in 
-        Guard.return () { self with backends = BackendMap.add beid' be' self.backends; kvs}
+        Guard.return () { self with backends = BackendMap.add beid' be' self.backends; kvs }
       | None -> 
         Logs_lwt.debug (fun m -> m "[Yadm] storage %s/%s not found... ignore remove request" beid stid) >>
         Guard.return () self
@@ -251,8 +279,9 @@ module AdminSpace = struct
         let kvs = kvmap_add
           (Path.of_string @@ Printf.sprintf "%s/frontend/%s" self.admin_prefix feid)
           (Value.PropertiesValue properties) time self.kvs
+          |> update_yaks_json_view self.admin_prefix time
         in
-        Guard.return () { self with frontends = FrontendMap.add (FeId.of_string feid) fe self.frontends; kvs}
+        Guard.return () { self with frontends = FrontendMap.add (FeId.of_string feid) fe self.frontends; kvs }
 
     let add_frontend_TMP admin feid properties =
       let self = Guard.get admin in
@@ -266,8 +295,11 @@ module AdminSpace = struct
         let _ = Logs_lwt.warn (fun m -> m "[Yadm] remove non-existing frontend: %s" feid) in
         Guard.return () self
       else
-        let kvs = KVMap.remove (Path.of_string @@ Printf.sprintf "%s/frontend/%s" self.admin_prefix feid) self.kvs in
-        Guard.return () { self with frontends = FrontendMap.remove (FeId.of_string feid) self.frontends; kvs}
+        let time = now self.hlc in
+        let kvs = KVMap.remove (Path.of_string @@ Printf.sprintf "%s/frontend/%s" self.admin_prefix feid) self.kvs
+          |> update_yaks_json_view self.admin_prefix time
+        in
+        Guard.return () { self with frontends = FrontendMap.remove (FeId.of_string feid) self.frontends; kvs }
 
 
     (****************************)
@@ -284,12 +316,14 @@ module AdminSpace = struct
         let wsid = WsId.add s.lastWsid WsId.one in
         let s' = { s with ws = WsMap.add wsid path s.ws; lastWsid = wsid } in
         let fe' = {fe with sessions = SessionMap.add clientid.sid s' fe.sessions} in
+        let time = now self.hlc in
         let kvs = kvmap_add
           (Path.of_string @@ Printf.sprintf "%s/frontend/%s/session/%s/workspace/%s"
             self.admin_prefix (FeId.to_string clientid.feid) (SessionId.to_string clientid.sid) (WsId.to_string wsid))
-          (Value.StringValue (Path.to_string path)) (now self.hlc) self.kvs
+          (Value.StringValue (Path.to_string path)) time self.kvs
+          |> update_yaks_json_view self.admin_prefix time
         in
-        Guard.return wsid { self with frontends = FrontendMap.add clientid.feid fe' self.frontends; kvs}
+        Guard.return wsid { self with frontends = FrontendMap.add clientid.feid fe' self.frontends; kvs }
 
     let get_workspace_path admin (clientid:ClientId.t) wsid =
       let self = Guard.get admin in 
@@ -321,12 +355,14 @@ module AdminSpace = struct
           let _ = Option.map self.zenoh @@ fun z -> remove_zenoh_subscriber z subscriber in
           let s' = { s with subs = SubscriberMap.remove subid s.subs } in
           let fe' = { fe with sessions = SessionMap.add clientid.sid s' fe.sessions } in
+          let time = now self.hlc in
           let kvs = KVMap.remove
             (Path.of_string @@ Printf.sprintf "%s/frontend/%s/session/%s/subscriber/%s"
               self.admin_prefix (FeId.to_string clientid.feid) (SessionId.to_string clientid.sid) (SubscriberId.to_string subid))
             self.kvs
+            |> update_yaks_json_view self.admin_prefix time
           in
-          Guard.return () { self with frontends = FrontendMap.add clientid.feid fe' self.frontends; kvs}
+          Guard.return () { self with frontends = FrontendMap.add clientid.feid fe' self.frontends; kvs }
         | None ->
           Logs_lwt.warn (fun m -> m "[Yadm] %s: can't remove subscriber %s : not found" (ClientId.to_string clientid) (SubscriberId.to_string subid)) >>
           Guard.return () self
@@ -345,12 +381,14 @@ module AdminSpace = struct
         let sub = {selector; is_push; notify_call; zenoh_sub} in
         let s' = { s with subs = SubscriberMap.add subid sub s.subs } in
         let fe' = { fe with sessions = SessionMap.add clientid.sid s' fe.sessions } in
+        let time = now self.hlc in
         let kvs = kvmap_add
           (Path.of_string @@ Printf.sprintf "%s/frontend/%s/session/%s/subscriber/%s"
             self.admin_prefix (FeId.to_string clientid.feid) (SessionId.to_string clientid.sid) (SubscriberId.to_string subid))
-          (Value.StringValue (Selector.to_string selector)) (now self.hlc) self.kvs
+          (Value.StringValue (Selector.to_string selector)) time self.kvs
+          |> update_yaks_json_view self.admin_prefix time
         in
-        Guard.return subid { self with frontends = FrontendMap.add clientid.feid fe' self.frontends; kvs}
+        Guard.return subid { self with frontends = FrontendMap.add clientid.feid fe' self.frontends; kvs }
 
     let notify_subscribers admin path changes =
       let iter_session _ _ s = SubscriberMap.iter
@@ -381,12 +419,14 @@ module AdminSpace = struct
           let _ = Option.map self.zenoh @@ fun z -> remove_zenoh_eval z eval in
           let s' = { s with evals = EvalMap.remove path s.evals } in
           let fe' = { fe with sessions = SessionMap.add clientid.sid s' fe.sessions } in
+          let time = now self.hlc in
           let kvs = KVMap.remove
             (Path.of_string @@ Printf.sprintf "%s/frontend/%s/session/%s/eval/%s"
               self.admin_prefix (FeId.to_string clientid.feid) (SessionId.to_string clientid.sid) (Path.to_string path))
             self.kvs
+            |> update_yaks_json_view self.admin_prefix time
           in
-          Guard.return () { self with frontends = FrontendMap.add clientid.feid fe' self.frontends; kvs}
+          Guard.return () { self with frontends = FrontendMap.add clientid.feid fe' self.frontends; kvs }
         | None ->
           Logs_lwt.warn (fun m -> m "[Yadm] %s: can't remove eval %s : not found" (ClientId.to_string clientid) (Path.to_string path)) >>
           Guard.return () self
@@ -464,12 +504,14 @@ module AdminSpace = struct
         let%lwt zenoh_eval = create_zenoh_eval self.zenoh self.hlc path eval_call in
         let s' = { s with evals = EvalMap.add path (eval_call, zenoh_eval) s.evals } in
         let fe' = {fe with sessions = SessionMap.add clientid.sid s' fe.sessions} in
+        let time = now self.hlc in
         let kvs = kvmap_add
           (Path.of_string @@ Printf.sprintf "%s/frontend/%s/session/%s/eval/%s"
             self.admin_prefix (FeId.to_string clientid.feid) (SessionId.to_string clientid.sid) (Path.to_string path))
-          empty_props_value (now self.hlc)  self.kvs
+          empty_props_value time  self.kvs
+          |> update_yaks_json_view self.admin_prefix time
         in
-        Guard.return () { self with frontends = FrontendMap.add clientid.feid fe' self.frontends; kvs}
+        Guard.return () { self with frontends = FrontendMap.add clientid.feid fe' self.frontends; kvs }
 
     (**************************)
     (*   Sessions management  *)
@@ -488,11 +530,13 @@ module AdminSpace = struct
           else
             let s = { properties; ws=WsMap.empty; lastWsid=WsId.zero; subs=SubscriberMap.empty; evals=EvalMap.empty } in
             let fe' = {fe with sessions = SessionMap.add clientid.sid s fe.sessions} in
+            let time = now self.hlc in
             let kvs = kvmap_add
               (Path.of_string @@ Printf.sprintf "%s/frontend/%s/session/%s" self.admin_prefix feid sid)
-              (Value.PropertiesValue properties) (now self.hlc) self.kvs
+              (Value.PropertiesValue properties) time self.kvs
+             |> update_yaks_json_view self.admin_prefix time
             in
-            Guard.return () { self with frontends = FrontendMap.add clientid.feid fe' self.frontends; kvs}
+            Guard.return () { self with frontends = FrontendMap.add clientid.feid fe' self.frontends; kvs }
 
     let cleanup_session zenoh_opt s =
       match zenoh_opt with
@@ -520,7 +564,10 @@ module AdminSpace = struct
             let spath = Path.of_string @@ Printf.sprintf "%s/frontend/%s/session/%s"
                 self.admin_prefix (FeId.to_string clientid.feid) (SessionId.to_string clientid.sid)
             in
-            let kvs = KVMap.filter (fun p _ -> not @@ Path.is_prefix ~affix:spath p) self.kvs in
+            let time = now self.hlc in
+            let kvs = KVMap.filter (fun p _ -> not @@ Path.is_prefix ~affix:spath p) self.kvs
+              |> update_yaks_json_view self.admin_prefix time
+            in
             Guard.return () { self with frontends = FrontendMap.add clientid.feid fe' self.frontends; kvs }
 
     (*****************************)
