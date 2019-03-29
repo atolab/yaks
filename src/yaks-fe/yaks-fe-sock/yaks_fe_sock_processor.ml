@@ -46,7 +46,7 @@ module Processor = struct
       let _ = Logs.warn (fun m -> m "FES: caught YException: %s " (show_yerror e)) in
       reply_with_error msg BAD_REQUEST
     | ex ->
-      let _ = Logs.warn (fun m -> m "FES: caught unexpected exception: %s " (Printexc.to_string ex)) in
+      let _ = Logs.warn (fun m -> m "FES: caught unexpected exception: %s \n %s" (Printexc.to_string ex) (Printexc.get_backtrace ())) in
       reply_with_error msg BAD_REQUEST
 
     let workspace_from_props p =

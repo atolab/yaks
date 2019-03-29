@@ -320,7 +320,7 @@ module AdminSpace = struct
         let kvs = kvmap_add
           (Path.of_string @@ Printf.sprintf "%s/frontend/%s/session/%s/workspace/%s"
             self.admin_prefix (FeId.to_string clientid.feid) (SessionId.to_string clientid.sid) (WsId.to_string wsid))
-          (Value.StringValue (Path.to_string path)) time self.kvs
+          (Value.PropertiesValue (Properties.singleton "path" (Path.to_string path))) time self.kvs
           |> update_yaks_json_view self.admin_prefix time
         in
         Guard.return wsid { self with frontends = FrontendMap.add clientid.feid fe' self.frontends; kvs }
@@ -385,7 +385,7 @@ module AdminSpace = struct
         let kvs = kvmap_add
           (Path.of_string @@ Printf.sprintf "%s/frontend/%s/session/%s/subscriber/%s"
             self.admin_prefix (FeId.to_string clientid.feid) (SessionId.to_string clientid.sid) (SubscriberId.to_string subid))
-          (Value.StringValue (Selector.to_string selector)) time self.kvs
+          (Value.PropertiesValue (Properties.singleton "selector" (Selector.to_string selector))) time self.kvs
           |> update_yaks_json_view self.admin_prefix time
         in
         Guard.return subid { self with frontends = FrontendMap.add clientid.feid fe' self.frontends; kvs }
