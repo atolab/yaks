@@ -111,5 +111,6 @@ let run yid without_storage http_port sock_port wsock_port sql_url zenoh_locator
 
 let () =
   Printexc.record_backtrace true;
+  Lwt_engine.set (new Lwt_engine.libev ());
   let env = Arg.env_var "YAKSD_VERBOSITY" in
   let _ = Term.(eval (const run $ yaks_id $ without_storage $ http_port $ sock_port $ wsock_port $ sql_url $ zenoh_locator $ Fmt_cli.style_renderer () $ Logs_cli.level ~env (), Term.info "Yaks daemon")) in  ()
