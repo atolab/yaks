@@ -1,3 +1,14 @@
+## 0.2.7 (2019-04-18)
+ - Added for key /@/_yaksid_ a JSON value representing the full admin view of a Yaks service
+ - Fixed bug in admin space occuring at creation of worksapce or subscription
+ - Fixed transcoding from String to JSON encoding
+ - In yaks-ocaml and yaks-python API:
+   - Added latency and throughput examples
+   - Performance improvements
+ - Updated Zenoh to 0.2.5 which brings these changes:
+   - Management : zenoh routers answer to management queries.
+   - Bug fixes in the discovery engine.
+
 ## 0.2.6 (2019-03-25)
  - Added the management of removal with timestamps. Thus, in case for a same key, a *put* message with an old timestamp
    arrives after a *remove* message with more recent timestamp, the key will not be re-inserted and will be kept as removed. (#20)
