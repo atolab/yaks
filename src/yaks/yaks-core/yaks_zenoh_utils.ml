@@ -74,6 +74,10 @@ let remote_query_handler promise mlist hlc sample =
       Guard.return () xs
 
 
+let zopen configuraton =
+  let locator = Properties.find "peer" configuraton in
+  Zenoh.zopen locator
+
 let query zenoh hlc selector =
   let open Lwt.Infix in
   let path = Selector.path selector in

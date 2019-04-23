@@ -1,0 +1,33 @@
+
+type properties = (string * string) list <json repr="object"> wrap
+  <ocaml t="Apero.properties" 
+    wrap="List.fold_left (fun p (k,v) -> Apero.Properties.add k v p) Apero.Properties.empty" 
+    unwrap="fun p -> Apero.Properties.fold (fun k v l -> (k,v)::l) p []">
+
+type zenoh = {
+  configuration : properties;
+}
+
+type transport = {
+  zenoh : zenoh;
+}
+
+type storage = {
+  configuration : properties;
+}
+
+type backend = {
+  configuration : properties;
+  ~storages : (string * storage) list <json repr="object">;
+}
+
+type frontend = {
+  configuration : properties;
+}
+
+type config = {
+  ?transport : transport option;
+  ~frontends <ocaml default="[(\"TCP\", {configuration=(Apero.Properties.of_string \"port=7887\")}); (\"HTTP\", {configuration=(Apero.Properties.of_string \"port=8000\")})]"> : (string * frontend) list <json repr="object">;
+  ~backends <ocaml default="[(\"Memory\", { configuration=(Apero.Properties.of_string \"kind=memory\"); storages=[] })]"> : (string * backend) list <json repr="object">;
+}
+

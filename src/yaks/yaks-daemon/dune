@@ -1,6 +1,20 @@
 (executable
- (name    yaksd)
- (modules yaksd)
-  (libraries lwt lwt.unix yaks-core biniou yaks-be-mm yaks-be-sql yaks-fe-rest yaks-fe-sock atdgen logs logs.fmt logs.cli fmt fmt.cli fmt.tty cmdliner)
+  (name    yaksd)
+  (libraries lwt lwt.unix yaks-core yaks-be-mm yaks-be-sql yaks-fe-rest yaks-fe-sock atdgen yojson logs logs.fmt logs.cli fmt fmt.cli fmt.tty cmdliner)
   (preprocess
-    (pps lwt_ppx ppx_deriving.show ppx_deriving.ord)))
+    (pps lwt_ppx ppx_deriving.show ppx_deriving.ord )))
+
+(rule
+  (targets yaks_config_j.ml yaks_config_j.mli)
+  (deps    yaks_config.atd)
+  (action  (run atdgen -j -j-std  %{deps})))
+
+(rule
+  (targets yaks_config_t.ml yaks_config_t.mli)
+  (deps    yaks_config.atd)
+  (action  (run atdgen -t %{deps})))
+
+(rule
+  (targets yaks_config_v.ml yaks_config_v.mli)
+  (deps    yaks_config.atd)
+  (action  (run atdgen -v %{deps})))
