@@ -23,9 +23,13 @@ module Make (YEngine : Yaks_engine.Engine.S) = struct
 
   type state_t = {
     pending_eval_results : Value.t Lwt.u WorkingMap.t
+  ; buffer_pool : Abuf.t Lwt_pool.t
   }
 
   type state = state_t Guard.t
+
+  let max_buffer_size = 64 * 1024
+  let max_buffer_count = 1024
 
   let reader sock  = 
     let open Apero.Infix in
@@ -40,7 +44,7 @@ module Make (YEngine : Yaks_engine.Engine.S) = struct
                           Lwt.fail e)
     )
 
-  let rec writer buf clientid sock msg =
+  let rec writer buf clientid sock buffer_pool msg =
     Logs.debug (fun m -> m "[FES] send %s #%Ld to %s" (message_id_to_string msg.header.mid) msg.header.corr_id (ClientId.to_string clientid));
     Abuf.clear buf; 
     (try encode_message_split msg buf |> Result.return
@@ -48,19 +52,20 @@ module Make (YEngine : Yaks_engine.Engine.S) = struct
     |> function 
     | Ok remain_msg ->
       let len = Abuf.readable_bytes buf in
-      let lbuf = Abuf.create 16 in       
-      Lwt.catch (fun () -> encode_vle (Vle.of_int len) lbuf;
-                           Logs.debug (fun m -> m "[FES] Sending message to socket: %d bytes" len);
-                           Net.write_all sock (Abuf.wrap [lbuf; buf]) >>= fun _ -> 
-                           match remain_msg with
-                           | Some msg -> writer buf clientid sock msg
-                           | None -> Lwt.return_unit)
-                (fun e -> Logs.err (fun m -> m "Failed in writing message: %s" (Printexc.to_string e)); Lwt.fail e)
+      Lwt_pool.use buffer_pool (fun lbuf ->
+        Abuf.clear lbuf;
+        Lwt.catch (fun () -> encode_vle (Vle.of_int len) lbuf;
+                            Logs.debug (fun m -> m "[FES] Sending message to socket: %d bytes" len);
+                            Net.write_all sock (Abuf.wrap [lbuf; buf]) >>= fun _ -> 
+                            match remain_msg with
+                            | Some msg -> writer buf clientid sock buffer_pool msg
+                            | None -> Lwt.return_unit)
+                  (fun e -> Logs.err (fun m -> m "Failed in writing message: %s" (Printexc.to_string e)); Lwt.fail e))
     | Error e -> 
       Logs.err (fun m -> m "Failed in encoding %s message: %s" (message_id_to_string msg.header.mid) (Printexc.to_string e));
       let header = make_header ERROR [] msg.header.corr_id Properties.empty in
       let errormsg = make_message header  @@ YErrorInfo (Vle.of_int @@ error_code_to_int INTERNAL_SERVER_ERROR) in
-      writer buf clientid sock errormsg
+      writer buf clientid sock buffer_pool errormsg
 
 
   let process_eval (s:state) clientid sock buf (path:Path.t) selector ~fallback =
@@ -72,8 +77,8 @@ module Make (YEngine : Yaks_engine.Engine.S) = struct
       fun () ->
         let (promise:Value.t Lwt.t), (resolver:Value.t Lwt.u) = Lwt.wait () in
         Guard.guarded s @@ fun self ->
-        writer buf clientid sock msg >>= fun _ ->
-        Guard.return_lwt promise { pending_eval_results = WorkingMap.add msg.header.corr_id resolver self.pending_eval_results }
+        writer buf clientid sock self.buffer_pool msg >>= fun _ ->
+        Guard.return_lwt promise { self with pending_eval_results = WorkingMap.add msg.header.corr_id resolver self.pending_eval_results }
       )
     (fun ex ->
       match ex with
@@ -106,14 +111,15 @@ module Make (YEngine : Yaks_engine.Engine.S) = struct
     | DELETE -> P.process_delete engine clientid msg
     | SUB -> 
       let sock = TxSession.socket tx_sex in 
-      let buf = Abuf.create Yaks_fe_sock_types.max_msg_size in 
+      let buf = Abuf.create Yaks_fe_sock_types.max_msg_size in
+      let self = Guard.get state in
       let push_sub buf sid ~fallback path changes =
         Logs.debug (fun m -> m "[FES] notify subscriber %s/%s" (ClientId.to_string clientid) (Yaks_core.SubscriberId.to_string sid));
         let body = make_ynotification sid path changes in                 
         let h = make_header NOTIFY [] (Random.int64 Int64.max_int) Properties.empty in
         let msg = make_message h body in
         Lwt.catch 
-          (fun () -> writer buf clientid sock msg)
+          (fun () -> writer buf clientid sock self.buffer_pool msg)
           (fun ex -> Logs.debug (fun m -> m "[FES] Error notifying subscriber %s/%s : %s" (ClientId.to_string clientid) (Yaks_core.SubscriberId.to_string sid) (Printexc.to_string ex));
             fallback sid)
       in P.process_sub engine clientid msg (push_sub buf)
@@ -129,7 +135,7 @@ module Make (YEngine : Yaks_engine.Engine.S) = struct
       Guard.guarded state @@ (fun self ->
       (match WorkingMap.find_opt msg.header.corr_id self.pending_eval_results with 
       | Some resolver ->
-        Guard.return_lwt (P.process_values msg resolver) { pending_eval_results = WorkingMap.remove msg.header.corr_id self.pending_eval_results }
+        Guard.return_lwt (P.process_values msg resolver) { self with pending_eval_results = WorkingMap.remove msg.header.corr_id self.pending_eval_results }
       | None ->
         Guard.return_lwt (P.process_error msg BAD_REQUEST) self)
       )
@@ -137,7 +143,7 @@ module Make (YEngine : Yaks_engine.Engine.S) = struct
       Guard.guarded state @@ (fun self ->
       (match WorkingMap.find_opt msg.header.corr_id self.pending_eval_results with 
       | Some resolver ->
-        Guard.return_lwt (P.process_error_on_eval msg resolver) { pending_eval_results = WorkingMap.remove msg.header.corr_id self.pending_eval_results }
+        Guard.return_lwt (P.process_error_on_eval msg resolver) { self with pending_eval_results = WorkingMap.remove msg.header.corr_id self.pending_eval_results }
       | None ->
         Guard.return_lwt (P.process_error msg BAD_REQUEST) self)
       )
@@ -146,12 +152,12 @@ module Make (YEngine : Yaks_engine.Engine.S) = struct
       P.process_error msg BAD_REQUEST
 
 
-  let fe_service feid config dispatcher tx_sex =
+  let fe_service feid config dispatcher buffer_pool tx_sex =
     let buf = Abuf.create ~grow:4096 (Config.buf_size config) in
     let sock = TxSession.socket tx_sex in 
     let sid = TxSession.id tx_sex |> NetService.Id.to_string |> SessionId.of_string in
     let (clientid: ClientId.t) = { feid; sid } in
-    let mwriter = writer buf clientid sock in
+    let mwriter = writer buf clientid sock buffer_pool in
     fun () ->
       (* Note: block on read, but return unit as soon as a message is read. 
          The message is dispatched as another promise.
@@ -165,9 +171,14 @@ module Make (YEngine : Yaks_engine.Engine.S) = struct
   let create feid (conf : Config.t) (engine: YEngine.t) =
     Logs.debug (fun m -> m "[FES] SOCK-FE starting TCP socket on %s" (TcpLocator.to_string @@ Config.locator conf));
     let tcp_fe = NetServiceTcp.make conf in
-    let state = Guard.create { pending_eval_results=WorkingMap.empty } in
+    let recv_pool = Lwt_pool.create max_buffer_count (fun () -> Lwt.return @@ Abuf.create_bigstring ~grow:8192 max_buffer_size) in
+    let send_pool = Lwt_pool.create max_buffer_count (fun () -> Lwt.return @@ Abuf.create_bigstring ~grow:8192 max_buffer_size) in
+    let state = Guard.create {
+      pending_eval_results=WorkingMap.empty;
+      buffer_pool=send_pool
+    } in
     let dispatcher = dispatch_message state engine in 
-    let io_svc = fe_service feid conf dispatcher in (* TxSession.t -> unit -> unit Lwt.t*)
+    let io_svc = fe_service feid conf dispatcher recv_pool in (* TxSession.t -> unit -> unit Lwt.t*)
     {tcp_fe; io_svc}
 
   let start svc = 
