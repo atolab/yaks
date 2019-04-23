@@ -30,18 +30,18 @@ module Make (YEngine : Yaks_engine.Engine.S) = struct
   let reader sock  = 
     let open Apero.Infix in
     let%lwt len = Net.read_vle sock >>= Vle.to_int %> Lwt.return in    
-    let%lwt _ = Logs_lwt.debug (fun m -> m "[FES] Incoming message lenght : %d" len) in
+    Logs.debug (fun m -> m "[FES] Incoming message lenght : %d" len);
     let buf = Abuf.create len in     
     Net.read_all sock buf len >>= fun n -> (
-    if n <> len then Logs_lwt.warn (fun m -> m "[FES] Failed to read %d bytes out of the socket" len) else Lwt.return_unit) >>= fun () ->
-    Lwt.catch (fun () -> decode_message buf |> Lwt.return)
-              (fun e -> Logs_lwt.err (fun m -> m "Failed in parsing message %s" (Printexc.to_string e)) >>= fun () ->
-                        Logs_lwt.debug (fun m -> m "Buffer was:\n%s \nStack trace:\n%s" (Abuf.to_string buf) (Printexc.get_backtrace ())) >>= fun () ->
-                        Lwt.fail e)
-
+      if n <> len then Logs.warn (fun m -> m "[FES] Failed to read %d bytes out of the socket" len);
+      Lwt.catch (fun () -> decode_message buf |> Lwt.return)
+                (fun e -> Logs.err (fun m -> m "Failed in parsing message %s" (Printexc.to_string e));
+                          Logs.debug (fun m -> m "Buffer was:\n%s \nStack trace:\n%s" (Abuf.to_string buf) (Printexc.get_backtrace ()));
+                          Lwt.fail e)
+    )
 
   let rec writer buf clientid sock msg =
-    let%lwt _ = Logs_lwt.debug (fun m -> m "[FES] send %s #%Ld to %s" (message_id_to_string msg.header.mid) msg.header.corr_id (ClientId.to_string clientid)) in
+    Logs.debug (fun m -> m "[FES] send %s #%Ld to %s" (message_id_to_string msg.header.mid) msg.header.corr_id (ClientId.to_string clientid));
     Abuf.clear buf; 
     (try encode_message_split msg buf |> Result.return
     with e -> Result.fail e)
@@ -49,22 +49,22 @@ module Make (YEngine : Yaks_engine.Engine.S) = struct
     | Ok remain_msg ->
       let len = Abuf.readable_bytes buf in
       let lbuf = Abuf.create 16 in       
-      Lwt.catch (fun () -> encode_vle (Vle.of_int len) lbuf; 
-                           Logs_lwt.debug (fun m -> m "[FES] Sending message to socket: %d bytes" len) >>= fun () ->
+      Lwt.catch (fun () -> encode_vle (Vle.of_int len) lbuf;
+                           Logs.debug (fun m -> m "[FES] Sending message to socket: %d bytes" len);
                            Net.write_all sock (Abuf.wrap [lbuf; buf]) >>= fun _ -> 
                            match remain_msg with
                            | Some msg -> writer buf clientid sock msg
                            | None -> Lwt.return_unit)
-                (fun e ->  Logs_lwt.err (fun m -> m "Failed in writing message: %s" (Printexc.to_string e)) >>= fun () -> Lwt.fail e)
+                (fun e -> Logs.err (fun m -> m "Failed in writing message: %s" (Printexc.to_string e)); Lwt.fail e)
     | Error e -> 
-      let%lwt _ = Logs_lwt.err (fun m -> m "Failed in encoding %s message: %s" (message_id_to_string msg.header.mid) (Printexc.to_string e)) in
+      Logs.err (fun m -> m "Failed in encoding %s message: %s" (message_id_to_string msg.header.mid) (Printexc.to_string e));
       let header = make_header ERROR [] msg.header.corr_id Properties.empty in
       let errormsg = make_message header  @@ YErrorInfo (Vle.of_int @@ error_code_to_int INTERNAL_SERVER_ERROR) in
       writer buf clientid sock errormsg
 
 
   let process_eval (s:state) clientid sock buf (path:Path.t) selector ~fallback =
-    let _ = Logs_lwt.debug (fun m -> m "[FES] send EVAL(%s) for eval registered with %s" (Selector.to_string selector) (Path.to_string path)) in
+    Logs.debug (fun m -> m "[FES] send EVAL(%s) for eval registered with %s" (Selector.to_string selector) (Path.to_string path));
     let (body:payload) = YSelector (selector) in
     let h = make_header EVAL [] (Random.int64 Int64.max_int) Properties.empty in
     let msg = make_message h body in
@@ -79,15 +79,13 @@ module Make (YEngine : Yaks_engine.Engine.S) = struct
       match ex with
       | YException err ->
         (* Error message received from eval implementer. Forward it, don't call fallback *)
-        let _ = Logs_lwt.debug (fun m -> m "[FES] received ERROR calling EVAL(%s) for eval registered with %s: %s"
-          (Selector.to_string selector) (Path.to_string path) (show_yerror err))
-        in
+        Logs.debug (fun m -> m "[FES] received ERROR calling EVAL(%s) for eval registered with %s: %s"
+          (Selector.to_string selector) (Path.to_string path) (show_yerror err));
         Lwt.fail ex
       | _ ->
         (* Exception received trying to send message to eval implementer, probably gone... call fallback that will remove it *)
-        let _ = Logs_lwt.debug (fun m -> m "[FES] received unexpected exception calling EVAL(%s) for eval registered with %s: %s"
-          (Selector.to_string selector) (Path.to_string path) (Printexc.to_string ex))
-        in
+        Logs.debug (fun m -> m "[FES] received unexpected exception calling EVAL(%s) for eval registered with %s: %s"
+          (Selector.to_string selector) (Path.to_string path) (Printexc.to_string ex));
         fallback path)
 
 
@@ -96,7 +94,7 @@ module Make (YEngine : Yaks_engine.Engine.S) = struct
     YNotification (Yaks_core.SubscriberId.to_string sid, pcs)
 
   let dispatch_message state engine clientid tx_sex msg =
-    let%lwt _ = Logs_lwt.debug (fun m -> m "[FES] received %s #%Ld from %s" (message_id_to_string msg.header.mid) msg.header.corr_id (ClientId.to_string clientid)) in
+    Logs.debug (fun m -> m "[FES] received %s #%Ld from %s" (message_id_to_string msg.header.mid) msg.header.corr_id (ClientId.to_string clientid));
     match msg.header.mid with 
     | LOGIN -> P.process_login engine clientid msg >|= fun response ->
       if response.header.mid = OK then Lwt.async (fun () -> Lwt.bind (TxSession.when_closed tx_sex) (fun _ -> P.process_logout engine clientid msg));
@@ -110,15 +108,15 @@ module Make (YEngine : Yaks_engine.Engine.S) = struct
       let sock = TxSession.socket tx_sex in 
       let buf = Abuf.create Yaks_fe_sock_types.max_msg_size in 
       let push_sub buf sid ~fallback path changes =
-        let _ = Logs_lwt.debug (fun m -> m "[FES] notify subscriber %s/%s" (ClientId.to_string clientid) (Yaks_core.SubscriberId.to_string sid)) in
+        Logs.debug (fun m -> m "[FES] notify subscriber %s/%s" (ClientId.to_string clientid) (Yaks_core.SubscriberId.to_string sid));
         let body = make_ynotification sid path changes in                 
         let h = make_header NOTIFY [] (Random.int64 Int64.max_int) Properties.empty in
         let msg = make_message h body in
         Lwt.catch 
-          (fun () -> writer buf clientid sock msg >|= fun _ -> ())
-          (fun ex -> let _ = Logs_lwt.debug (fun m -> m "[FES] Error notifying subscriber %s/%s : %s" (ClientId.to_string clientid) (Yaks_core.SubscriberId.to_string sid) (Printexc.to_string ex)) in
+          (fun () -> writer buf clientid sock msg)
+          (fun ex -> Logs.debug (fun m -> m "[FES] Error notifying subscriber %s/%s : %s" (ClientId.to_string clientid) (Yaks_core.SubscriberId.to_string sid) (Printexc.to_string ex));
             fallback sid)
-      in  P.process_sub engine clientid msg (push_sub buf)
+      in P.process_sub engine clientid msg (push_sub buf)
     | UNSUB -> P.process_unsub engine clientid msg
     | REG_EVAL ->
       let sock = TxSession.socket tx_sex in
@@ -144,7 +142,7 @@ module Make (YEngine : Yaks_engine.Engine.S) = struct
         Guard.return_lwt (P.process_error msg BAD_REQUEST) self)
       )
     | _ -> 
-      let _ = Logs_lwt.warn (fun m -> m "[FES] received unexpected message with mid %d" (message_id_to_int msg.header.mid)) in
+      Logs.warn (fun m -> m "[FES] received unexpected message with mid %d" (message_id_to_int msg.header.mid));
       P.process_error msg BAD_REQUEST
 
 
@@ -165,7 +163,7 @@ module Make (YEngine : Yaks_engine.Engine.S) = struct
       Lwt.return_unit
 
   let create feid (conf : Config.t) (engine: YEngine.t) =
-    let _ = Logs_lwt.debug (fun m -> m "[FES] SOCK-FE starting TCP socket on %s" (TcpLocator.to_string @@ Config.locator conf)) in
+    Logs.debug (fun m -> m "[FES] SOCK-FE starting TCP socket on %s" (TcpLocator.to_string @@ Config.locator conf));
     let tcp_fe = NetServiceTcp.make conf in
     let state = Guard.create { pending_eval_results=WorkingMap.empty } in
     let dispatcher = dispatch_message state engine in 
@@ -173,7 +171,7 @@ module Make (YEngine : Yaks_engine.Engine.S) = struct
     {tcp_fe; io_svc}
 
   let start svc = 
-    let _ = Logs_lwt.debug (fun m -> m "[FES] Sock-FE starting TCP/IP server") in
+    Logs.debug (fun m -> m "[FES] Sock-FE starting TCP/IP server");
     NetServiceTcp.start svc.tcp_fe (fun _ -> Lwt.return_unit) svc.io_svc
 
   let stop svc = NetServiceTcp.stop svc.tcp_fe

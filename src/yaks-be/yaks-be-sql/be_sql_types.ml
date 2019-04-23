@@ -10,7 +10,7 @@ let on_dispose_from_properties props =
     if t = "DROP" then Drop
     else if t = "TRUNCATE" then Truncate
     else if t = "TRUNC" then Truncate
-    else let _ = Logs_lwt.err (fun m -> m "[SQL]: unsuppoerted property: %s=%s - ignore it" Be_sql_properties.Key.on_dispose text) in DoNothing
+    else (Logs.err (fun m -> m "[SQL]: unsuppoerted property: %s=%s - ignore it" Be_sql_properties.Key.on_dispose text); DoNothing)
   | None -> DoNothing
 
 

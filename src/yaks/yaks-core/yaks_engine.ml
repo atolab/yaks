@@ -58,7 +58,7 @@ module Engine = struct
             | Some uuid -> "specified id", uuid 
             | None -> ("generated id from '"^id^"'"), (Yid.make_from_alias id)
         in
-        let _ = Logs_lwt.debug (fun m -> m "Starting Yaks with %s: %s" log (Yid.to_string id')) in
+        Logs.debug (fun m -> m "Starting Yaks with %s: %s" log (Yid.to_string id'));
         id'
       in
       let hlc = HLC.create yid in
@@ -116,12 +116,12 @@ module Engine = struct
     let subscribe engine clientid ?workspace selector (is_push: bool) (notifier:notify_subscriber) =
       (* TODO: access control *)
       let%lwt sel = to_absolute_selector engine clientid ?workspace selector in
-      let%lwt _ = Logs_lwt.debug (fun m -> m "[Yeng] %s: subscribe %s" (ClientId.to_string clientid) (Selector.to_string sel)) in
+      Logs.debug (fun m -> m "[Yeng] %s: subscribe %s" (ClientId.to_string clientid) (Selector.to_string sel));
       let self = Guard.get engine in 
       YAdminSpace.create_subscriber self.admin clientid sel is_push notifier
 
     let unsubscribe engine clientid sid =
-      let%lwt _ = Logs_lwt.debug (fun m -> m "[Yeng]: %s unsubscribe %s" (ClientId.to_string clientid) (SubscriberId.to_string sid)) in
+      Logs.debug (fun m -> m "[Yeng]: %s unsubscribe %s" (ClientId.to_string clientid) (SubscriberId.to_string sid));
       let self = Guard.get engine in 
       YAdminSpace.remove_subscriber self.admin clientid sid
 
@@ -132,14 +132,14 @@ module Engine = struct
     let register_eval engine clientid ?workspace path eval =
       (* TODO: access control *)
       let%lwt pat = to_absolute_path engine clientid ?workspace path in
-      let%lwt _ = Logs_lwt.debug (fun m -> m "[Yeng]: register_eval %s" (Path.to_string pat)) in
+      Logs.debug (fun m -> m "[Yeng]: register_eval %s" (Path.to_string pat));
       let self = Guard.get engine in 
       YAdminSpace.create_eval self.admin clientid pat eval
 
     let unregister_eval engine clientid ?workspace path =
       (* TODO: access control *)
       let%lwt pat = to_absolute_path engine clientid ?workspace path in
-      let%lwt _ = Logs_lwt.debug (fun m -> m "[Yeng]: unregister_eval %s" (Path.to_string pat)) in
+      Logs.debug (fun m -> m "[Yeng]: unregister_eval %s" (Path.to_string pat));
       let self = Guard.get engine in 
       YAdminSpace.remove_eval self.admin clientid pat
 
@@ -147,7 +147,7 @@ module Engine = struct
       (* TODO: implement multiplicity *)
       let _ = ignore multiplicity in
       KVListMap.fold (fun p vl res ->
-        let _ = Logs_lwt.debug (fun m -> m "[Yeng]: apply multiplicity %d on %d received values for %s" multiplicity (List.length vl) (Path.to_string p)) in
+        Logs.debug (fun m -> m "[Yeng]: apply multiplicity %d on %d received values for %s" multiplicity (List.length vl) (Path.to_string p));
         let v = List.hd vl in
         (p,v)::res)
       kvlmap []
@@ -157,7 +157,7 @@ module Engine = struct
       (* TODO: transport with multiplicity *)
       let _ = ignore multiplicity in
       let%lwt sel = to_absolute_selector engine client ?workspace sel in
-      let%lwt _ = Logs_lwt.debug (fun m -> m "[Yeng]: eval %s" (Selector.to_string sel)) in
+      Logs.debug (fun m -> m "[Yeng]: eval %s" (Selector.to_string sel));
       let self = Guard.get engine in 
       let local_evals = YAdminSpace.call_evals self.admin client 1 sel
         >|= List.fold_left (fun l (p, vl) -> (List.map (fun v -> p,v) vl)::l) []
@@ -184,9 +184,9 @@ module Engine = struct
       let _ = ignore quorum in
       KVListMap.fold (fun p tvl res ->
         (* @TODO: for each path return appropriate value depending time and quorum *)
-        let _ = Logs_lwt.debug (fun m -> m "[Yeng]: apply quorum %d on %d received values for %s" quorum (List.length tvl) (Path.to_string p)) in
+        Logs.debug (fun m -> m "[Yeng]: apply quorum %d on %d received values for %s" quorum (List.length tvl) (Path.to_string p));
         let tv:TimedValue.t = List.hd tvl in
-        let _ = Logs_lwt.debug (fun m -> m "[Yeng]:   -> for %s choosed value with timestamp %a" (Path.to_string p) HLC.Timestamp.pp tv.time) in
+        Logs.debug (fun m -> m "[Yeng]:   -> for %s choosed value with timestamp %a" (Path.to_string p) HLC.Timestamp.pp tv.time);
         (p,tv.value)::res)
       kvlmap []
 
@@ -208,16 +208,16 @@ module Engine = struct
           | None -> Lwt.return []
       in
       let storages_results =
-        let%lwt _ = Logs_lwt.debug (fun m -> m "[Yeng]: get %s => query storages" (Selector.to_string sel)) in
+        Logs.debug (fun m -> m "[Yeng]: get %s => query storages" (Selector.to_string sel));
         let self = Guard.get engine in 
         let storages = YAdminSpace.get_matching_storages self.admin sel in
         let fully_covering_storages = storages |> List.filter (fun s -> Storage.covers_fully s sel) in
         match fully_covering_storages with
         | s::_ -> (* Get results from the 1st fully covering storage *)
-          let%lwt _ = Logs_lwt.debug (fun m -> m "[Yeng]: get %s => Local storage %s fully covers. Get only from it." (Selector.to_string sel) (Storage.to_string s) ) in
+          Logs.debug (fun m -> m "[Yeng]: get %s => Local storage %s fully covers. Get only from it." (Selector.to_string sel) (Storage.to_string s) );
           Storage.get s sel
         | [] -> (* get from local + remote storages *)
-          let%lwt _ = Logs_lwt.debug (fun m -> m "[Yeng]: get %s => get local + remote" (Selector.to_string sel)) in
+          Logs.debug (fun m -> m "[Yeng]: get %s => get local + remote" (Selector.to_string sel));
           let local_get = storages |> List.map (fun store -> Storage.get store sel) |> Apero.LwtM.flatten >|= List.concat in
           let remote_get = (match self.zenoh with
             | Some zenoh -> ZUtils.query zenoh self.hlc sel
@@ -227,15 +227,15 @@ module Engine = struct
               match%lwt HLC.update_with_timestamp tv.time self.hlc with
               | Ok () -> Lwt.return_true
               | Error e ->
-                let _ = Logs_lwt.warn (fun m -> m "[Yeng]: get %s => received value key %s refused: timestamp differs too much from local clock: %s"
-                 (Selector.to_string sel) (Path.to_string p) (Apero.show_error e))
-                in Lwt.return_false
+                Logs.warn (fun m -> m "[Yeng]: get %s => received value key %s refused: timestamp differs too much from local clock: %s"
+                  (Selector.to_string sel) (Path.to_string p) (Apero.show_error e));
+                Lwt.return_false
               ) 
           in
           Lwt.join [(local_get >>= fun _ -> Lwt.return_unit); (remote_get >>= fun _ -> Lwt.return_unit)] >>= fun () ->
           remote_get >>= fun rd ->
           local_get >>= fun ld ->
-          let%lwt _ = Logs_lwt.debug (fun m -> m "[Yeng]: get %s => found %d values locally and %d values remotely" (Selector.to_string sel) (List.length ld) (List.length rd)) in
+          Logs.debug (fun m -> m "[Yeng]: get %s => found %d values locally and %d values remotely" (Selector.to_string sel) (List.length ld) (List.length rd));
           Lwt.return @@ List.append rd ld
       in
       LwtM.flatten [admin_results; storages_results] >|= List.concat
@@ -251,7 +251,7 @@ module Engine = struct
       
       let%lwt time = HLC.new_timestamp self.hlc in
       let tv: TimedValue.t = { time; value } in
-      let%lwt _ = Logs_lwt.debug (fun m -> m "[Yeng]: put %s with timestamp %a" (Path.to_string path) HLC.Timestamp.pp time) in
+      Logs.debug (fun m -> m "[Yeng]: put %s with timestamp %a" (Path.to_string path) HLC.Timestamp.pp time);
       match YAdminSpace.covers_path self.admin path with
       | Some path -> YAdminSpace.put self.admin client path tv
       | None ->
@@ -271,10 +271,10 @@ module Engine = struct
       let self = Guard.get engine in 
       let%lwt time = HLC.new_timestamp self.hlc in
       let tv: TimedValue.t = { time; value } in
-      let%lwt _ = Logs_lwt.debug (fun m -> m "[Yeng]: update %s with timestamp %a" (Path.to_string path) HLC.Timestamp.pp time) in
+      Logs.debug (fun m -> m "[Yeng]: update %s with timestamp %a" (Path.to_string path) HLC.Timestamp.pp time);
       match YAdminSpace.covers_path self.admin path with
       | Some path ->
-        let%lwt _ = Logs_lwt.err (fun m -> m "[Yeng]: update %s : not allowaed in admin space" (Path.to_string path)) in
+        Logs.err (fun m -> m "[Yeng]: update %s : not allowaed in admin space" (Path.to_string path));
         Lwt.return_unit
       | None ->
         YAdminSpace.notify_subscribers self.admin path [Update tv];
@@ -292,7 +292,7 @@ module Engine = struct
       let%lwt path = to_absolute_path engine client ?workspace path in
       let self = Guard.get engine in       
       let%lwt time = HLC.new_timestamp self.hlc in
-      let%lwt _ = Logs_lwt.debug (fun m -> m "[Yeng]: remove %s with timestamp %a" (Path.to_string path) HLC.Timestamp.pp time) in
+      Logs.debug (fun m -> m "[Yeng]: remove %s with timestamp %a" (Path.to_string path) HLC.Timestamp.pp time);
       match YAdminSpace.covers_path self.admin path with
       | Some path -> YAdminSpace.remove self.admin client path time
       | None ->

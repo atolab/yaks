@@ -92,41 +92,41 @@ module Make (YEngine : Yaks_engine.Engine.S) = struct
     |> Printf.sprintf "{%s}"
 
   let get fe clientid selector =
-    let%lwt _ = Logs_lwt.debug (fun m -> m "[FER] get %s %s" (ClientId.to_string clientid) (Selector.to_string selector)) in
+    Logs.debug (fun m -> m "[FER] get %s %s" (ClientId.to_string clientid) (Selector.to_string selector));
     YEngine.get fe.engine clientid selector
     >>= fun (kvs) -> 
     let headers = Header.init () |> fun h -> Header.add h "Access-Control-Allow-Origin" "*" in 
-    Server.respond_string ~headers ~status:`OK ~body:(json_string_of_key_values kvs) ()    
+    Server.respond_string ~headers ~status:`OK ~body:(json_string_of_key_values kvs) ()
 
 
   let put fe clientid path value =
-    let%lwt _ = Logs_lwt.debug (fun m -> m "[FER]   put %s %s\n%s" (ClientId.to_string clientid) (Path.to_string path) (Value.to_string value)) in
+    Logs.debug (fun m -> m "[FER]   put %s %s\n%s" (ClientId.to_string clientid) (Path.to_string path) (Value.to_string value));
     Lwt.try_bind 
       (fun () -> 
-         let%lwt _ = Logs_lwt.debug (fun m -> m "[FER]   put calling YEngine.put") in
+         Logs.debug (fun m -> m "[FER]   put calling YEngine.put");
          YEngine.put fe.engine clientid path value) 
       (fun () -> Server.respond_string ~status:`No_content ~body:"" ())
       (fun ex -> ex_to_response ex)
 
 
   let update fe clientid path delta =  
-    let%lwt _ = Logs_lwt.debug (fun m -> m "[FER]   update %s %s\n%s" (ClientId.to_string clientid) (Path.to_string path) (Value.to_string delta)) in  
+    Logs.debug (fun m -> m "[FER]   update %s %s\n%s" (ClientId.to_string clientid) (Path.to_string path) (Value.to_string delta));
     Lwt.try_bind 
       (fun () -> 
-         let%lwt _ = Logs_lwt.debug (fun m -> m "[FER]   put_delta calling YEngine.put_delta") in
+         Logs.debug (fun m -> m "[FER]   put_delta calling YEngine.put_delta");
          YEngine.update fe.engine clientid path delta) 
       (fun () -> Server.respond_string ~status:`No_content ~body:"" ())
       (fun ex -> ex_to_response ex)
 
   let eval fe clientid selector =
-    let%lwt _ = Logs_lwt.debug (fun m -> m "[FER] eval %s %s" (ClientId.to_string clientid) (Selector.to_string selector)) in
+    Logs.debug (fun m -> m "[FER] eval %s %s" (ClientId.to_string clientid) (Selector.to_string selector));
     YEngine.eval fe.engine clientid selector
     >>= fun (kvs) ->
     Server.respond_string ~status:`OK ~body:(json_string_of_key_values kvs) ()
 
 
   let remove fe clientid path =
-    let%lwt _ = Logs_lwt.debug (fun m -> m "[FER]   remove %s %s" (ClientId.to_string clientid) (Path.to_string path)) in
+    Logs.debug (fun m -> m "[FER]   remove %s %s" (ClientId.to_string clientid) (Path.to_string path));
     YEngine.remove fe.engine clientid path
     >>= fun () -> 
     Server.respond_string ~status:`No_content ~body:"" ()    
@@ -153,10 +153,9 @@ module Make (YEngine : Yaks_engine.Engine.S) = struct
     let path = uri |> Uri.path  in
     let query = uri |> Uri.query in
     let headers = req |> Request.headers in
-    let%lwt _ = Logs_lwt.debug (fun m -> m "[FER] HTTP req: %s %s?%s with headers: %a" 
+    Logs.debug (fun m -> m "[FER] HTTP req: %s %s?%s with headers: %a" 
                                    (Code.string_of_method meth) path (query_to_string query)
-                                   Header.pp_hum headers)
-    in
+                                   Header.pp_hum headers);
     let (clientid:ClientId.t) = { feid = fe.cfg.id; sid = default_session_id } in
     try%lwt (
       if path = "/" then
@@ -188,19 +187,21 @@ module Make (YEngine : Yaks_engine.Engine.S) = struct
           | None -> invalid_path path)
         | _ -> unsupported_operation meth path
     ) with
-    | YException e as exn -> 
-      Logs_lwt.err (fun m -> m "Exception %s raised:\n%s" (show_yerror e) (Printexc.get_backtrace ())) >>= fun _ -> raise exn
+    | YException e as exn ->
+      Logs.err (fun m -> m "Exception %s raised:\n%s" (show_yerror e) (Printexc.get_backtrace ()));
+      raise exn
     | exn ->
-      Logs_lwt.err (fun m -> m "Exception %s raised:\n%s" (Printexc.to_string exn) (Printexc.get_backtrace ())) >>= fun _ -> raise exn
+      Logs.err (fun m -> m "Exception %s raised:\n%s" (Printexc.to_string exn) (Printexc.get_backtrace ()));
+      raise exn
 
 
   let create cfg engine = 
-    let _ = Logs_lwt.debug (fun m -> m "[FER] REST-FE preparing HTTP server") in
+    Logs.debug (fun m -> m "[FER] REST-FE preparing HTTP server");
     let stop, stopper = Lwt.wait () in
     { cfg; engine; stop; stopper; request_counter=0L }
 
   let start fe =
-    let _ = Logs_lwt.debug (fun m -> m "[FER] REST-FE starting HTTP server on port %d" fe.cfg.port) in
+    Logs.debug (fun m -> m "[FER] REST-FE starting HTTP server on port %d" fe.cfg.port);
     let callback _conn req body = execute_http_request fe req body in
     (* let u = Cohttp_lwt_unix.Server.create ~stop:fe.stop  ~mode:(`TCP (`Port fe.cfg.port)) (Cohttp_lwt_unix.Server.make ~callback ()) in u *)
     let s = Server.make ~callback () in 
@@ -209,7 +210,7 @@ module Make (YEngine : Yaks_engine.Engine.S) = struct
     Conduit_lwt_unix.serve ~ctx:Conduit_lwt_unix.default_ctx ~mode:tcp (Server.callback s)
 
   let stop fe =
-    let _ = Logs_lwt.debug (fun m -> m "[FER] REST-FE stopping HTTP server") in
+    Logs.debug (fun m -> m "[FER] REST-FE stopping HTTP server");
     close_default_session fe >|= fun () ->
     Lwt.wakeup_later fe.stopper ()
 

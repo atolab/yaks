@@ -48,7 +48,8 @@ module Storage = struct
     let check_time_validity time =
       match%lwt HLC.update_with_timestamp time s.hlc with
       | Ok () -> Lwt.return_true
-      | Error e -> let _ = Logs_lwt.warn (fun m -> m "[Sto] %s: Remote change for path %s refused: timestamp differs too much from local clock: %s" (Id.to_string s.id) (Path.to_string path) (Apero.show_error e)) in Lwt.return_false
+      | Error e -> Logs.warn (fun m -> m "[Sto] %s: Remote change for path %s refused: timestamp differs too much from local clock: %s" (Id.to_string s.id) (Path.to_string path) (Apero.show_error e));
+        Lwt.return_false
     in
     Lwt_list.iter_s (function
       | Put(tv)      -> if%lwt check_time_validity tv.time then put s path tv
@@ -57,11 +58,13 @@ module Storage = struct
     ) changes
 
   let align s zenoh selector =
-    let%lwt _ = Logs_lwt.debug (fun m -> m "[Sto] %s: align with remote storages..." (Id.to_string s.id)) in
+    Logs.debug (fun m -> m "[Sto] %s: align with remote storages..." (Id.to_string s.id));
     let check_time t path = match%lwt HLC.update_with_timestamp t s.hlc with
       | Ok () -> Lwt.return_true 
-      | Error e -> let _ = Logs_lwt.warn (fun m -> m "[Sto] %s: align refuses update for key %s: timestamp differs too much from local clock: %s"
-        (Id.to_string s.id) (Path.to_string path) (Apero.show_error e)) in Lwt.return_false
+      | Error e -> 
+        Logs.warn (fun m -> m "[Sto] %s: align refuses update for key %s: timestamp differs too much from local clock: %s"
+          (Id.to_string s.id) (Path.to_string path) (Apero.show_error e));
+        Lwt.return_false
     in
 
     (* create a temporary Zenoh listener (to not miss ongoing updates) *)
@@ -82,13 +85,14 @@ module Storage = struct
       else
         (match%lwt HLC.update_with_timestamp tv.time s.hlc with
         | Ok () -> put s path tv
-        | Error e -> 
-          Logs_lwt.warn (fun m -> m "[Sto] %s: align refuses update for key %s: timestamp differs too much from local clock: %s" (Id.to_string s.id) (Path.to_string path) (Apero.show_error e)))
+        | Error e ->
+          Logs.warn (fun m -> m "[Sto] %s: align refuses update for key %s: timestamp differs too much from local clock: %s" (Id.to_string s.id) (Path.to_string path) (Apero.show_error e));
+          Lwt.return_unit)
       )
       kvs
       |> Lwt.join
     in
-    let%lwt _ = Logs_lwt.debug (fun m -> m "[Sto] %s: alignment done" (Id.to_string s.id)) in
+    Logs.debug (fun m -> m "[Sto] %s: alignment done" (Id.to_string s.id));
     let open Apero.LwtM.InfixM in
     (* program the removal of the temporary Zenoh listener after a while *)
     Lwt.async (fun() -> Lwt_unix.sleep 10.0 >> ZUtils.unsubscribe zenoh tmp_sub);

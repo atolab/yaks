@@ -135,12 +135,12 @@ module REST_Mirage (YEngine : Yaks_engine.SEngine.S) (CON:Conduit_mirage.S) = st
   (**********************************)
 
   let create_access_with_id fe (path:Path.t) cache_size access_id= 
-    let%lwt _ = Logs_lwt.debug (fun m -> m "[FER]   create_access_with_id %s %s %Ld" access_id (Path.to_string path) cache_size) in
+    Logs.debug (fun m -> m "[FER]   create_access_with_id %s %s %Ld" access_id (Path.to_string path) cache_size);
     Lwt.try_bind 
       (fun () -> YEngine.create_access ~alias:access_id fe.engine path cache_size)
       (fun access ->
          let aid = Access.Id.to_string (Access.id access) in
-         Logs_lwt.debug (fun m -> m "Created Access with id : %s responding client" aid) >>      
+         Logs.debug (fun m -> m "Created Access with id : %s responding client" aid);
          let headers = Header.add_list (Header.init()) 
              [("Location", ".");
               (set_cookie cookie_name_access_id aid)] in
@@ -148,12 +148,12 @@ module REST_Mirage (YEngine : Yaks_engine.SEngine.S) (CON:Conduit_mirage.S) = st
       (fun _ -> insufficient_storage cache_size)
 
   let create_access fe (path:Path.t) cache_size = 
-    let%lwt _ = Logs_lwt.debug (fun m -> m "[FER]   create_access %s %Ld"  (Path.to_string path) cache_size) in
+    Logs.debug (fun m -> m "[FER]   create_access %s %Ld"  (Path.to_string path) cache_size);
     Lwt.try_bind 
       (fun () -> YEngine.create_access fe.engine path cache_size )
       (fun access ->
          let aid = Access.Id.to_string (Access.id access) in  
-         Logs_lwt.debug (fun m -> m "Created Access with id : %s responding client" aid) >>      
+         Logs.debug (fun m -> m "Created Access with id : %s responding client" aid);
          let headers = Header.add_list (Header.init()) 
              [("Location", aid);
               (set_cookie cookie_name_access_id aid)] in
@@ -167,8 +167,7 @@ module REST_Mirage (YEngine : Yaks_engine.SEngine.S) (CON:Conduit_mirage.S) = st
 
   let get_access fe access_id =
     let aid = Access.Id.to_string access_id in 
-    let%lwt _ = Logs_lwt.debug (fun m -> m "[FER]   get_access %s" aid) in
-
+    Logs.debug (fun m -> m "[FER]   get_access %s" aid);
     match%lwt YEngine.get_access fe.engine access_id with 
     | Some _ -> 
       let headers = Header.add_list (Header.init()) 
@@ -219,7 +218,7 @@ module REST_Mirage (YEngine : Yaks_engine.SEngine.S) (CON:Conduit_mirage.S) = st
 
 (*
 let subscribe fe access_id selector = 
-  let%lwt _ = Logs_lwt.debug (fun m -> m "[FER]   subscribe %s %s" access_id selector) in
+  Logs.debug (fun m -> m "[FER]   subscribe %s %s" access_id selector);
   let msg = Create { 
       cid = next_request_counter fe;
       entity = Subscriber {access_id; selector; push=false};
@@ -237,7 +236,7 @@ let subscribe fe access_id selector =
     unexpected_reply x
 
 let get_subscriptions fe access_id =
-  let%lwt _ = Logs_lwt.debug (fun m -> m "[FER]   get_subscriptions %s" access_id) in
+  Logs.debug (fun m -> m "[FER]   get_subscriptions %s" access_id);
   let msg = Get { 
       cid = next_request_counter fe;
       entity_id = Yaks;
@@ -256,7 +255,7 @@ let get_subscriptions fe access_id =
 
 
 let unsubscribe fe access_id sub_id =
-  let%lwt _ = Logs_lwt.debug (fun m -> m "[FER]   unsubscribe %s %Ld" access_id sub_id) in
+  Logs.debug (fun m -> m "[FER]   unsubscribe %s %Ld" access_id sub_id);
   let msg = Dispose { 
       cid = next_request_counter fe;
       entity_id = SubscriberId(sub_id)
@@ -284,34 +283,34 @@ let unsubscribe fe access_id sub_id =
     |> Printf.sprintf "{%s}"
 
   let get_key_value fe (access_id:Access.Id.t) (selector: Selector.t) =
-    let%lwt _ = Logs_lwt.debug (fun m -> m "[FER]   get_key_value %s %s" (Access.Id.to_string access_id) (Selector.to_string selector)) in
+    Logs.debug (fun m -> m "[FER]   get_key_value %s %s" (Access.Id.to_string access_id) (Selector.to_string selector));
     YEngine.get fe.engine access_id selector
     >>= fun (kvs) -> 
     Server.respond_string ~status:`OK ~body:(json_string_of_key_values kvs) ()    
 
 
   let put fe (access_id:Access.Id.t) (selector: Selector.t) (value: Value.t) =
-    let%lwt _ = Logs_lwt.debug (fun m -> m "[FER]   put %s %s\n%s" (Access.Id.to_string access_id) (Selector.to_string selector) (Value.to_string value)) in
+    Logs.debug (fun m -> m "[FER]   put %s %s\n%s" (Access.Id.to_string access_id) (Selector.to_string selector) (Value.to_string value));
     Lwt.try_bind 
       (fun () -> 
-         let%lwt _ = Logs_lwt.debug (fun m -> m "[FER]   put calling YEngine.put") in
+         Logs.debug (fun m -> m "[FER]   put calling YEngine.put");
          YEngine.put fe.engine access_id selector value) 
       (fun () -> Server.respond_string ~status:`No_content ~body:"" ())
       (fun _ -> no_matching_key (Selector.to_string selector))
 
 
   let put_delta  fe (access_id:Access.Id.t) selector delta =  
-    let%lwt _ = Logs_lwt.debug (fun m -> m "[FER]   put_delta %s %s\n%s" (Access.Id.to_string access_id) (Selector.to_string selector) (Value.to_string delta)) in  
+    Logs.debug (fun m -> m "[FER]   put_delta %s %s\n%s" (Access.Id.to_string access_id) (Selector.to_string selector) (Value.to_string delta));
     Lwt.try_bind 
       (fun () -> 
-         let%lwt _ = Logs_lwt.debug (fun m -> m "[FER]   put calling YEngine.put_delta") in
+         Logs.debug (fun m -> m "[FER]   put calling YEngine.put_delta");
          YEngine.put_delta fe.engine access_id selector delta) 
       (fun () -> Server.respond_string ~status:`No_content ~body:"" ())
       (fun _ -> no_matching_key (Selector.to_string selector))
 
 (*
 let remove_key_value fe access_id selector =
-  let%lwt _ = Logs_lwt.debug (fun m -> m "[FER]   put_delta_key_value %s %s" access_id selector) in
+  Logs.debug (fun m -> m "[FER]   put_delta_key_value %s %s" access_id selector);
   let msg = Remove { 
       cid = next_request_counter fe;
       access_id = Access.Id(access_id);
@@ -336,7 +335,7 @@ let remove_key_value fe access_id selector =
   (**********************************)
   (*let execute_control_operation fe meth path query headers body =  *)
   let execute_control_operation fe meth path query headers _ =
-    let%lwt _ = Logs_lwt.debug (fun m -> m "-- execute_control_operation --" ) in  
+    Logs.debug (fun m -> m "-- execute_control_operation --" );
     match (meth, path) with
 
     (* POST /yaks/access ? path & cacheSize *)
@@ -459,7 +458,7 @@ let remove_key_value fe access_id selector =
   case and make changes accordingly
  *)
   let execute_data_operation fe meth (selector: Selector.t) headers body =
-    let%lwt _ = Logs_lwt.debug (fun m -> m "(-- execute_data_operation --" ) in 
+    Logs.debug (fun m -> m "(-- execute_data_operation --" );
     let open Apero.Option.Infix in
 
     let access_id : Access.Id.t option = 
@@ -473,7 +472,7 @@ let remove_key_value fe access_id selector =
     | (_, None) ->
       missing_cookie cookie_name_access_id
     | (`GET, Some(aid)) ->
-      let%lwt _ = Logs_lwt.debug (fun m -> m "(-- get_key_value --" ) in 
+      Logs.debug (fun m -> m "(-- get_key_value --" );
       get_key_value fe aid selector
     | (`PUT, Some(aid)) ->
       let%lwt value = Cohttp_lwt.Body.to_string body in
@@ -495,12 +494,11 @@ let remove_key_value fe access_id selector =
     let path = uri |> Uri.path  in
     let query = uri |> Uri.query in
     let headers = req |> Request.headers in
-    let%lwt _ = Logs_lwt.debug (fun m -> m "[FER] HTTP req: %s %s?%s with cookie: %s" 
+    Logs.debug (fun m -> m "[FER] HTTP req: %s %s?%s with cookie: %s" 
                                    (Code.string_of_method meth) path (query_to_string query)
                                    (Cookie.Cookie_hdr.extract headers
                                     |> List.find_opt (fun (key, _) -> String.starts_with key "is.yaks")
-                                    |> function | Some(k,v) -> k^"="^v | _ -> ""))
-    in
+                                    |> function | Some(k,v) -> k^"="^v | _ -> ""));
     if path = "/" then
       empty_path
     else if String.length path >= 5 && String.sub path 0 5 = yaks_control_uri_prefix then
@@ -513,12 +511,12 @@ let remove_key_value fe access_id selector =
 
 
   let create cfg engine = 
-    let _ = Logs_lwt.debug (fun m -> m "[FER] REST-FE preparing HTTP server") in
+    Logs.debug (fun m -> m "[FER] REST-FE preparing HTTP server");
     let stop, stopper = Lwt.wait () in
     { cfg; engine; stop; stopper; request_counter=0L; tokens= TokenMap.empty }
 
   let start fe conduit =
-    let _ = Logs_lwt.debug (fun m -> m "[FER] REST-FE starting HTTP server on port %d" fe.cfg.port) in
+    Logs.debug (fun m -> m "[FER] REST-FE starting HTTP server on port %d" fe.cfg.port);
     let callback _conn req body = execute_http_request fe req body in
     (* let u = Cohttp_lwt_unix.Server.create ~stop:fe.stop  ~mode:(`TCP (`Port fe.cfg.port)) (Cohttp_lwt_unix.Server.make ~callback ()) in u *)
     let spec = Server.make ~callback () in 
@@ -527,7 +525,7 @@ let remove_key_value fe access_id selector =
 
 
   let stop fe =
-    let _ = Logs_lwt.debug (fun m -> m "[FER] REST-FE stopping HTTP server") in
+    Logs.debug (fun m -> m "[FER] REST-FE stopping HTTP server");
     Lwt.wakeup_later fe.stopper ()
 
 end

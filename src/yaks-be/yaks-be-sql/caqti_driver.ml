@@ -12,19 +12,19 @@ type connection = {
 let fail_on_error res = match%lwt res with
   | Ok r -> Lwt.return r
   | Error e -> 
-    let%lwt _ = Logs_lwt.err (fun m -> m "[SQL]: %s" (Caqti_error.show e)) in
+    Logs.err (fun m -> m "[SQL]: %s" (Caqti_error.show e));
     Lwt.fail @@ YException (`StoreError (`Msg (Caqti_error.show e)))
 
 let exec_query conx query =
   let exec_query' (module C : Caqti_lwt.CONNECTION) =
-    let%lwt _ = Logs_lwt.debug (fun m -> m "[SQL]: %s" query) in
+    Logs.debug (fun m -> m "[SQL]: %s" query);
     C.exec (Caqti_request.exec Caqti_type.unit query) ()
   in
   Caqti_lwt.Pool.use exec_query' conx.pool |> fail_on_error
 
 let collect_query conx query row_type=
   let collect_query' (module C : Caqti_lwt.CONNECTION) =
-    let%lwt _ = Logs_lwt.debug (fun m -> m "[SQL]: %s" query) in
+    Logs.debug (fun m -> m "[SQL]: %s" query);
     C.collect_list (Caqti_request.collect Caqti_type.unit row_type query) ()
   in
   Caqti_lwt.Pool.use collect_query' conx.pool |> fail_on_error

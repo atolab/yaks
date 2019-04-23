@@ -52,18 +52,18 @@ module MainMemoryBE = struct
           let open Timestamp.Infix in
           if (t < value.time)
           then Guard.return () (SMap.add path (Present value) self)
-          else
-            let _ = Logs_lwt.debug (fun m -> m "[MEM] put on %s dropped: out-of-date" (Path.to_string path)) in 
-            Guard.return () self
+          else (
+            Logs.debug (fun m -> m "[MEM] put on %s dropped: out-of-date" (Path.to_string path));
+            Guard.return () self)
         | Some Removed (t, cleanup) ->
           let open Timestamp.Infix in
           if (t < value.time)
           then (
             Lwt.cancel cleanup; 
             Guard.return () (SMap.add path (Present value) self))
-          else
-            let _ = Logs_lwt.debug (fun m -> m "[MEM] put on %s dropped: out-of-date" (Path.to_string path)) in 
-            Guard.return () self
+          else (
+            Logs.debug (fun m -> m "[MEM] put on %s dropped: out-of-date" (Path.to_string path));
+            Guard.return () self)
         | None ->
           Guard.return  () (SMap.add path (Present value) self)
 
@@ -76,11 +76,11 @@ module MainMemoryBE = struct
           then 
             (match TimedValue.update tv ~delta with
             | Ok tv' -> Guard.return () (SMap.add path (Present tv') self)
-            | Error e -> let _ = Logs_lwt.warn (fun m -> m "[MEM] update on %s failed: %s" (Path.to_string path) (show_yerror e)) in Guard.return () self
+            | Error e -> Logs.warn (fun m -> m "[MEM] update on %s failed: %s" (Path.to_string path) (show_yerror e)); Guard.return () self
             )
-          else 
-            let _ = Logs_lwt.debug (fun m -> m "[MEM] update on %s dropped: out-of-date" (Path.to_string path)) in 
-            Guard.return () self
+          else (
+            Logs.debug (fun m -> m "[MEM] update on %s dropped: out-of-date" (Path.to_string path));
+            Guard.return () self)
         | Some Removed (t, cleanup) ->
           let open Timestamp.Infix in
           if (t < delta.time)
@@ -102,9 +102,9 @@ module MainMemoryBE = struct
           let open Timestamp.Infix in
           if (t < time)
           then Guard.return () (SMap.add path (Removed (time, cleanup_entry path)) self)
-          else
-            let _ = Logs_lwt.debug (fun m -> m "[MEM] remove on %s dropped: out-of-date" (Path.to_string path)) in 
-            Guard.return () self
+          else (
+            Logs.debug (fun m -> m "[MEM] remove on %s dropped: out-of-date" (Path.to_string path));
+            Guard.return () self)
         | None ->
           (* NOTE: even if path is not known yet, we need to store the removal time:
             if ever a put with a lower timestamp arrive (e.g. msg inversion between put and remove) 

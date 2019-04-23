@@ -149,7 +149,7 @@ module AdminSpace = struct
       let module BE = (val be: Backend) in
       let id = BeId.to_string BE.id in
       let backend = { beModule = be; storages = StorageMap.empty } in
-      Logs_lwt.debug (fun m -> m "[Yadm] add_backend : %s" id) >>
+      Logs.debug (fun m -> m "[Yadm] add_backend : %s" id);
       Guard.guarded admin
       @@ fun self ->
       if BackendMap.mem BE.id self.backends then
@@ -174,7 +174,7 @@ module AdminSpace = struct
     let find_compatible_backend backends properties =
       BackendMap.filter (fun beid be ->
         let module BE = (val be.beModule: Backend) in
-        let _ = Logs_lwt.debug (fun m -> m "[Yadm]:    try Backend %s (%s)" (BeId.to_string beid) BE.to_string) in
+        Logs.debug (fun m -> m "[Yadm]:    try Backend %s (%s)" (BeId.to_string beid) BE.to_string);
         Properties.not_conflicting properties BE.properties) backends
       |> BackendMap.choose_opt
     
@@ -187,7 +187,7 @@ module AdminSpace = struct
           | Some s' -> Lwt.return s')
       in
       let storageId = StorageId.of_string stid in
-      Logs_lwt.debug (fun m -> m "[Yadm] create_storage %s on %s" stid (Selector.to_string selector)) >>
+      Logs.debug (fun m -> m "[Yadm] create_storage %s on %s" stid (Selector.to_string selector));
       Guard.guarded admin
       @@ fun self ->
       (* get backend from beid or a compatible one if beid is not set *)
@@ -209,7 +209,7 @@ module AdminSpace = struct
       else
         (* create storage (in backend and in Zenoh) and add it to self state *)
         let module BE = (val be.beModule: Backend) in
-        let%lwt _ = Logs_lwt.debug (fun m -> m "[Yadm]: create_storage %s using Backend %s" stid (BE.to_string)) in
+        Logs.debug (fun m -> m "[Yadm]: create_storage %s using Backend %s" stid (BE.to_string));
         let%lwt storage = BE.create_storage selector properties self.hlc in
         let%lwt zenoh_storage =  
           match self.zenoh with 
@@ -230,7 +230,7 @@ module AdminSpace = struct
     let remove_storage admin beid stid =
       let beid' = BeId.of_string beid in
       let stid' = StorageId.of_string stid in
-      Logs_lwt.debug (fun m -> m "[Yadm] remove_storage %s/%s" beid stid) >>
+      Logs.debug (fun m -> m "[Yadm] remove_storage %s/%s" beid stid);
       Guard.guarded admin
       @@ fun self ->
       let%lwt be = match BackendMap.find_opt beid' self.backends with
@@ -252,7 +252,7 @@ module AdminSpace = struct
         in 
         Guard.return () { self with backends = BackendMap.add beid' be' self.backends; kvs }
       | None -> 
-        Logs_lwt.debug (fun m -> m "[Yadm] storage %s/%s not found... ignore remove request" beid stid) >>
+        Logs.debug (fun m -> m "[Yadm] storage %s/%s not found... ignore remove request" beid stid);
         Guard.return () self
 
     let get_matching_storages admin sel =
@@ -269,7 +269,7 @@ module AdminSpace = struct
     (*   Frontends management  *)
     (***************************)
     let add_frontend admin feid properties time =
-      Logs_lwt.debug (fun m -> m "[Yadm] add_frontend %s" feid) >>
+      Logs.debug (fun m -> m "[Yadm] add_frontend %s" feid);
       Guard.guarded admin
       @@ fun self ->
       if FrontendMap.mem (FeId.of_string feid) self.frontends then
@@ -288,12 +288,12 @@ module AdminSpace = struct
       add_frontend admin feid properties (now self.hlc)
 
     let remove_frontend admin feid = 
-      Logs_lwt.debug (fun m -> m "[Yadm] remove_frontend %s" feid) >>
+      Logs.debug (fun m -> m "[Yadm] remove_frontend %s" feid);
       Guard.guarded admin
       @@ fun self ->
-      if not @@ FrontendMap.mem (FeId.of_string feid) self.frontends then
-        let _ = Logs_lwt.warn (fun m -> m "[Yadm] remove non-existing frontend: %s" feid) in
-        Guard.return () self
+      if not @@ FrontendMap.mem (FeId.of_string feid) self.frontends then (
+        Logs.warn (fun m -> m "[Yadm] remove non-existing frontend: %s" feid);
+        Guard.return () self)
       else
         let time = now self.hlc in
         let kvs = KVMap.remove (Path.of_string @@ Printf.sprintf "%s/frontend/%s" self.admin_prefix feid) self.kvs
@@ -309,7 +309,8 @@ module AdminSpace = struct
       if Path.is_relative path then
         Lwt.fail @@ YException (`InternalError (`Msg ("Invalid workspace with non-absolute path: "^(Path.to_string path))))
       else
-        Logs_lwt.debug (fun m -> m "[Yadm] %s: workspace %s" (ClientId.to_string clientid) (Path.to_string path)) >>
+        begin
+        Logs.debug (fun m -> m "[Yadm] %s: workspace %s" (ClientId.to_string clientid) (Path.to_string path));
         Guard.guarded admin
         @@ fun self ->
         let%lwt (fe, s) = get_frontend_session self clientid.feid clientid.sid in
@@ -324,6 +325,7 @@ module AdminSpace = struct
           |> update_yaks_json_view self.admin_prefix time
         in
         Guard.return wsid { self with frontends = FrontendMap.add clientid.feid fe' self.frontends; kvs }
+        end
 
     let get_workspace_path admin (clientid:ClientId.t) wsid =
       let self = Guard.get admin in 
@@ -346,7 +348,7 @@ module AdminSpace = struct
       | None -> Lwt.return_unit
 
      let remove_subscriber admin (clientid:ClientId.t) subid =
-      Logs_lwt.debug (fun m -> m "[Yadm] %s: remove_subscriber %s" (ClientId.to_string clientid) (SubscriberId.to_string subid)) >>
+      Logs.debug (fun m -> m "[Yadm] %s: remove_subscriber %s" (ClientId.to_string clientid) (SubscriberId.to_string subid));
       Guard.guarded admin 
       @@ fun self ->
         let%lwt (fe, s) = get_frontend_session self clientid.feid clientid.sid in
@@ -364,17 +366,17 @@ module AdminSpace = struct
           in
           Guard.return () { self with frontends = FrontendMap.add clientid.feid fe' self.frontends; kvs }
         | None ->
-          Logs_lwt.warn (fun m -> m "[Yadm] %s: can't remove subscriber %s : not found" (ClientId.to_string clientid) (SubscriberId.to_string subid)) >>
+          Logs.warn (fun m -> m "[Yadm] %s: can't remove subscriber %s : not found" (ClientId.to_string clientid) (SubscriberId.to_string subid));
           Guard.return () self
 
     let create_subscriber admin (clientid:ClientId.t) selector is_push notifier =
-      Logs_lwt.debug (fun m -> m "[Yadm] %s: create_subscriber %s" (ClientId.to_string clientid) (Selector.to_string selector)) >>
+      Logs.debug (fun m -> m "[Yadm] %s: create_subscriber %s" (ClientId.to_string clientid) (Selector.to_string selector));
       Guard.guarded admin 
       @@ fun self ->
         let%lwt (fe, s) = get_frontend_session self clientid.feid clientid.sid in
         let subid = SubscriberId.next_id () in
         let notify_call path changes =
-          Logs_lwt.debug (fun m -> m "[Yadm] notify subscriber %s/%s for %d changes on %s" (ClientId.to_string clientid) (SubscriberId.to_string subid) (List.length changes) (Path.to_string path)) >>
+          Logs.debug (fun m -> m "[Yadm] notify subscriber %s/%s for %d changes on %s" (ClientId.to_string clientid) (SubscriberId.to_string subid) (List.length changes) (Path.to_string path));
           notifier subid ~fallback:(remove_subscriber admin clientid) path changes 
         in
         let%lwt zenoh_sub = create_zenoh_subscriber self.zenoh self.hlc selector is_push notify_call in
@@ -410,7 +412,7 @@ module AdminSpace = struct
       | _, _ -> Lwt.return_unit
 
     let remove_eval admin (clientid:ClientId.t) path =
-      Logs_lwt.debug (fun m -> m "[Yadm] %s: remove_eval %s" (ClientId.to_string clientid) (Path.to_string path)) >>
+      Logs.debug (fun m -> m "[Yadm] %s: remove_eval %s" (ClientId.to_string clientid) (Path.to_string path));
       Guard.guarded admin 
       @@ fun self ->
         let%lwt (fe, s) = get_frontend_session self clientid.feid clientid.sid in
@@ -428,11 +430,11 @@ module AdminSpace = struct
           in
           Guard.return () { self with frontends = FrontendMap.add clientid.feid fe' self.frontends; kvs }
         | None ->
-          Logs_lwt.warn (fun m -> m "[Yadm] %s: can't remove eval %s : not found" (ClientId.to_string clientid) (Path.to_string path)) >>
+          Logs.warn (fun m -> m "[Yadm] %s: can't remove eval %s : not found" (ClientId.to_string clientid) (Path.to_string path));
           Guard.return () self
 
     let call_evals admin (clientid:ClientId.t) multiplicity sel =
-      let%lwt _ = Logs_lwt.debug (fun m -> m "[YAdm]: Call eval on %s for %s" (ClientId.to_string clientid) (Selector.to_string sel)) in
+      Logs.debug (fun m -> m "[YAdm]: Call eval on %s for %s" (ClientId.to_string clientid) (Selector.to_string sel));
       let _ = ignore clientid in
       let add_eval p e m = if EvalMap.mem p m then EvalMap.add p (e::EvalMap.find p m) m else EvalMap.add p (e::[]) m in
       let rec invoke path eval_calls multiplicity = 
@@ -457,22 +459,22 @@ module AdminSpace = struct
       |> LwtM.flatten
 
     let incoming_eval_data_handler path _ =
-      let%lwt _ = Logs_lwt.warn (fun m -> m "[YAdm]: Received pushed data for eval %s - Ignore it!!" (Path.to_string path)) in
+      Logs.warn (fun m -> m "[YAdm]: Received pushed data for eval %s - Ignore it!!" (Path.to_string path));
       Lwt.return_unit (* Eval should never get value "put" *)
 
     let zenoh_eval_prefix = "+"
 
     let incoming_eval_query_handler path hlc (eval_call:eval_call) zselector = 
-      let%lwt _ = Logs_lwt.debug (fun m -> m "[YAdm]: Handling remote Zenoh query on eval '%s' for '%s'" (Path.to_string path) (Selector.to_string zselector)) in
+      Logs.debug (fun m -> m "[YAdm]: Handling remote Zenoh query on eval '%s' for '%s'" (Path.to_string path) (Selector.to_string zselector));
       if Astring.is_prefix ~affix:zenoh_eval_prefix (Selector.path zselector) then
         let selector = Selector.of_string @@ Astring.with_range ~first:1 (Selector.to_string zselector) in
         let%lwt value = eval_call (Selector.with_path path selector) in
         let%lwt time = HLC.new_timestamp hlc in
         let (tv:TimedValue.t) =  {time; value} in
         Lwt.return [path, tv]
-      else
-        let%lwt _ = Logs_lwt.err (fun m -> m "[YAdm]: Internal error the Zenoh resource name for eval doesn't start with + : %s" (Selector.to_string zselector)) in
-        Lwt.return []
+      else (
+        Logs.err (fun m -> m "[YAdm]: Internal error the Zenoh resource name for eval doesn't start with + : %s" (Selector.to_string zselector));
+        Lwt.return [])
 
     let create_zenoh_eval zenoh_opt hlc path eval_call =
       match zenoh_opt with
@@ -487,7 +489,7 @@ module AdminSpace = struct
       | None -> Lwt.return_none
 
     let create_eval admin (clientid:ClientId.t) path (eval:eval_function) =
-      Logs_lwt.debug (fun m -> m "[Yadm] %s: create_eval %s" (ClientId.to_string clientid) (Path.to_string path)) >>
+      Logs.debug (fun m -> m "[Yadm] %s: create_eval %s" (ClientId.to_string clientid) (Path.to_string path));
       let remove_eval_fallback path =
         remove_eval admin clientid path >>= fun _ ->
         Lwt.return @@ Value.StringValue
@@ -495,7 +497,7 @@ module AdminSpace = struct
           (Path.to_string path) (ClientId.to_string clientid))
       in
       let eval_call sel =
-        Logs_lwt.debug (fun m -> m "[Yadm] call eval for %s on %s with %s" (Path.to_string path) (ClientId.to_string clientid) (Selector.to_string sel)) >>
+        Logs.debug (fun m -> m "[Yadm] call eval for %s on %s with %s" (Path.to_string path) (ClientId.to_string clientid) (Selector.to_string sel));
         eval path ~fallback:remove_eval_fallback sel
       in
       Guard.guarded admin 
@@ -517,7 +519,7 @@ module AdminSpace = struct
     (*   Sessions management  *)
     (**************************)
     let login admin (clientid:ClientId.t) properties =
-      Logs_lwt.debug (fun m -> m "[Yadm] %s: login" (ClientId.to_string clientid)) >>
+      Logs.debug (fun m -> m "[Yadm] %s: login" (ClientId.to_string clientid));
       Guard.guarded admin
       @@ fun self ->
       let feid = FeId.to_string clientid.feid in
@@ -547,16 +549,16 @@ module AdminSpace = struct
       | None -> Lwt.return_unit
 
     let logout admin (clientid:ClientId.t) =
-      Logs_lwt.debug (fun m -> m "[Yadm] %s: logout" (ClientId.to_string clientid)) >>
+      Logs.debug (fun m -> m "[Yadm] %s: logout" (ClientId.to_string clientid));
       Guard.guarded admin
       @@ fun self ->
       match FrontendMap.find_opt clientid.feid self.frontends with
-        | None -> let _ = Logs_lwt.warn (fun m -> m "[Yadm] logout from non-existing frontend: %s" (FeId.to_string clientid.feid)) in
+        | None -> Logs.warn (fun m -> m "[Yadm] logout from non-existing frontend: %s" (FeId.to_string clientid.feid));
           Guard.return () self
         | Some fe ->
           match SessionMap.find_opt clientid.sid fe.sessions with
           | None ->
-             let _ = Logs_lwt.warn (fun m -> m "[Yadm] logout from non-existing session: %s" (ClientId.to_string clientid)) in
+            Logs.warn (fun m -> m "[Yadm] logout from non-existing session: %s" (ClientId.to_string clientid));
             Guard.return () self
           | Some s ->
             let () = Lwt.async @@ fun () -> cleanup_session self.zenoh s in
@@ -575,7 +577,7 @@ module AdminSpace = struct
     (*****************************)
     let get admin (clientid:ClientId.t) selector =
       let _ = ignore clientid in  (* will be used for access control*)
-      let%lwt _ = Logs_lwt.debug (fun m -> m "[Yadm] %s: get %s" (ClientId.to_string clientid) (Selector.to_string selector)) in
+      Logs.debug (fun m -> m "[Yadm] %s: get %s" (ClientId.to_string clientid) (Selector.to_string selector));
       let self = Guard.get admin in 
       Lwt.return @@ match Selector.as_unique_path selector with 
       | Some path ->
@@ -589,7 +591,7 @@ module AdminSpace = struct
 
     let put admin (clientid:ClientId.t) path (tvalue:TimedValue.t) =
       let _ = ignore clientid in  (* will be used for access control*)
-      let%lwt _ = Logs_lwt.debug (fun m -> m "[Yadm] %s: put %s" (ClientId.to_string clientid) (Path.to_string path)) in
+      Logs.debug (fun m -> m "[Yadm] %s: put %s" (ClientId.to_string clientid) (Path.to_string path));
       let time = tvalue.time in
       let%lwt properties = 
         let open Value in
@@ -613,7 +615,7 @@ module AdminSpace = struct
     let remove admin (clientid:ClientId.t) path time =
       let _ = ignore clientid in  (* will be used for access control*)
       let _ = ignore time in (* TODO: removed map ?? *)
-      let%lwt _ = Logs_lwt.debug (fun m -> m "[Yadm] %s: remove %s" (ClientId.to_string clientid) (Path.to_string path)) in
+      Logs.debug (fun m -> m "[Yadm] %s: remove %s" (ClientId.to_string clientid) (Path.to_string path));
       let self = Guard.get admin in 
       if Astring.is_prefix ~affix:self.admin_prefix (Path.to_string path) then
         match String.split_on_char '/' @@ Astring.with_range ~first:(String.length self.admin_prefix+1) (Path.to_string path) with
@@ -626,17 +628,17 @@ module AdminSpace = struct
 
 
     let incoming_admin_storage_data_handler admin (path:Path.t) (changes:change list) =
-      let%lwt _ = Logs_lwt.debug (fun m -> m "[YAdm]: Received remote changes for key %s" (Path.to_string path)) in
+      Logs.debug (fun m -> m "[YAdm]: Received remote changes for key %s" (Path.to_string path));
         let self = Guard.get admin in
         let check_time_validity time =
           match%lwt HLC.update_with_timestamp time self.hlc with
           | Ok () -> Lwt.return_true
-          | Error e -> let _ = Logs_lwt.warn (fun m -> m "[Yadm]: Incoming change from Zenoh for %s refused: timestamp differs too much from local clock: %s" (Path.to_string path) (Apero.show_error e)) in Lwt.return_false
+          | Error e -> Logs.warn (fun m -> m "[Yadm]: Incoming change from Zenoh for %s refused: timestamp differs too much from local clock: %s" (Path.to_string path) (Apero.show_error e)); Lwt.return_false
         in
         Lwt_list.iter_s (function
           | Put(tv)      -> if%lwt check_time_validity tv.time then put admin local_client path tv
           | Remove(time) -> if%lwt check_time_validity time then remove admin local_client path time
-          | Update(_)    -> let _ = Logs_lwt.warn (fun m -> m "[YAdm]: Received update for %s : only put or remove are supported by Admin space" (Path.to_string path)) in Lwt.return_unit
+          | Update(_)    -> Logs.warn (fun m -> m "[YAdm]: Received update for %s : only put or remove are supported by Admin space" (Path.to_string path)); Lwt.return_unit
         ) changes
 
     let incoming_admin_query_handler admin selector =
@@ -650,7 +652,7 @@ module AdminSpace = struct
 
     let make yid hlc zenoh =
       let admin_prefix = "/@/"^(Uuid.to_string yid) in
-      let _ = Logs_lwt.debug (fun m -> m "Create Yaks %s admin space\n" admin_prefix) in
+      Logs.debug (fun m -> m "Create Yaks %s admin space\n" admin_prefix);
       let time = now hlc in
       let kvs = KVMap.empty
         |> kvmap_add (Path.of_string admin_prefix) empty_props_value time

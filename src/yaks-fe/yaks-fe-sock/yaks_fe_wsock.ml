@@ -48,10 +48,10 @@ module Make (YEngine : Yaks_engine.Engine.S) = struct
   let send_msg wbuf client opcode msg  = 
     Abuf.clear wbuf;
     Lwt.catch (fun () -> encode_message msg wbuf; send_as_frame wbuf client opcode) 
-              (fun e ->  Logs_lwt.err (fun m -> m "Failed to send message : %s" (Printexc.to_string e)) >>= fun () -> Lwt.fail e)
+              (fun e ->  Logs.err (fun m -> m "Failed to send message : %s" (Printexc.to_string e)); Lwt.fail e)
 
   let process_eval (s:state) client buf (path:Path.t) selector ~fallback =
-    let _ = Logs_lwt.debug (fun m -> m "[FEWS] send GET(%s) for eval %s" (Selector.to_string selector) (Path.to_string path)) in
+    Logs.debug (fun m -> m "[FEWS] send GET(%s) for eval %s" (Selector.to_string selector) (Path.to_string path));
     let (body:payload) = YSelector (selector) in
     let h = make_header GET [] Vle.zero Properties.empty in
     let msg = make_message h body in
@@ -66,15 +66,13 @@ module Make (YEngine : Yaks_engine.Engine.S) = struct
       match ex with
       | YException err ->
         (* Error message received from eval implementer. Forward it, don't call fallback *)
-        let _ = Logs_lwt.debug (fun m -> m "[FEWS] received ERROR calling EVAL(%s) for eval registered with %s: %s"
-          (Selector.to_string selector) (Path.to_string path) (show_yerror err))
-        in
+        Logs.debug (fun m -> m "[FEWS] received ERROR calling EVAL(%s) for eval registered with %s: %s"
+          (Selector.to_string selector) (Path.to_string path) (show_yerror err));
         Lwt.fail ex
       | _ ->
         (* Exception received trying to send message to eval implementer, probably gone... call fallback that will remove it *)
-        let _ = Logs_lwt.debug (fun m -> m "[FEWS] received unexpected exception calling EVAL(%s) for eval registered with %s: %s"
-          (Selector.to_string selector) (Path.to_string path) (Printexc.to_string ex))
-        in
+        Logs.debug (fun m -> m "[FEWS] received unexpected exception calling EVAL(%s) for eval registered with %s: %s"
+          (Selector.to_string selector) (Path.to_string path) (Printexc.to_string ex));
         fallback path)
 
   let make_ynotification sid path changes =
@@ -135,13 +133,13 @@ module Make (YEngine : Yaks_engine.Engine.S) = struct
         
         | Frame.Opcode.Close ->
           (* Immediately echo and pass this last message to the user *)
-          let%lwt _ = Logs_lwt.debug (fun m -> m "[FEWS]: Connection closed by remote peer") in 
+          Logs.debug (fun m -> m "[FEWS]: Connection closed by remote peer");
           close 1000
 
         | Frame.Opcode.Pong -> Lwt.return_unit
         
         | Frame.Opcode.Text -> 
-          let%lwt _ = Logs_lwt.warn (fun m -> m "[FEWS]: Received text message while expected binary. Closing session.") in  
+          Logs.warn (fun m -> m "[FEWS]: Received text message while expected binary. Closing session.");
           close 1000
 
         | Frame.Opcode.Binary ->      
@@ -163,7 +161,7 @@ module Make (YEngine : Yaks_engine.Engine.S) = struct
     {feid; svc; engine; config}
 
   let start fe  = 
-    let _ = Logs_lwt.debug (fun m -> m "[FEWS] WebSock-FE starting server at %s" (WebSockLocator.to_string @@ Config.locator fe.config)) in    
+    Logs.debug (fun m -> m "[FEWS] WebSock-FE starting server at %s" (WebSockLocator.to_string @@ Config.locator fe.config));
     let state = Guard.create { pending_eval_results=WorkingMap.empty } in
     NetServiceWebSock.start fe.svc (handler fe.feid state fe.engine) 
   

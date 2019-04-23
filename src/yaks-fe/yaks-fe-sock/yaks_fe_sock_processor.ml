@@ -43,10 +43,10 @@ module Processor = struct
     let ex_to_reply msg ex =
       match ex with
     | YException e -> 
-      let _ = Logs.warn (fun m -> m "FES: caught YException: %s " (show_yerror e)) in
+      Logs.warn (fun m -> m "FES: caught YException: %s " (show_yerror e));
       reply_with_error msg BAD_REQUEST
     | ex ->
-      let _ = Logs.warn (fun m -> m "FES: caught unexpected exception: %s \n %s" (Printexc.to_string ex) (Printexc.get_backtrace ())) in
+      Logs.warn (fun m -> m "FES: caught unexpected exception: %s \n %s" (Printexc.to_string ex) (Printexc.get_backtrace ()));
       reply_with_error msg BAD_REQUEST
 
     let workspace_from_props p =
@@ -163,17 +163,14 @@ module Processor = struct
     let process_values msg resolver =
       match get_path_value_list_payload msg with
       | Some ((_,v)::l) ->
-        let%lwt _ = if List.length l > 0 then
-          Logs_lwt.warn (fun m -> m "FES: processing VALUES - received more than 1 Value, ignoring the extras")
-          else Lwt.return_unit
-        in
+        if List.length l > 0 then Logs.warn (fun m -> m "FES: processing VALUES - received more than 1 Value, ignoring the extras") else ();
         let _ = Lwt.wakeup_later resolver v in
         Lwt.return @@ reply_with_ok msg Properties.empty
       | Some [] ->
-        let%lwt _ = Logs_lwt.debug (fun m -> m "FES: processing VALUES - received an empty list") in
+        Logs.debug (fun m -> m "FES: processing VALUES - received an empty list");
         Lwt.return @@ reply_with_error msg BAD_REQUEST
       | None ->
-        let%lwt _ = Logs_lwt.debug (fun m -> m "FES: processing VALUES - failed to decode body") in
+        Logs.debug (fun m -> m "FES: processing VALUES - failed to decode body");
         Lwt.return @@ reply_with_error msg BAD_REQUEST
 
     let process_error_on_eval msg resolver =
@@ -182,7 +179,7 @@ module Processor = struct
         let _ = Lwt.wakeup_later_exn resolver @@ YException (`InternalError (`Msg ("Received ERROR with code "^(error_code_to_string errcode)^"on eval "))) in
         Lwt.return @@ reply_with_ok msg Properties.empty
       | None ->
-        let%lwt _ = Logs_lwt.debug (fun m -> m "FES: processing ERROR - failed to decode body") in
+        Logs.debug (fun m -> m "FES: processing ERROR - failed to decode body");
         Lwt.return @@ reply_with_error msg BAD_REQUEST
 
 

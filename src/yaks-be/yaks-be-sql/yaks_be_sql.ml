@@ -25,13 +25,13 @@ module SQLBE = struct
     let dispose storage_info =
       match storage_info.on_dispose with
       | Drop -> 
-        let _ = Logs_lwt.debug (fun m -> m "[SQL]: dispose storage of table %s dropping it" (storage_info.table_name)) in
+        Logs.debug (fun m -> m "[SQL]: dispose storage of table %s dropping it" (storage_info.table_name));
         drop_table C.conx storage_info.table_name
       | Truncate ->
-        let _ = Logs_lwt.debug (fun m -> m "[SQL]: dispose storage of table %s truncating it" (storage_info.table_name)) in
+        Logs.debug (fun m -> m "[SQL]: dispose storage of table %s truncating it" (storage_info.table_name));
         trunc_table C.conx storage_info.table_name
       | DoNothing ->
-        let _ = Logs_lwt.debug (fun m -> m "[SQL]: dispose storage of table %s keeping it" (storage_info.table_name)) in
+        Logs.debug (fun m -> m "[SQL]: dispose storage of table %s keeping it" (storage_info.table_name));
         fun () -> Lwt.return_unit 
 
     let make_kv_table_name () =
@@ -46,18 +46,18 @@ module SQLBE = struct
         | None -> make_kv_table_name ()
       in
       let on_dispose = on_dispose_from_properties props in
-      let _ = Logs_lwt.debug (fun m -> m "[SQL]: create storage for table %s" table_name) in
+      Logs.debug (fun m -> m "[SQL]: create storage for table %s" table_name);
       let%lwt (schema, is_kv_table) = match%lwt Caqti_driver.get_schema connection table_name with
         | Some s -> 
           let is_kv_table = s = Caqti_driver.kv_table_schema in
-          let%lwt _ = Logs_lwt.debug (fun m -> m "[SQL]: table %s found (kv table? %b)" table_name is_kv_table) in
+          Logs.debug (fun m -> m "[SQL]: table %s found (kv table? %b)" table_name is_kv_table);
           if not is_kv_table && not @@ Selector.is_path_unique selector then
             Lwt.fail @@ YException (`StoreError (`Msg (Printf.sprintf
               "Invalid selector '%s' on legacy SQL table '%s': a storage on a legacy SQL table must not have wildcards in its selector" (Selector.to_string selector) table_name))) 
           else
             Lwt.return (s, is_kv_table)
         | None -> 
-          let%lwt _ = Logs_lwt.debug (fun m -> m "[SQL]: table %s not found - create it as key/value table" table_name) in
+          Logs.debug (fun m -> m "[SQL]: table %s not found - create it as key/value table" table_name);
           Caqti_driver.create_kv_table connection table_name props >>= fun r -> Lwt.return (r, true)
       in
       let keys_prefix = Selector.get_prefix selector in
