@@ -83,11 +83,29 @@ let add_websock_fe engine wsock_port =
   YEngine.add_frontend_TMP engine "WSOCK" @@ Properties.singleton "port" (string_of_int wsock_port) >>= fun _ ->
   WSockFE.start wsfe
 
-let run_yaksd yid without_storage http_port sock_port wsock_port sql_url zenoh_locator = 
+let run_yaksd yid without_storage http_port sock_port wsock_port sql_url zenoh_options = 
   try%lwt
     let%lwt zenoh = 
-      if zenoh_locator = "none" then Lwt.return None
-      else let%lwt z = Zenoh.zopen zenoh_locator in Lwt.return (Some z)
+      if zenoh_options = "none" 
+      then Lwt.return None
+      else 
+        begin 
+          if String.equal "zenohd" (String.sub zenoh_options 0 6) 
+          then 
+            begin 
+              let argv = String.split_on_char ' ' zenoh_options 
+                |> List.filter (fun s -> String.length s > 0)
+                |> Array.of_list in
+              let tcpport = Arg.(value & opt int 7447 & info ["t"; "tcpport"] ~docv:"TCPPORT" ~doc:"listening port") in
+              let peers = Arg.(value & opt string "" & info ["p"; "peers"] ~docv:"PEERS" ~doc:"peers") in
+              let strength = Arg.(value & opt int 0 & info ["s"; "strength"] ~docv:"STRENGTH" ~doc:"broker strength") in
+              let bufn = Arg.(value & opt int 8 & info ["w"; "wbufn"] ~docv:"BUFN" ~doc:"number of write buffers") in
+              Term.(eval (const ZenohRouter.zopen $ tcpport $ peers $ strength $ bufn, Term.info "zenohd") ~argv) |> function
+              | `Ok zlwt -> zlwt >>= fun z -> Lwt.return (Some z)
+              | _ -> Lwt.fail_with "Error running zenoh router"
+            end
+          else let%lwt z = Zenoh.zopen zenoh_options in Lwt.return (Some z)
+        end
     in
     let engine = YEngine.make ?id:(if String.length yid > 0 then Some yid else None) zenoh in
     let mem_be = add_mem_be engine in
