@@ -91,19 +91,7 @@ let run_yaksd yid without_storage http_port sock_port wsock_port sql_url zenoh_o
       else 
         begin 
           if String.equal "zenohd" (String.sub zenoh_options 0 6) 
-          then 
-            begin 
-              let argv = String.split_on_char ' ' zenoh_options 
-                |> List.filter (fun s -> String.length s > 0)
-                |> Array.of_list in
-              let tcpport = Arg.(value & opt int 7447 & info ["t"; "tcpport"] ~docv:"TCPPORT" ~doc:"listening port") in
-              let peers = Arg.(value & opt string "" & info ["p"; "peers"] ~docv:"PEERS" ~doc:"peers") in
-              let strength = Arg.(value & opt int 0 & info ["s"; "strength"] ~docv:"STRENGTH" ~doc:"broker strength") in
-              let bufn = Arg.(value & opt int 8 & info ["w"; "wbufn"] ~docv:"BUFN" ~doc:"number of write buffers") in
-              Term.(eval (const ZenohRouter.zopen $ tcpport $ peers $ strength $ bufn, Term.info "zenohd") ~argv) |> function
-              | `Ok zlwt -> zlwt >>= fun z -> Lwt.return (Some z)
-              | _ -> Lwt.fail_with "Error running zenoh router"
-            end
+          then let%lwt z = ZenohRouter.zopen (String.split_on_char ' ' zenoh_options |> Array.of_list) in Lwt.return (Some z)
           else let%lwt z = Zenoh.zopen zenoh_options in Lwt.return (Some z)
         end
     in
