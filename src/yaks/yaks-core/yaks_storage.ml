@@ -76,10 +76,10 @@ module Storage = struct
         | Update tv -> if%lwt check_time tv.time path then update s path tv
         | Remove time -> if%lwt check_time time path then remove s path time) changes
     in
-    let%lwt tmp_sub = ZUtils.subscribe zenoh s.hlc selector true listener in
+    let%lwt tmp_sub = ZUtils.subscribe zenoh ~hlc:s.hlc ~listener selector in
 
     (* query the remote storages (to get historical data) *)
-    let%lwt kvs = ZUtils.query zenoh  s.hlc selector in
+    let%lwt kvs = ZUtils.query_timedvalues zenoh s.hlc selector in
     let%lwt () = List.map (fun (path, (tv:TimedValue.t)) ->
       if Astring.is_prefix ~affix:"/@" (Path.to_string path) then Lwt.return_unit
       else

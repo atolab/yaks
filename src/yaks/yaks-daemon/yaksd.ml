@@ -15,10 +15,6 @@ let without_storage = Arg.(value & flag & info ["w"; "without-storage"] ~docv:"t
                              ~doc:"If true, disable the creation at startup of a default memory storage with '/**' as selector")
 let http_port = Arg.(value & opt int 8000 & info ["h"; "http-port"] ~docv:"PORT"
                        ~doc:"HTTP port used by the REST front-end")
-
-let wsock_port = Arg.(value & opt int 7888 & info ["x"; "wsock-port"] ~docv:"PORT"
-                       ~doc:"Port used by the WebSocket front-end")
-
 let sql_url = Arg.(value & opt string "" & info ["u"; "sql-url"] ~docv:"URL"
                        ~doc:"URL of the database used by the SQL backend")
 
@@ -70,14 +66,19 @@ let add_rest_fe engine http_port =
 
 let run_yaksd yid without_storage http_port sql_url zenoh_options = 
   try%lwt
-    let%lwt zenoh = 
+    let%lwt (zenoh, zid) = 
       if zenoh_options = "none" 
-      then Lwt.return None
+      then Lwt.return (None, None)
       else 
-        begin 
-          if String.equal "zenohd" (String.sub zenoh_options 0 6) 
-          then let%lwt z = ZenohRouter.zopen (String.split_on_char ' ' zenoh_options |> Array.of_list) in Lwt.return (Some z)
-          else let%lwt z = Zenoh.zopen zenoh_options in Lwt.return (Some z)
+        begin
+          let%lwt z = 
+            if String.equal "zenohd" (String.sub zenoh_options 0 6) 
+            then ZenohRouter.zopen (String.split_on_char ' ' zenoh_options |> Array.of_list)
+            else Zenoh.zopen zenoh_options
+          in
+          let zinfo = Zenoh.info z in
+          let zid = Option.Infix.(Properties.get "peer_pid" zinfo >|= Yaks_zutils.zenohid_to_yaksid) in
+          Lwt.return (Some z, zid)
         end
     in
     let zid = Option.bind zenoh (fun z -> Zenoh.info z |> Properties.get "peer_pid") in
