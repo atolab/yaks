@@ -171,7 +171,7 @@ module Engine = struct
                   - The Zenoh storage selector for eval is the eval's path prefixed with '+'
               *)
               let sel' = Selector.add_prefix ~prefix:(Path.of_string "+") sel in
-              ZUtils.query zenoh self.hlc sel' >|= List.map (fun ((p,tv):(Path.t*TimedValue.t)) -> (p,tv.value))
+              ZUtils.query_timedvalues zenoh self.hlc sel' >|= List.map (fun ((p,tv):(Path.t*TimedValue.t)) -> (p,tv.value))
             | None -> Lwt.return []
       in
       LwtM.flatten [local_evals; remote_evals] >|= List.concat
@@ -220,7 +220,7 @@ module Engine = struct
           Logs.debug (fun m -> m "[Yeng]: get %s => get local + remote" (Selector.to_string sel));
           let local_get = storages |> List.map (fun store -> Storage.get store sel) |> Apero.LwtM.flatten >|= List.concat in
           let remote_get = (match self.zenoh with
-            | Some zenoh -> ZUtils.query zenoh self.hlc sel
+            | Some zenoh -> ZUtils.query_timedvalues zenoh self.hlc sel
             | None -> Lwt.return [])
             >>= Lwt_list.filter_p (fun (p, (tv:TimedValue.t)) ->
               (* update HLC for each received TimedValue *)
@@ -260,7 +260,8 @@ module Engine = struct
           YAdminSpace.get_matching_storages self.admin (Selector.of_path path) |>
           Lwt_list.iter_p (fun store -> Storage.put store path tv)
         end;
-        if Option.is_some self.zenoh then Lwt.async (fun () -> ZUtils.send_put path tv (Option.get self.zenoh));
+        if Option.is_some self.zenoh then
+          Lwt.async (fun () -> ZUtils.write_put (Option.get self.zenoh) path tv.value ~timestamp:tv.time );
         Lwt.return_unit
 
     let update engine client ?quorum ?workspace path value =
@@ -282,7 +283,7 @@ module Engine = struct
           YAdminSpace.get_matching_storages self.admin (Selector.of_path path) |>
           Lwt_list.iter_p (fun store -> Storage.update store path tv)
         end;
-        if Option.is_some self.zenoh then Lwt.async (fun () -> ZUtils.send_update path tv (Option.get self.zenoh));
+        if Option.is_some self.zenoh then Lwt.async (fun () -> ZUtils.write_update (Option.get self.zenoh) path tv.value ~timestamp:tv.time );
         Lwt.return_unit
 
     let remove engine client ?quorum ?workspace path =
@@ -301,7 +302,7 @@ module Engine = struct
           YAdminSpace.get_matching_storages self.admin (Selector.of_path path) |>
           Lwt_list.iter_p (fun store -> Storage.remove store path time)
         end;
-        if Option.is_some self.zenoh then Lwt.async (fun () -> ZUtils.send_remove path time (Option.get self.zenoh));
+        if Option.is_some self.zenoh then Lwt.async (fun () -> ZUtils.write_remove (Option.get self.zenoh) path ~timestamp:time );
         Lwt.return_unit
 
     let add_backend_TMP engine be = 

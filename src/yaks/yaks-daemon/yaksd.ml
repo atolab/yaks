@@ -15,12 +15,6 @@ let without_storage = Arg.(value & flag & info ["w"; "without-storage"] ~docv:"t
                              ~doc:"If true, disable the creation at startup of a default memory storage with '/**' as selector")
 let http_port = Arg.(value & opt int 8000 & info ["h"; "http-port"] ~docv:"PORT"
                        ~doc:"HTTP port used by the REST front-end")
-let sock_port = Arg.(value & opt int 7887 & info ["s"; "sock-port"] ~docv:"PORT"
-                       ~doc:"TCP port used by the Socket front-end")
-
-let wsock_port = Arg.(value & opt int 7888 & info ["x"; "wsock-port"] ~docv:"PORT"
-                       ~doc:"Port used by the WebSocket front-end")
-
 let sql_url = Arg.(value & opt string "" & info ["u"; "sql-url"] ~docv:"URL"
                        ~doc:"URL of the database used by the SQL backend")
 
@@ -67,42 +61,29 @@ let add_rest_fe engine http_port =
   YEngine.add_frontend_TMP engine "REST" @@ Properties.singleton "port" (string_of_int http_port) >>= fun _ ->
   YRestFE.start restfe
 
-let add_socket_fe engine sock_port =
-  let module YSockFE = Yaks_fe_sock.Make (YEngine) in
-  let socket_addr = "tcp/0.0.0.0:"^(string_of_int sock_port) in
-  let socket_cfg = YSockFE.Config.make (Apero.Option.get @@ Apero_net.TcpLocator.of_string socket_addr) in 
-  let sockfe = YSockFE.create (FeId.of_string "TCP") socket_cfg engine in 
-  YEngine.add_frontend_TMP engine "TCP" @@ Properties.singleton "port" (string_of_int sock_port) >>= fun _ ->
-  YSockFE.start sockfe
-
-let add_websock_fe engine wsock_port = 
-  let module WSockFE = Yaks_fe_wsock.Make (YEngine) in 
-  let wsock_addr = "ws/0.0.0.0:"^(string_of_int wsock_port) in  
-  let wsock_cfg = WSockFE.Config.make (Apero.Option.get @@ Apero_net.WebSockLocator.of_string wsock_addr) in 
-  let wsfe = WSockFE.create (FeId.of_string "WSOCK") wsock_cfg engine in
-  YEngine.add_frontend_TMP engine "WSOCK" @@ Properties.singleton "port" (string_of_int wsock_port) >>= fun _ ->
-  WSockFE.start wsfe
-
-let run_yaksd yid without_storage http_port sock_port wsock_port sql_url zenoh_options = 
+let run_yaksd yid without_storage http_port sql_url zenoh_options = 
   try%lwt
-    let%lwt zenoh = 
+    let%lwt (zenoh, zid) = 
       if zenoh_options = "none" 
-      then Lwt.return None
+      then Lwt.return (None, None)
       else 
-        begin 
-          if String.equal "zenohd" (String.sub zenoh_options 0 6) 
-          then let%lwt z = ZenohRouter.zopen (String.split_on_char ' ' zenoh_options |> Array.of_list) in Lwt.return (Some z)
-          else let%lwt z = Zenoh.zopen zenoh_options in Lwt.return (Some z)
+        begin
+          let%lwt z = 
+            if String.equal "zenohd" (String.sub zenoh_options 0 6) 
+            then ZenohRouter.zopen (String.split_on_char ' ' zenoh_options |> Array.of_list)
+            else Zenoh.zopen zenoh_options
+          in
+          let zinfo = Zenoh.info z in
+          let zid = Option.Infix.(Properties.get "peer_pid" zinfo >|= Yaks_zutils.zenohid_to_yaksid) in
+          Lwt.return (Some z, zid)
         end
     in
-    let engine = YEngine.make ?id:(if String.length yid > 0 then Some yid else None) zenoh in
+    let engine = YEngine.make ?id:(if String.length yid > 0 then Some yid else zid) zenoh in
     let mem_be = add_mem_be engine in
     let sql_be = add_sql_be engine sql_url in
     let def_store = add_default_storage engine without_storage >>= fun _ -> Lwt.return_unit in
     let rest_fe = add_rest_fe engine http_port in
-    let sock_fe = add_socket_fe engine sock_port in
-    let wsock_fe = add_websock_fe engine wsock_port in
-    Lwt.join [mem_be; sql_be; def_store; rest_fe; sock_fe; wsock_fe]
+    Lwt.join [mem_be; sql_be; def_store; rest_fe;]
   with 
   | YException e  -> 
     Logs.err (fun m -> m "Exception %s raised:\n%s" (show_yerror e) (Printexc.get_backtrace ()));
@@ -112,17 +93,17 @@ let run_yaksd yid without_storage http_port sock_port wsock_port sql_url zenoh_o
     Lwt.return_unit
 
 
-let run yid without_storage http_port sock_port wsock_port sql_url zenoh_locator style_renderer level = 
+let run yid without_storage http_port sql_url zenoh_locator style_renderer level = 
   setup_log style_renderer level;
   (* Note: by default the Lwt.async_exception_hook do "exit 2" when an exception is raised in a canceled Lwt task.
      We rather force it to log and ignore the exception to avoid crashes (as it occurs randomly within cohttp at connection closure).  *)
   Lwt.async_exception_hook := (fun exn ->
     Logs.debug (fun m -> m "Exception caught in Lwt.async_exception_hook: %s\n%s" (Printexc.to_string exn) (Printexc.get_backtrace ())));
-  Lwt_main.run @@ run_yaksd yid without_storage http_port sock_port wsock_port sql_url zenoh_locator 
+  Lwt_main.run @@ run_yaksd yid without_storage http_port sql_url zenoh_locator 
 
 
 let () =
   Printexc.record_backtrace true;
   Lwt_engine.set (new Lwt_engine.libev ());
   let env = Arg.env_var "YAKSD_VERBOSITY" in
-  let _ = Term.(eval (const run $ yaks_id $ without_storage $ http_port $ sock_port $ wsock_port $ sql_url $ zenoh_locator $ Fmt_cli.style_renderer () $ Logs_cli.level ~env (), Term.info "Yaks daemon")) in  ()
+  let _ = Term.(eval (const run $ yaks_id $ without_storage $ http_port $ sql_url $ zenoh_locator $ Fmt_cli.style_renderer () $ Logs_cli.level ~env (), Term.info "Yaks daemon")) in  ()

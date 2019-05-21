@@ -214,7 +214,7 @@ module AdminSpace = struct
         let%lwt zenoh_storage =  
           match self.zenoh with 
           | Some zenoh ->
-            Storage.align storage zenoh selector >>
+            Storage.align storage zenoh selector >>= fun () ->
             ZUtils.store zenoh self.hlc selector (Storage.on_zenoh_write storage) (Storage.get storage) >>=
             Lwt.return_some
           | None -> Lwt.return_none
@@ -337,9 +337,9 @@ module AdminSpace = struct
     (*******************************)
     (*   Subscriptions management  *)
     (*******************************)
-    let create_zenoh_subscriber zenoh_opt hlc selector is_push notify_call =
+    let create_zenoh_subscriber zenoh_opt hlc selector listener =
       match zenoh_opt with
-      | Some zenoh -> ZUtils.subscribe zenoh hlc selector is_push notify_call >>= Lwt.return_some
+      | Some zenoh -> ZUtils.subscribe zenoh ~hlc ~listener selector >>= Lwt.return_some
       | None -> Lwt.return_none
 
     let remove_zenoh_subscriber zenoh subscriber =
@@ -379,7 +379,7 @@ module AdminSpace = struct
           Logs.debug (fun m -> m "[Yadm] notify subscriber %s/%s for %d changes on %s" (ClientId.to_string clientid) (SubscriberId.to_string subid) (List.length changes) (Path.to_string path));
           notifier subid ~fallback:(remove_subscriber admin clientid) path changes 
         in
-        let%lwt zenoh_sub = create_zenoh_subscriber self.zenoh self.hlc selector is_push notify_call in
+        let%lwt zenoh_sub = create_zenoh_subscriber self.zenoh self.hlc selector notify_call in
         let sub = {selector; is_push; notify_call; zenoh_sub} in
         let s' = { s with subs = SubscriberMap.add subid sub s.subs } in
         let fe' = { fe with sessions = SessionMap.add clientid.sid s' fe.sessions } in
