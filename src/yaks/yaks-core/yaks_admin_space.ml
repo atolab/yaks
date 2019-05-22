@@ -215,7 +215,7 @@ module AdminSpace = struct
           match self.zenoh with 
           | Some zenoh ->
             Storage.align storage zenoh selector >>
-            ZUtils.store zenoh self.hlc selector (Storage.on_zenoh_write storage) (Storage.get storage) >>=
+            lazy (ZUtils.store zenoh self.hlc selector (Storage.on_zenoh_write storage) (Storage.get storage)) >>=
             Lwt.return_some
           | None -> Lwt.return_none
         in
@@ -239,7 +239,7 @@ module AdminSpace = struct
       in
       match StorageMap.find_opt stid' be.storages with
       | Some (storage, zenoh_storage) ->
-        Storage.dispose storage >>
+        Storage.dispose storage >>= fun () ->
         let be' = { be with storages = StorageMap.remove stid' be.storages } in
         let time = now self.hlc in
         let kvs = KVMap.remove (Path.of_string @@ Printf.sprintf "%s/backend/%s/storage/%s" self.admin_prefix beid stid) self.kvs

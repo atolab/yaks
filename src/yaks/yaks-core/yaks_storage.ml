@@ -95,7 +95,7 @@ module Storage = struct
     Logs.debug (fun m -> m "[Sto] %s: alignment done" (Id.to_string s.id));
     let open Apero.LwtM.InfixM in
     (* program the removal of the temporary Zenoh listener after a while *)
-    Lwt.async (fun() -> Lwt_unix.sleep 10.0 >> ZUtils.unsubscribe zenoh tmp_sub);
+    Lwt.async (fun() -> Lwt_unix.sleep 10.0 >> lazy (ZUtils.unsubscribe zenoh tmp_sub));
     Lwt.return_unit
 
 end  [@@deriving show]

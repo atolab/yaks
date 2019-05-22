@@ -142,7 +142,7 @@ let create_kv_table conx table_name props =
   let key_size = Properties.get Be_sql_properties.Key.key_size props >>= int_of_string_opt >?= default_key_size in
   let query = "CREATE TABLE "^table_name^" (k VARCHAR("^(string_of_int key_size)^") NOT NULL PRIMARY KEY, v TEXT, e VARCHAR(10), t VARCHAR(60))" in
   let open Apero.LwtM.InfixM in
-  exec_query conx query >> Lwt.return kv_table_schema
+  exec_query conx query >> lazy (Lwt.return kv_table_schema)
 
 let get_timestamp_kv_table conx table_name key =
   let query = "SELECT t FROM "^table_name^" WHERE k = "^key in
