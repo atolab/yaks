@@ -1,5 +1,6 @@
 open Apero
-open Yaks_core
+open Yaks_types
+open Yaks_common_errors
 open Be_sql_types
 
 (************************************************)

@@ -23,8 +23,9 @@ install: [
 depends: [
   "ocaml" {>= "4.03.0"}
   "dune"
-  "lwt" {>= "4.0.0"}
-  "yaks-core"  {= "0.2.7"}
-  "apero-core" {>= "0.4.4"}
-  "cohttp-lwt-unix" {>= "1.0.2"}
+  "yaks-common"  {= "0.2.7"}
+]
+
+conflicts: [
+  "lwt" {< "4.0.0"}
 ]

@@ -3,13 +3,13 @@ open Yaks_types
 
 include Yaks_zutils
 
-let store zenoh hlc selector (sublistener:Path.t -> change list -> unit Lwt.t) (query_handler:Selector.t -> (Path.t * TimedValue.t) list Lwt.t) =
-  Logs.debug (fun m -> m "[Yeng]: Declare storage on %s" (Selector.to_string selector));
+let store zenoh ?hlc selector (sublistener:Path.t -> change list -> unit Lwt.t) (query_handler:Selector.t -> (Path.t * TimedValue.t) list Lwt.t) =
+  Logs.debug (fun m -> m "[YZu]: Declare storage on %s" (Selector.to_string selector));
   let zsublistener (resname:string) (samples:(Abuf.t * Ztypes.data_info) list) =
     let open Lwt.Infix in
     match Path.of_string_opt resname with
-    | Some path -> decode_changes ~hlc samples >>= sublistener path
-    | None -> Logs.warn (fun m -> m "[Zenh]: Store received data for resource %s which is not a valid path" resname); Lwt.return_unit
+    | Some path -> decode_changes ?hlc samples >>= sublistener path
+    | None -> Logs.warn (fun m -> m "[YZu]: Store received data for resource %s which is not a valid path" resname); Lwt.return_unit
   in
   let zquery_handler resname predicate =
     let s = if predicate = "" then resname else resname ^"?"^predicate in
@@ -23,7 +23,7 @@ let store zenoh hlc selector (sublistener:Path.t -> change list -> unit Lwt.t) (
         let buf = Abuf.create ~grow:8192 8192 in
         encode_value tv.value buf;
         (spath, buf, data_info)) kvs
-    | None -> Logs.warn (fun m -> m "[Zenh]: Store received query for resource/predicate %s?%s which is not a valid selector" resname predicate); Lwt.return []
+    | None -> Logs.warn (fun m -> m "[YZu]: Store received query for resource/predicate %s?%s which is not a valid selector" resname predicate); Lwt.return []
 
   in
   Zenoh.store zenoh (Selector.to_string selector) zsublistener zquery_handler

@@ -1,5 +1,5 @@
 open Apero
-open Yaks_core
+open Yaks_common_errors
 
 type database_type = | POSTGRESQL | MARIADB | SQLITE3
 

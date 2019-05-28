@@ -1,7 +1,0 @@
-(library
-  (name            yaks_core)
-  (public_name     yaks-core)
-  (wrapped     false)
-  (libraries       zenoh-ocaml zenoh-router-lib uuidm str apero-core apero-net apero-time yaks-common lwt lwt.unix logs logs.lwt ppx_deriving.show ppx_deriving.ord re)
-  (preprocess
-    (pps ppx_deriving.show ppx_deriving.ord lwt_ppx)))

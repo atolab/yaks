@@ -1,5 +1,9 @@
 open Apero
-open Yaks_core
+open Yaks_types
+open Yaks_core_types
+open Yaks_be
+open Yaks_storage
+open Yaks_common_errors
 open Caqti_driver
 open Be_sql_types
 
@@ -37,7 +41,7 @@ module SQLBE = struct
     let make_kv_table_name () =
       "Yaks_kv_table_"^(Uuid.make () |> Uuid.to_string |> String.map (function | '-' -> '_' | c -> c))
 
-    let create_storage selector props hlc =
+    let create_storage selector props =
       let open LwtM.InfixM in
       let connection = C.conx in
       let props = Properties.union (fun _ _ v2 -> Some v2) properties props in
@@ -66,7 +70,7 @@ module SQLBE = struct
       let storage_info = { selector; keys_prefix; keys_prefix_length; props; connection; table_name; schema; on_dispose; removals } in
       if is_kv_table then
         Lwt.return @@
-        Storage.make selector props hlc
+        Storage.make selector props
           (dispose storage_info)
           (Kv_table.get storage_info)
           (Kv_table.put storage_info)
@@ -86,7 +90,6 @@ end
 
 
 module SQLBEF = struct 
-  let kind = Property.Backend.Value.memory
 
   let make id properties =
     let url = match Properties.get Be_sql_properties.Key.url properties with
@@ -97,7 +100,7 @@ module SQLBEF = struct
     let module M = SQLBE.Make (
       struct 
         let id = id
-        let properties = Properties.add Property.Backend.Key.kind Property.Backend.Value.dbms properties
+        let properties = Properties.add "kind" "sql" properties
         let conx = connection
       end) 
     in (module M : Backend)
