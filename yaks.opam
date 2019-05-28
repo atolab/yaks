@@ -23,8 +23,8 @@ install: [
 depends: [
   "ocaml" {>= "4.03.0"}
   "dune"
-  "atdgen"
-  "yaks-core"    {= "0.2.7"}
-  "yaks-fe-rest" {= "0.2.7"}
-  "yaks-be-mm"   {= "0.2.7"}
+  "zenoh-router" {= "0.2.5"}
+  "yaks-common"  {= "0.2.7"}
+  "yaks-be-mm"  {= "0.2.7"}
+  "yaks-be-sql"  {= "0.2.7"}
 ]

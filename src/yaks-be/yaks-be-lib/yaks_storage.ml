@@ -1,6 +1,5 @@
 open Apero
 open Yaks_types
-open Yaks_core_properties
 
 module Storage = struct
 
@@ -11,7 +10,6 @@ module Storage = struct
     { id : Id.t
     ; selector : Selector.t
     ; props : properties
-    ; hlc : HLC.t
     ; dispose : unit -> unit Lwt.t
     ; get : Selector.t -> (Path.t * TimedValue.t) list Lwt.t
     ; put : Path.t -> TimedValue.t -> unit Lwt.t 
@@ -20,10 +18,10 @@ module Storage = struct
     ; as_string : string
     }
 
-  let make selector props hlc dispose get put put_delta remove =
-    let alias = Properties.get Property.Storage.Key.alias props in   
+  let make selector props dispose get put put_delta remove =
+    let alias = Properties.get "alias" props in
     let uuid = match alias with | Some(a) -> Id.make_from_alias a | None -> Id.make () in
-    { id = uuid; selector; props; hlc; dispose; get; put; put_delta; remove;
+    { id = uuid; selector; props; dispose; get; put; put_delta; remove;
       as_string = "Sto#"^(Id.to_string uuid)^"("^(Selector.to_string selector)^")"
     }
 
@@ -45,50 +43,30 @@ module Storage = struct
 
 
   let on_zenoh_write s path changes =
-    let check_time_validity time =
-      match%lwt HLC.update_with_timestamp time s.hlc with
-      | Ok () -> Lwt.return_true
-      | Error e -> Logs.warn (fun m -> m "[Sto] %s: Remote change for path %s refused: timestamp differs too much from local clock: %s" (Id.to_string s.id) (Path.to_string path) (Apero.show_error e));
-        Lwt.return_false
-    in
     Lwt_list.iter_s (function
-      | Put(tv)      -> if%lwt check_time_validity tv.time then put s path tv
-      | Update(tv)   -> if%lwt check_time_validity tv.time then update s path tv
-      | Remove(time) -> if%lwt check_time_validity time then remove s path time
+      | Put(tv)      -> put s path tv
+      | Update(tv)   -> update s path tv
+      | Remove(time) -> remove s path time
     ) changes
 
   let align s zenoh selector =
     Logs.debug (fun m -> m "[Sto] %s: align with remote storages..." (Id.to_string s.id));
-    let check_time t path = match%lwt HLC.update_with_timestamp t s.hlc with
-      | Ok () -> Lwt.return_true 
-      | Error e -> 
-        Logs.warn (fun m -> m "[Sto] %s: align refuses update for key %s: timestamp differs too much from local clock: %s"
-          (Id.to_string s.id) (Path.to_string path) (Apero.show_error e));
-        Lwt.return_false
-    in
-
     (* create a temporary Zenoh listener (to not miss ongoing updates) *)
     let listener path (changes:change list) =
       Lwt_list.iter_s (fun change -> 
         if Astring.is_prefix ~affix:"/@" (Path.to_string path) then Lwt.return_unit
         else match change with
-        | Put tv -> if%lwt check_time tv.time path then put s path tv
-        | Update tv -> if%lwt check_time tv.time path then update s path tv
-        | Remove time -> if%lwt check_time time path then remove s path time) changes
+        | Put tv -> put s path tv
+        | Update tv -> update s path tv
+        | Remove time -> remove s path time) changes
     in
-    let%lwt tmp_sub = ZUtils.subscribe zenoh ~hlc:s.hlc ~listener selector in
+    let%lwt tmp_sub = ZUtils.subscribe zenoh ~listener selector in
 
     (* query the remote storages (to get historical data) *)
-    let%lwt kvs = ZUtils.query_timedvalues zenoh s.hlc selector in
+    let%lwt kvs = ZUtils.query_timedvalues zenoh selector in
     let%lwt () = List.map (fun (path, (tv:TimedValue.t)) ->
       if Astring.is_prefix ~affix:"/@" (Path.to_string path) then Lwt.return_unit
-      else
-        (match%lwt HLC.update_with_timestamp tv.time s.hlc with
-        | Ok () -> put s path tv
-        | Error e ->
-          Logs.warn (fun m -> m "[Sto] %s: align refuses update for key %s: timestamp differs too much from local clock: %s" (Id.to_string s.id) (Path.to_string path) (Apero.show_error e));
-          Lwt.return_unit)
-      )
+      else put s path tv)
       kvs
       |> Lwt.join
     in

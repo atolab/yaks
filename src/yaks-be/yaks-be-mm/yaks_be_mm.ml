@@ -1,6 +1,9 @@
 open Apero
-open Yaks_core
 open Yaks_types
+open Yaks_core_types
+open Yaks_be
+open Yaks_storage
+open Yaks_common_errors
 
 module MainMemoryBE = struct 
 
@@ -118,20 +121,18 @@ module MainMemoryBE = struct
         (fun _ -> Guard.return () (SMap.empty))
 
 
-    let create_storage selector props hlc =
-      Lwt.return @@ Storage.make selector props hlc dispose get put update remove
+    let create_storage selector props =
+      Lwt.return @@ Storage.make selector props dispose get put update remove
   end
 end 
 
 
 module MainMemoryBEF = struct 
-  let kind = Property.Backend.Value.memory
-
   let make id properties =
     let module M = MainMemoryBE.Make (
     struct 
       let id = id
-      let properties = Properties.add Property.Backend.Key.kind Property.Backend.Value.memory properties
+      let properties = Properties.add "kind" "memory" properties
     end) in (module M : Backend)
 
 end

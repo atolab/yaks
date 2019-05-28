@@ -1,5 +1,5 @@
 open Apero
-open Yaks_core
+open Yaks_types
 
 type on_dispose = Drop | Truncate | DoNothing
 

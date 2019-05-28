@@ -1,0 +1,29 @@
+(library
+  (name            yaks)
+  (public_name     yaks)
+  (wrapped         false)
+  (libraries       yaks-common yaks-be-lib yaks-be-mm yaks-be-sql zenoh-router str lwt lwt.unix logs logs.lwt ppx_deriving.show ppx_deriving.ord re)
+  (preprocess
+    (pps ppx_deriving.show ppx_deriving.ord lwt_ppx)))
+
+(rule
+  (targets        yaks-plugin.cmxs)
+  (deps       (package yaks))
+  (action (run %{ocamlopt} -w @a-4-29-40-41-42-44-45-48-58-59-60-40 -strict-sequence -strict-formats -short-paths -keep-locs -g -shared -linkall -I .
+    -o %{targets}
+    %{lib:yaks-common:yaks_common.cmxa}
+
+    %{lib:yaks-be-lib:yaks_be_lib.cmxa}
+    
+    %{lib:yaks-be-mm:yaks_be_mm.cmxa}
+    
+    ; %{lib:mariadb:mariadb.cmxa}
+    ; %{lib:caqti:caqti.cmxa}
+    ; %{lib:caqti-lwt:caqti_lwt.cmxa}
+    ; %{lib:caqti-driver-postgresql:caqti_driver_postgresql.cmxa}
+    ; %{lib:caqti-driver-mariadb:caqti_driver_mariadb.cmxa}
+    ; %{lib:caqti-driver-sqlite3:caqti_driver_sqlite3.cmxa}
+    ; %{lib:yaks-be-sql:yaks_be_sql.cmxa}
+    
+    ./yaks.cmxa))
+  )
