@@ -651,7 +651,7 @@ module AdminSpace = struct
         Lwt.return []
 
     let make yid hlc zenoh =
-      let admin_prefix = "/@/"^(Uuid.to_string yid) in
+      let admin_prefix = "/@/"^yid in
       Logs.debug (fun m -> m "Create Yaks %s admin space\n" admin_prefix);
       let time = now hlc in
       let kvs = KVMap.empty

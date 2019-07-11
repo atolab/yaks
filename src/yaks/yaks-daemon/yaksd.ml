@@ -80,7 +80,8 @@ let run_yaksd yid without_storage http_port sql_url zenoh_options =
           else let%lwt z = Zenoh.zopen zenoh_options in Lwt.return (Some z)
         end
     in
-    let engine = YEngine.make ?id:(if String.length yid > 0 then Some yid else None) zenoh in
+    let zid = Option.bind zenoh (fun z -> Zenoh.info z |> Properties.get "peer_pid") in
+    let engine = YEngine.make ?id:(if String.length yid > 0 then Some yid else zid) zenoh in
     let mem_be = add_mem_be engine in
     let sql_be = add_sql_be engine sql_url in
     let def_store = add_default_storage engine without_storage >>= fun _ -> Lwt.return_unit in

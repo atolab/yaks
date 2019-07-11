@@ -53,15 +53,13 @@ module Engine = struct
       let yid =
         let (log,id') =
           match id with
-          | None -> "random id", Yid.make ()
-          | Some id -> match Yid.of_string id with 
-            | Some uuid -> "specified id", uuid 
-            | None -> ("generated id from '"^id^"'"), (Yid.make_from_alias id)
+          | None -> "random id", (Uuid.to_string @@ Uuid.make ())
+          | Some id -> "specified id", id
         in
-        Logs.debug (fun m -> m "Starting Yaks with %s: %s" log (Yid.to_string id'));
+        Logs.debug (fun m -> m "Starting Yaks with %s: %s" log id');
         id'
       in
-      let hlc = HLC.create yid in
+      let hlc = HLC.create (Uuid.make_from_alias yid) in
       Guard.create 
         { yid
         ; admin = YAdminSpace.make yid hlc zenoh 

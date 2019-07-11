@@ -1,7 +1,7 @@
 open Apero
 open Yaks_types
 
-module Yid = Uuid
+module Yid = String
 
 
 module FeId = Id.Make(
