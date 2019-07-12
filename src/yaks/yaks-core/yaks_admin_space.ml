@@ -114,7 +114,7 @@ module AdminSpace = struct
           | Some s -> Lwt.return (fe, s))
 
     let update_yaks_json_view prefix time kvs =
-      let rec add_to_json (json:Yojson.Basic.json) (path:string list) (v:Yojson.Basic.json) =
+      let rec add_to_json (json:Yojson.Basic.t) (path:string list) (v:Yojson.Basic.t) =
         match json, path with
         | `Assoc l , [] -> `Assoc l
         | `Assoc l , p::[] -> `Assoc ((p, v)::l)

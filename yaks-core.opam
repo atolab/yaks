@@ -25,14 +25,14 @@ depends: [
   "atdgen"
   "yaks-common" {>= "0.2.7"}
   "zenoh-api" {>= "0.2.5"}
-  "apero-core" {>= "0.4.4"}
+  "apero-core" {>= "0.4.5"}
   "cmdliner"
   "fmt" 
   "logs" 
   "lwt" 
   "ppx_deriving" 
   "uuidm" 
-  "yojson"
+  "yojson" {>= "1.6.0" & <= "1.7.0"}
   "lwt_ppx"
   "lwt_log"
   "ppx_cstruct"
