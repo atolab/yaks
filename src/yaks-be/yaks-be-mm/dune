@@ -1,7 +1,20 @@
 (library
   (name            yaks_be_mm)
   (public_name     yaks-be-mm)
-  (wrapped     false)
-  (libraries       yaks-be-lib lwt str lwt.unix logs logs.lwt ppx_deriving.show ppx_deriving.ord)
+  (wrapped         false)
+  (libraries       yaks-be-lib)
   (preprocess
     (pps ppx_deriving.show ppx_deriving.ord lwt_ppx)))
+
+(rule
+  (targets    yaks-be-mm.cmxs)
+  (deps       (package yaks-be-mm))
+  (action (run ocamlfind ocamlopt
+                  -shared
+                  -linkall
+                  -linkpkg
+                  -thread
+                  -dontlink yaks-be-lib
+                  -package yaks-be-mm
+                  -o %{targets}
+  )))

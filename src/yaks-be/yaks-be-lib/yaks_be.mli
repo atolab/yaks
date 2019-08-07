@@ -12,6 +12,9 @@ module type Backend = sig
 end
 
 module type BackendFactory  = sig 
-  val kind : string
   val make : BeId.t -> properties  -> (module Backend)
 end
+
+
+val register_backend_factory : (module BackendFactory) -> unit
+val get_loaded_backend_factory : unit -> (module BackendFactory)

@@ -91,7 +91,7 @@ end
 
 module SQLBEF = struct 
 
-  let make id properties =
+  let make id properties = 
     let url = match Properties.get Be_sql_properties.Key.url properties with
       | Some url -> url
       | None -> raise @@ YException (`InvalidBackendProperty (`Msg ("Property "^Be_sql_properties.Key.url^" is not specified")))
@@ -107,3 +107,5 @@ module SQLBEF = struct
 
 end
 
+let () =
+  Yaks_be.register_backend_factory (module SQLBEF:BackendFactory);

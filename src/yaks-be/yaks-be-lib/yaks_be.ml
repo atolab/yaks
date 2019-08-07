@@ -12,6 +12,12 @@ module type Backend = sig
 end
 
 module type BackendFactory  = sig 
-  val kind : string
   val make : BeId.t -> properties  -> (module Backend)
 end
+
+let just_loaded = ref None
+let register_backend_factory bf = just_loaded := Some bf
+let get_loaded_backend_factory () : (module BackendFactory) =
+  match !just_loaded with
+  | Some bf -> bf
+  | None -> failwith "No Backend Factory loded"

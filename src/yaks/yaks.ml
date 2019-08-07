@@ -59,27 +59,36 @@ module YaksAdminSpace:Plugins.Plugin = struct
   (**************************)
   (*   Backends management  *)
   (**************************) 
-  (* TODO: Temporary operation that should be removed when add_backend below is implemented with plugin loading *)
-  let add_backend_TMP admin be =
+  let add_loaded_backend state be time = 
     let module BE = (val be: Backend) in
     let id = BeId.to_string BE.id in
     let backend = { beModule = be; storages = StorageMap.empty } in
     Logs.debug (fun m -> m "[Yaks] add_backend : %s" id);
-    Guard.guarded admin
-    @@ fun self ->
-    if BackendMap.mem BE.id self.backends then
-      Guard.return_lwt (Lwt.fail @@ YException (`Forbidden (`Msg ("Already existing backend: "^id)))) self
-    else
-      let kvs = kvmap_add
-        (Path.of_string @@ Printf.sprintf "%s/backend/%s/" self.admin_prefix id)
-        (Value.PropertiesValue BE.properties) Yaks_zenoh_utils.timestamp0 self.kvs
-        |> update_yaks_json_view self.admin_prefix Yaks_zenoh_utils.timestamp0
-      in
-      Guard.return () { self with backends = BackendMap.add BE.id backend self.backends; kvs }
+    let kvs = kvmap_add
+      (Path.of_string @@ Printf.sprintf "%s/backend/%s/" state.admin_prefix id)
+      (Value.PropertiesValue BE.properties) time state.kvs
+      |> update_yaks_json_view state.admin_prefix time
+    in
+    { state with backends = BackendMap.add BE.id backend state.backends; kvs }
 
   let add_backend t beid properties time =
-    ignore t; ignore beid; ignore properties; ignore time;
-    Lwt.fail @@ YException (`InternalError (`Msg ("add_backend not yet implemented")))
+    let id = BeId.of_string beid in
+    Guard.guarded t
+    @@ fun self ->
+    if BackendMap.mem id self.backends then
+      Guard.return_lwt (Lwt.fail @@ YException (`Forbidden (`Msg ("Already existing backend: "^beid)))) self
+    else
+      let lib = Properties.get_or_default "lib" ~default:(beid^".cmxs") properties in
+      Logs.debug (fun m -> m "[Yaks] load backend %s from lib %s with properties: %s" beid lib (Properties.to_string properties));
+      try
+        begin
+          Dynlink.loadfile @@ Dynlink.adapt_filename lib;
+          let module BEF = (val Yaks_be.get_loaded_backend_factory () : BackendFactory) in
+          let module BE = (val BEF.make (BeId.of_string beid) properties : Backend) in
+          Guard.return () @@ add_loaded_backend self (module BE) time
+        end
+      with
+        | Dynlink.Error s -> failwith (Printf.sprintf "Error loading backend %s from %s: %s" beid lib (Dynlink.error_message s))
 
   let remove_backend t beid time = 
     ignore t; ignore beid; ignore time;
@@ -186,9 +195,15 @@ module YaksAdminSpace:Plugins.Plugin = struct
     let time = tv.time in
     let%lwt properties = 
       let open Value in
-      match transcode tv.value PROPERTIES with
-      | Ok PropertiesValue p -> Lwt.return p
-      | Ok _ -> Lwt.fail @@ YException (`UnsupportedTranscoding (`Msg "Transcoding to Properties didn't return a PropertiesValie"))
+      match transcode tv.value JSON with
+      | Ok JSonValue json ->
+        begin
+          match transcode (JSonValue json) PROPERTIES with
+          | Ok PropertiesValue p -> Lwt.return p
+          | Ok _ -> Lwt.fail @@ YException (`UnsupportedTranscoding (`Msg "Transcoding to Properties didn't return a PropertiesValue"))
+          | Error e -> Lwt.fail @@ YException e
+        end
+      | Ok _ -> Lwt.fail @@ YException (`UnsupportedTranscoding (`Msg "Transcoding to Json didn't return a JsonValue"))
       | Error e -> Lwt.fail @@ YException e
     in
     let self = Guard.get t in 
@@ -215,36 +230,24 @@ module YaksAdminSpace:Plugins.Plugin = struct
 
 
 
+  (*****************************)
+  (* initialisation operations *)
+  (*****************************)
+  let memory_beid = "Memory"
 
-  (* TODO: Temporary operation that should be removed at some point *)
-  let add_memory_backend_TMP t =
-  Logs.debug (fun m -> m "[Yaks] add memory backend "); 
-   add_backend_TMP t @@ Yaks_be_mm.MainMemoryBEF.make (BeId.of_string "Memory") Properties.empty
+  let add_memory_backend t =
+    Guard.guarded t
+    @@ fun self ->
+      Logs.debug (fun m -> m "[Yaks] add memory backend ");
+      let module BE = (val Yaks_be_mm.MainMemoryBEF.make (BeId.of_string memory_beid) Properties.empty : Backend) in
+      Guard.return () @@ add_loaded_backend self (module BE) Yaks_zenoh_utils.timestamp0
 
-  (* let add_sql_backend_TMP t =
-  Logs.debug (fun m -> m "[Yaks] add SQL backend "); 
-   add_backend_TMP t @@ Yaks_be_sql.SQLBEF.make (BeId.of_string "SQL") Properties.empty *)
-
-  (* TODO: Temporary operation that should be removed at some point *)
-  let add_default_storage_TMP t =
-    Logs.debug (fun m -> m "[Yaks] add default storage on /**"); 
-    let self = Guard.get t in
-    let path = self.admin_prefix^"/backend/Memory/storage/default" in
+  let add_default_storage t =
     let props = Properties.singleton "selector" "/**" in
-    let (tv:TimedValue.t) = { time=Yaks_zenoh_utils.timestamp0; value=(Value.PropertiesValue props) } in
-    put t (Path.of_string path) tv
-
-
-
-  let on_changes t path changes =
-    Lwt_list.iter_s (function
-      | Put(tv)      -> put t path tv
-      | Remove(time) -> remove t path time
-      | Update(_)    -> Logs.warn (fun m -> m "[Yaks]: Received update for %s : only put or remove are supported by Admin space" (Path.to_string path)); Lwt.return_unit
-    ) changes
+    create_storage t ~beid:memory_beid "default" props Yaks_zenoh_utils.timestamp0
 
   let run zenoh args =
-    Logs.debug (fun m -> m "[Yaks] starting with args: %s\n%!" (Array.to_list args |> String.concat " ")); 
+    Logs.debug (fun m -> m "[Yaks] starting with args: %s\n%!" (Array.to_list args |> String.concat " "));
     let zprops = Zenoh.info zenoh in
     let zpid = match Properties.get "peer_pid" zprops with
       | Some pid -> pid
@@ -253,11 +256,16 @@ module YaksAdminSpace:Plugins.Plugin = struct
     let admin_prefix = "/@/"^zpid in
     let (t:t) = Guard.create { zenoh; admin_prefix; backends=BackendMap.empty;  kvs=KVMap.empty } in
     Logs.info (fun m -> m "[Yaks] create Yaks admin space on %s/**" admin_prefix);
-    Yaks_zenoh_utils.store zenoh (Selector.of_string @@ admin_prefix^"/**") (on_changes t) (get t) 
-    (* TODO: Temporary operation that should be removed at some point *)
-    >>= fun _ -> add_memory_backend_TMP t
-    >>= fun _ -> add_default_storage_TMP t
-    (* >>= fun _ -> add_sql_backend_TMP t *)
+    let on_changes path changes =
+      Lwt_list.iter_s (function
+        | Put(tv)      -> put t path tv
+        | Remove(time) -> remove t path time
+        | Update(_)    -> Logs.warn (fun m -> m "[Yaks]: Received update for %s : only put or remove are supported by Admin space" (Path.to_string path)); Lwt.return_unit
+      ) changes
+    in
+    Yaks_zenoh_utils.store zenoh (Selector.of_string @@ admin_prefix^"/**") on_changes (get t)
+    >>= fun _ -> add_memory_backend t
+    >>= fun _ -> add_default_storage t
     >>= fun _ -> Lwt.return_unit
 
 end

@@ -1,8 +1,25 @@
 (library
-  (name            yaks_be_sql)
-  (public_name     yaks-be-sql)
-  (wrapped     false)
-  (libraries       apero-core yaks-be-lib lwt logs logs.lwt
-                   caqti caqti-lwt caqti-driver-postgresql caqti-driver-mariadb caqti-driver-sqlite3)
+  (name           yaks_be_sql)
+  (public_name    yaks-be-sql)
+  (wrapped        false)
+  (libraries      yaks-be-lib caqti caqti-lwt
+                  caqti-driver-postgresql
+                  caqti-driver-mariadb
+                  caqti-driver-sqlite3
+                  )
   (preprocess
-    (pps ppx_deriving.show lwt_ppx)))
+    (pps ppx_deriving.show ppx_deriving.ord lwt_ppx)))
+
+(rule
+  (targets    yaks-be-sql.cmxs)
+  (deps       (package yaks-be-sql))
+  (action (run ocamlfind ocamlopt
+                  -shared
+                  -linkall
+                  -linkpkg
+                  -thread
+                  -dontlink yaks-be-lib
+                  -package yaks-be-sql
+                  %{lib:lwt.unix:lwt_unix.cmxa}
+                  -o %{targets}
+  )))

@@ -136,3 +136,6 @@ module MainMemoryBEF = struct
     end) in (module M : Backend)
 
 end
+
+let () =
+  Yaks_be.register_backend_factory (module MainMemoryBEF:BackendFactory);
