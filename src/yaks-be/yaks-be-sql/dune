@@ -20,6 +20,5 @@
                   -thread
                   -dontlink yaks-be-lib
                   -package yaks-be-sql
-                  %{lib:lwt.unix:lwt_unix.cmxa}
                   -o %{targets}
   )))
