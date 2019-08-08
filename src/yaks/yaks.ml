@@ -5,6 +5,8 @@ open Yaks_core_types
 open Yaks_common_errors
 open Yaks_be
 open Yaks_storage
+open Cmdliner
+
 
 
 module YaksAdminSpace:Plugins.Plugin = struct 
@@ -243,30 +245,40 @@ module YaksAdminSpace:Plugins.Plugin = struct
       Guard.return () @@ add_loaded_backend self (module BE) Yaks_zenoh_utils.timestamp0
 
   let add_default_storage t =
+    Logs.debug (fun m -> m "[Yaks] add default memory storage on /** ");
     let props = Properties.singleton "selector" "/**" in
     create_storage t ~beid:memory_beid "default" props Yaks_zenoh_utils.timestamp0
 
-  let run zenoh args =
-    Logs.debug (fun m -> m "[Yaks] starting with args: %s\n%!" (Array.to_list args |> String.concat " "));
-    let zprops = Zenoh.info zenoh in
-    let zpid = match Properties.get "peer_pid" zprops with
-      | Some pid -> pid
-      | None -> Uuid.make () |> Uuid.to_string
+
+let without_storage = Arg.(value & flag & info ["w"; "without-storage"] ~docv:"true|false" 
+  ~doc:"If true, disable the creation at startup of a Memory backend and of a default memory storage with '/**' as selector")
+
+  let run zenoh argv =
+    Logs.debug (fun m -> m "[Yaks] starting with args: %s\n%!" (Array.to_list argv |> String.concat " "));
+    let run2 without_storage =
+      let zprops = Zenoh.info zenoh in
+      let zpid = match Properties.get "peer_pid" zprops with
+        | Some pid -> pid
+        | None -> Uuid.make () |> Uuid.to_string
+      in
+      let admin_prefix = "/@/"^zpid in
+      let (t:t) = Guard.create { zenoh; admin_prefix; backends=BackendMap.empty;  kvs=KVMap.empty } in
+      Logs.info (fun m -> m "[Yaks] create Yaks admin space on %s/**" admin_prefix);
+      let on_changes path changes =
+        Lwt_list.iter_s (function
+          | Put(tv)      -> put t path tv
+          | Remove(time) -> remove t path time
+          | Update(_)    -> Logs.warn (fun m -> m "[Yaks]: Received update for %s : only put or remove are supported by Admin space" (Path.to_string path)); Lwt.return_unit
+        ) changes
+      in
+      Lwt.async @@ fun () ->
+          Yaks_zenoh_utils.store zenoh (Selector.of_string @@ admin_prefix^"/**") on_changes (get t)
+          >>= (fun _ -> if not without_storage then add_memory_backend t  else Lwt.return_unit)
+          >>= (fun _ -> if not without_storage then add_default_storage t else Lwt.return_unit)
     in
-    let admin_prefix = "/@/"^zpid in
-    let (t:t) = Guard.create { zenoh; admin_prefix; backends=BackendMap.empty;  kvs=KVMap.empty } in
-    Logs.info (fun m -> m "[Yaks] create Yaks admin space on %s/**" admin_prefix);
-    let on_changes path changes =
-      Lwt_list.iter_s (function
-        | Put(tv)      -> put t path tv
-        | Remove(time) -> remove t path time
-        | Update(_)    -> Logs.warn (fun m -> m "[Yaks]: Received update for %s : only put or remove are supported by Admin space" (Path.to_string path)); Lwt.return_unit
-      ) changes
-    in
-    Yaks_zenoh_utils.store zenoh (Selector.of_string @@ admin_prefix^"/**") on_changes (get t)
-    >>= fun _ -> add_memory_backend t
-    >>= fun _ -> add_default_storage t
-    >>= fun _ -> Lwt.return_unit
+      let _ = Term.(eval ~argv (const run2 $ without_storage, Term.info "yaksd"))
+      in  Lwt.return_unit
+
 
 end
 
