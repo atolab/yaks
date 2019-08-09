@@ -41,6 +41,9 @@ module SQLBE = struct
     let make_kv_table_name () =
       "Yaks_kv_table_"^(Uuid.make () |> Uuid.to_string |> String.map (function | '-' -> '_' | c -> c))
 
+    let compare_schema (cols, types) (cols', types') =
+      (List.for_all2 (=) cols cols') && (Dyntype.equal types types')
+
     let create_storage selector props =
       let open LwtM.InfixM in
       let connection = C.conx in
@@ -52,9 +55,9 @@ module SQLBE = struct
       let on_dispose = on_dispose_from_properties props in
       Logs.debug (fun m -> m "[SQL]: create storage for table %s" table_name);
       let%lwt (schema, is_kv_table) = match%lwt Caqti_driver.get_schema connection table_name with
-        | Some s -> 
-          let is_kv_table = s = Caqti_driver.kv_table_schema in
-          Logs.debug (fun m -> m "[SQL]: table %s found (kv table? %b)" table_name is_kv_table);
+        | Some s ->
+          let is_kv_table = compare_schema s Caqti_driver.kv_table_schema in
+          Logs.debug (fun m -> m "[SQL]: table %s found (is_kv_table = %b)" table_name is_kv_table);
           if not is_kv_table && not @@ Selector.is_path_unique selector then
             Lwt.fail @@ YException (`StoreError (`Msg (Printf.sprintf
               "Invalid selector '%s' on legacy SQL table '%s': a storage on a legacy SQL table must not have wildcards in its selector" (Selector.to_string selector) table_name))) 

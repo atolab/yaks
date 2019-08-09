@@ -70,29 +70,96 @@ module [@warning "-32"] Dyntype = struct
   let add (Pack (t,f)) (Pack (t',f')) = Pack ((Caqti_type.tup2 t t'), fun (v, v') ->  (f v)@(f' v'))
 
   let to_string (Pack (t,_)) = Caqti_type.show t
+
+  let equal t t' = (to_string t) = (to_string t')
 end
 
 module TypeMap = Map.Make(String)
 
-let types_map =
+let types_map_postgresql =
   let open TypeMap in
   TypeMap.empty |>
-  (* PostgreSQL *)
-  add "integer"   Dyntype.int |>
-  add "real"      Dyntype.float |>
+  add "bigint" Dyntype.int64 |>
+  add "bigserial" Dyntype.int64 |>
+  add "bit" Dyntype.octets |>
+  add "bit varying" Dyntype.octets |>
+  add "boolean" Dyntype.bool |>
+  add "bytea" Dyntype.octets |>
+  add "character" Dyntype.string |>
   add "character varying" Dyntype.string |>
-  add "date"      Dyntype.pdate |>
-  (*  MariaDB / MySQL *)
-  add "bigint"  Dyntype.int |>
-  add "int"  Dyntype.int |>
+  add "date" Dyntype.pdate |>
+  add "double precision" Dyntype.float |>
+  add "integer" Dyntype.int32 |>
+  add "json" Dyntype.string |>
+  add "real" Dyntype.float |>
+  add "smallint" Dyntype.int32 |>
+  add "smallserial" Dyntype.int32 |>
+  add "serial" Dyntype.int32 |>
+  add "text" Dyntype.string |>
+  add "xml" Dyntype.string
+
+
+let types_map_mariadb =
+  let open TypeMap in
+  TypeMap.empty |>
+  add "tinyint"  Dyntype.int32 |>
+  add "boolean"  Dyntype.bool |>
+  add "smallint"  Dyntype.int32 |>
+  add "mediumint"  Dyntype.int32 |>
+  add "int"  Dyntype.int32 |>
+  add "integer"  Dyntype.int32 |>
+  add "bigint"  Dyntype.int64 |>
+  add "decimal"  Dyntype.float |>
+  add "dec"  Dyntype.float |>
+  add "numeric"  Dyntype.float |>
+  add "fixed"  Dyntype.float |>
+  add "float"  Dyntype.float |>
   add "double"  Dyntype.float |>
+  add "char"  Dyntype.string |>
   add "varchar"  Dyntype.string |>
-  add "date"  Dyntype.pdate |>
+  add "binary"  Dyntype.octets |>
+  add "char byte"  Dyntype.octets |>
+  add "varbinary"  Dyntype.octets |>
+  add "tinyblob"  Dyntype.octets |>
+  add "blob"  Dyntype.octets |>
+  add "mediumblob"  Dyntype.octets |>
+  add "longblob"  Dyntype.octets |>
+  add "tinytext"  Dyntype.string |>
+  add "mediumtext"  Dyntype.string |>
+  add "longtext"  Dyntype.string |>
+  add "json"  Dyntype.string |>
+  add "date"  Dyntype.pdate
+
+
+let types_map_sqlite3 =
+  let open TypeMap in
+  TypeMap.empty |>
   (*  SQLite3 *)
-  add "serial"  Dyntype.int |>
-  add "int"  Dyntype.int |>
-  add "real"  Dyntype.float |>
+  add "int"  Dyntype.int64 |>
+  add "integer"  Dyntype.int64 |>
+  add "tinyint"  Dyntype.int64 |>
+  add "smallint"  Dyntype.int64 |>
+  add "mediumint"  Dyntype.int64 |>
+  add "bigint"  Dyntype.int64 |>
+  add "unsigned big int"  Dyntype.int64 |>
+  add "int2"  Dyntype.int64 |>
+  add "int8"  Dyntype.int64 |>
+  add "character"  Dyntype.string |>
   add "varchar"  Dyntype.string |>
+  add "varying character"  Dyntype.string |>
+  add "nchar"  Dyntype.string |>
+  add "native character"  Dyntype.string |>
+  add "nvarchar"  Dyntype.string |>
+  add "text"  Dyntype.string |>
+  add "clob"  Dyntype.string |>
+  add "blob"  Dyntype.octets |>
+  add "real"  Dyntype.float |>
+  add "double"  Dyntype.float |>
+  add "double precision"  Dyntype.float |>
+  add "float"  Dyntype.float |>
+  add "numeric"  Dyntype.float |>
+  add "decimal"  Dyntype.float |>
+  add "boolean"  Dyntype.bool |>
   add "date"  Dyntype.pdate
 
 
@@ -102,15 +169,20 @@ let normalized_type_name type_name =
    | None -> type_name)
   |> String.lowercase_ascii
 
-let type_from_name type_name =
+let type_from_name db_type type_name =
+  let types_map = match db_type with
+    | POSTGRESQL -> types_map_postgresql
+    | MARIADB -> types_map_mariadb
+    | SQLITE3 -> types_map_sqlite3
+  in
   match TypeMap.find_opt (normalized_type_name type_name) types_map with
   | Some t -> t
   | None -> failwith ("Unkown SQL type: "^type_name)
 
-let schema_from_type_list type_list =
+let schema_from_type_list db_type type_list =
   let rec make_schema = function
-    | t::[] -> type_from_name t
-    | t::l -> Dyntype.add (type_from_name t) (make_schema l)
+    | t::[] -> type_from_name db_type t
+    | t::l -> Dyntype.add (type_from_name db_type t) (make_schema l)
     | [] -> failwith "Cannot make schema for an empty type list"
   in
   make_schema type_list
@@ -126,7 +198,7 @@ let get_schema conx table_name =
   match%lwt collect_query conx query Caqti_type.(tup2 string string) with
   | [] -> Lwt.return_none
   | schema -> List.split schema
-              |> (fun (names, type_list) -> names, schema_from_type_list type_list)
+              |> (fun (names, type_list) -> names, schema_from_type_list conx.db_type type_list)
               |> Lwt.return_some
 
 
