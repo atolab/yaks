@@ -2,7 +2,7 @@
   (name            yaks)
   (public_name     yaks)
   (wrapped         false)
-  (libraries       zenoh-router yaks-common yaks-be-lib yaks-be-mm)
+  (libraries       zenoh-router yaks-common yaks-be-lib yaks-be-mm dynload-sys)
   (preprocess
     (pps ppx_deriving.show ppx_deriving.ord lwt_ppx)))
 
@@ -15,6 +15,7 @@
                   -linkpkg
                   -thread
                   -dontlink zenoh-router
+                  -dontlink apero-core
                   -package yaks
                   -o %{targets}
   )))
