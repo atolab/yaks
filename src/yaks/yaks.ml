@@ -260,7 +260,7 @@ let () =
       | Some pid -> pid
       | None -> Uuid.make () |> Uuid.to_string
     in
-    let admin_prefix = "/@/"^zpid in
+    let admin_prefix = "/@/"^zpid^"/plugins/yaks" in
     let (t:t) = Guard.create { zenoh; admin_prefix; backends=BackendMap.empty;  kvs=KVMap.empty } in
     Logs.info (fun m -> m "[Yaks] create Yaks admin space on %s/**" admin_prefix);
     let on_changes path changes =
