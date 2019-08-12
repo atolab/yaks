@@ -247,12 +247,14 @@ let add_default_storage t =
   create_storage t ~beid:memory_beid "default" props Yaks_zenoh_utils.timestamp0
 
 
+let no_backend = Arg.(value & flag & info ["n"; "no-backend"] ~docv:"true|false" 
+  ~doc:"If true, Yaks is started without any backend (nor storage). If false (default) Yaks loads the Memory backend at startup.")
 let without_storage = Arg.(value & flag & info ["w"; "without-storage"] ~docv:"true|false" 
-  ~doc:"If true, disable the creation at startup of a Memory backend and of a default memory storage with '/**' as selector")
+  ~doc:"If true, disable the creation at startup of a Memory backend and of a default memory storage with '/**' as selector.")
 
 let () = 
   Logs.debug (fun m -> m "[Yaks] starting with args: %s\n%!" (Array.to_list Sys.argv |> String.concat " "));
-  let run without_storage =
+  let run no_backend without_storage =
     Lwt.async @@ fun () ->
     let%lwt zenoh = Zenoh.zopen "" in
     let zprops = Zenoh.info zenoh in
@@ -271,8 +273,8 @@ let () =
       ) changes
     in
         Yaks_zenoh_utils.store zenoh (Selector.of_string @@ admin_prefix^"/**") on_changes (get t)
-        >>= (fun _ -> if not without_storage then add_memory_backend t  else Lwt.return_unit)
-        >>= (fun _ -> if not without_storage then add_default_storage t else Lwt.return_unit)
+        >>= (fun _ -> if not no_backend then add_memory_backend t  else Lwt.return_unit)
+        >>= (fun _ -> if not no_backend && not without_storage then add_default_storage t else Lwt.return_unit)
   in
-  let _ = Term.(eval ~argv:Sys.argv (const run $ without_storage, Term.info "yaksd"))
+  let _ = Term.(eval ~argv:Sys.argv (const run $ no_backend $ without_storage, Term.info "yaksd"))
   in ()
