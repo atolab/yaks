@@ -1,6 +1,6 @@
 .PHONY: all demo clean test doc
 
-BUILD_LIB=dune build --display=short
+BUILD_LIB=dune build --display=short @all
 CLEAN= dune clean
 TEST=dune runtest -j1 --no-buffer
 INSTALL=dune install
