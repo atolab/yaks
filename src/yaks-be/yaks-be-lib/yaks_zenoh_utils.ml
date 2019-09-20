@@ -20,8 +20,7 @@ let store zenoh ?hlc selector (sublistener:Path.t -> change list -> unit Lwt.t) 
         let spath = Path.to_string path in
         let encoding = Some(encoding_to_flag tv.value) in
         let data_info = { Ztypes.empty_data_info with encoding; ts=Some(tv.time) } in
-        let buf = Abuf.create ~grow:8192 8192 in
-        encode_value tv.value buf;
+        let buf = encode_value tv.value in
         (spath, buf, data_info)) kvs
     | None -> Logs.warn (fun m -> m "[YZu]: Store received query for resource/predicate %s?%s which is not a valid selector" resname predicate); Lwt.return []
 
