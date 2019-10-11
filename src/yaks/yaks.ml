@@ -55,6 +55,44 @@ let update_yaks_json_view prefix time kvs =
   kvmap_add (Path.of_string prefix) (Value.JSonValue json) time kvs
 
 
+let sep = Filename.dir_sep
+let exe_dir = Filename.dirname Sys.executable_name
+
+let possible_filename bename =
+  if Astring.is_suffix ~affix:".cmxs" bename then
+    [
+      bename;
+      "yaks-be-" ^ bename;
+    ]
+  else
+    [
+      bename ^ ".cmxs";
+      "yaks-be-" ^bename ^ ".cmxs";
+    ]
+
+
+let lookup_file filename =
+  List.find_opt (fun file -> Sys.file_exists file)
+  [
+    filename;
+    exe_dir ^ sep ^ ".." ^ sep ^ "lib" ^ sep ^ filename;
+    "~/.yaks/lib/" ^ filename;
+    "/usr/local/lib/" ^ filename;
+    "/usr/lib/" ^ filename;
+  ]
+
+let lookup_be_lib bename =
+  let rec lookup filenames =
+    match filenames with
+    | [] -> None
+    | filename::filenames ->
+      match lookup_file filename with
+      | Some file -> Some file
+      | None -> lookup filenames
+  in
+  lookup @@ possible_filename bename
+
+
 (**************************)
 (*   Backends management  *)
 (**************************) 
@@ -77,17 +115,22 @@ let add_backend t beid properties time =
   if BackendMap.mem id self.backends then
     Guard.return_lwt (Lwt.fail @@ YException (`Forbidden (`Msg ("Already existing backend: "^beid)))) self
   else
-    let lib = Properties.get_or_default "lib" ~default:(beid^".cmxs") properties in
-    Logs.debug (fun m -> m "[Yaks] load backend %s from lib %s with properties: %s" beid lib (Properties.to_string properties));
-    try
-      begin
-        Dynlink.loadfile @@ Dynlink.adapt_filename lib;
-        let module BEF = (val Yaks_be.get_loaded_backend_factory () : BackendFactory) in
-        let module BE = (val BEF.make (BeId.of_string beid) properties : Backend) in
-        Guard.return () @@ add_loaded_backend self (module BE) time
+    let lib = Properties.get_or_default "lib" ~default:beid properties in
+    match lookup_be_lib lib with
+    | Some file -> begin
+      Logs.debug (fun m -> m "[Yaks] load backend %s with lib=%s : library found at %s" beid lib file );
+      Logs.debug (fun m -> m "[Yaks] load backend %s with properties: %s" beid (Properties.to_string properties));
+      try
+        begin
+          Dynlink.loadfile @@ Dynlink.adapt_filename file;
+          let module BEF = (val Yaks_be.get_loaded_backend_factory () : BackendFactory) in
+          let module BE = (val BEF.make (BeId.of_string beid) properties : Backend) in
+          Guard.return () @@ add_loaded_backend self (module BE) time
+        end
+      with
+        | Dynlink.Error s -> failwith (Printf.sprintf "Error loading backend %s from %s: %s" beid lib (Dynlink.error_message s))
       end
-    with
-      | Dynlink.Error s -> failwith (Printf.sprintf "Error loading backend %s from %s: %s" beid lib (Dynlink.error_message s))
+    | None -> failwith (Printf.sprintf "Error loading backend %s with lib=%s: file not found" beid lib)
 
 let remove_backend t beid time = 
   ignore t; ignore beid; ignore time;
