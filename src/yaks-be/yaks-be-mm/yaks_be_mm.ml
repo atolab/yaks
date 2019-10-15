@@ -133,7 +133,7 @@ module MainMemoryBEF = struct
     struct 
       let id = id
       let properties = Properties.add "kind" "memory" properties
-    end) in (module M : Backend)
+    end) in Lwt.return (module M : Backend)
 
 end
 

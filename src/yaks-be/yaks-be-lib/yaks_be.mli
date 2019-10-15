@@ -12,7 +12,7 @@ module type Backend = sig
 end
 
 module type BackendFactory  = sig 
-  val make : BeId.t -> properties  -> (module Backend)
+  val make : BeId.t -> properties  -> (module Backend) Lwt.t
 end
 
 

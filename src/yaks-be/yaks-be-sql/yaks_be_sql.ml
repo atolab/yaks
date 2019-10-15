@@ -106,7 +106,7 @@ module SQLBEF = struct
         let properties = Properties.add "kind" "sql" properties
         let conx = connection
       end) 
-    in (module M : Backend)
+    in Lwt.return (module M : Backend)
 
 end
 

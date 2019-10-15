@@ -124,7 +124,8 @@ let add_backend t beid properties time =
         begin
           Dynlink.loadfile @@ Dynlink.adapt_filename file;
           let module BEF = (val Yaks_be.get_loaded_backend_factory () : BackendFactory) in
-          let module BE = (val BEF.make (BeId.of_string beid) properties : Backend) in
+          BEF.make (BeId.of_string beid) properties >>= fun m ->
+          let module BE = (val m : Backend) in
           Guard.return () @@ add_loaded_backend self (module BE) time
         end
       with
@@ -281,7 +282,8 @@ let add_memory_backend t =
   Guard.guarded t
   @@ fun self ->
     Logs.debug (fun m -> m "[Yaks] add memory backend ");
-    let module BE = (val Yaks_be_mm.MainMemoryBEF.make (BeId.of_string memory_beid) Properties.empty : Backend) in
+    Yaks_be_mm.MainMemoryBEF.make (BeId.of_string memory_beid) Properties.empty >>= fun m ->
+    let module BE = (val m: Backend) in
     Guard.return () @@ add_loaded_backend self (module BE) Yaks_zenoh_utils.timestamp0
 
 let add_default_storage t =
