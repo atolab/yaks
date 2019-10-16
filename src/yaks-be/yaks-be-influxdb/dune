@@ -1,0 +1,20 @@
+(library
+  (name           yaks_be_influxdb)
+  (public_name    yaks-be-influxdb)
+  (wrapped        false)
+  (libraries      yaks-be-lib cohttp-lwt-unix yojson ppx_deriving_yojson.runtime)
+  (preprocess
+    (pps ppx_deriving.show ppx_deriving.ord lwt_ppx ppx_deriving_yojson)))
+
+(rule
+  (targets    yaks-be-influxdb.cmxs)
+  (deps       (package yaks-be-influxdb))
+  (action (run ocamlfind ocamlopt
+                  -shared
+                  -linkall
+                  -linkpkg
+                  -thread
+                  -dontlink yaks-be-lib
+                  -package yaks-be-influxdb
+                  -o %{targets}
+  )))
