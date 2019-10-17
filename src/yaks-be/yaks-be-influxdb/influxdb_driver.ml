@@ -41,8 +41,13 @@ let response_to_results (response, body) =
 
 
 let timedvalue_to_point measurement (tv:TimedValue.t) =
-  Printf.sprintf "%s,encoding=%s,timestamp=%s value=\"%s\""
-    measurement Value.(encoding_to_string @@ encoding tv.value) (Timestamp.to_string tv.time) (Value.to_string tv.value)
+  let ts = Timestamp.get_time tv.time |> Timestamp.Time.to_seconds in
+  Printf.sprintf "%s,encoding=%s,timestamp=%s value=\"%s\" %d%d"
+    measurement Value.(encoding_to_string @@ encoding tv.value)
+    (Timestamp.to_string tv.time) (Value.to_string tv.value)
+    Float.(to_int ts) Float.(to_int @@ (ts -. (floor ts)) *. 1000000000.0)
+    (* Note: InfluxDB timestamp format is the number of nanosec since Epoch.
+      See https://docs.influxdata.com/influxdb/v1.7/write_protocols/line_protocol_tutorial/#timestamp *)
 
 let fields_to_timedvalue serie_name time encoding timestamp value =
   ignore time;
@@ -181,7 +186,7 @@ let get_db base_url name =
   let db_info = {
       name
     ; query_url=(Uri.of_string @@ base_url^"/query?db="^name)
-    ; write_url=(Uri.of_string @@ base_url^"/write?precision=s&db="^name)
+    ; write_url=(Uri.of_string @@ base_url^"/write?precision=ns&db="^name)
   }
   in
   let%lwt () = create_database db_info in
