@@ -80,35 +80,12 @@ let serie_to_timedvalues serie =
       | _ -> Logs.err (fun m -> m "[Infx] A point from serie %s has incorect tags/fields types (value ignored): %s"
                 serie.name (String.concat "," (List.map Yojson.Safe.to_string fields)));
              result
-
-      (* match Value.string_to_encoding @@ Yojson.Safe.to_string (List.nth fields 1) , 
-            Timestamp.of_string @@ Yojson.Safe.to_string (List.nth fields 2)
-      with
-      | Some encoding , Some time -> begin
-          let vstr = Yojson.Safe.to_string (List.nth fields 3) in
-          match Value.of_string vstr encoding with
-          | Ok value -> let (tv:TimedValue.t) = {time; value} in tv::result
-          | Error err ->
-            Logs.err (fun m -> m "[Infx] Failed to decode the value '%s' from serie %s (value ignored): %s"
-              vstr serie.name (show_yerror err));
-            result
-        end
-      | None , _ -> 
-        Logs.err (fun m -> m "[Infx] Unkown encoding '%s' found in serie %s (value ignored)"
-          (Yojson.Safe.to_string (List.nth fields 1)) serie.name);
-        result
-      | _ , None ->
-        Logs.err (fun m -> m "[Infx] Failed to decode timestamp '%s' found in serie %s (value ignored)"
-          (Yojson.Safe.to_string (List.nth fields 2)) serie.name);
-        result
-       *)
     ) [] serie.values
   ) else (
     Logs.err (fun m -> m "[Infx] Serie %s has invalid tags and fields for a Yaks value: %s (serie ignored)"
       serie.name (String.concat " , " serie.columns));
     []
   )
-
 
 
 let ping base_url =

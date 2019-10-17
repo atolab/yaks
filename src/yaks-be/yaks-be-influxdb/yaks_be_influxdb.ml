@@ -63,10 +63,12 @@ module InfluxBE = struct
       Logs.err (fun m -> m "[Inflx]: update not supported !!");
       Lwt.return_unit
 
-    let remove storage_info path time = 
-      ignore storage_info; ignore path; ignore time;   
-      Logs.err (fun m -> m "[Inflx]: remove not supported !!");
-      Lwt.return_unit
+    let remove storage_info path time =
+      ignore time;
+      Logs.debug (fun m -> m "[Inflx]: remove(%s) from db %s" (Path.to_string path) (storage_info.db.name));
+      let measurement = measurement_from_path storage_info path in
+      Influxdb_driver.query storage_info.db ~post:true ("DROP MEASUREMENT \""^measurement^"\"")
+        >>= fun _ -> Lwt.return_unit
 
 
     let dispose storage_info () =
