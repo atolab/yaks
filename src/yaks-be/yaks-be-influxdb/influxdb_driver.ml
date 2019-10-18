@@ -42,7 +42,7 @@ let response_to_results (response, body) =
 
 let timedvalue_to_point measurement (tv:TimedValue.t) =
   let ts = Timestamp.get_time tv.time |> Timestamp.Time.to_seconds in
-  Printf.sprintf "%s,encoding=%s,timestamp=%s value=\"%s\" %d%d"
+  Printf.sprintf "%s,encoding=%s,timestamp=%s value=\"%s\" %d%09d"
     measurement Value.(encoding_to_string @@ encoding tv.value)
     (Timestamp.to_string tv.time) (Value.to_string tv.value)
     Float.(to_int ts) Float.(to_int @@ (ts -. (floor ts)) *. 1000000000.0)
