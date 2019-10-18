@@ -25,15 +25,28 @@ module InfluxBE = struct
 
     let regex_of_selector sel =
       (* See https://docs.influxdata.com/influxdb/v1.7/query_language/data_exploration/#regular-expressions 
-         We replace each '*' with ".*" and each '/' with "\/".
-         And surround the result with '/'.
+         Replace "**" with ".*", "*" with "[^\/]*"  and "/" with "\/".
+         And surround the result with '/^' and '$/'.
       *)
-      let stars_regex = Str.regexp "\\*\\*?" in
-      let slash_regex = Str.regexp "/" in
-      Selector.path sel |>
-      Str.global_replace stars_regex ".*" |>
-      Str.global_replace slash_regex "\/" |>
-      Printf.sprintf "/%s/"
+      let sel_path = Selector.path sel in
+      let length = String.length sel_path in
+      let buf = Buffer.create (length+4) in
+      let rec replace_chars i =
+        if i < length then
+          match Astring.get sel_path i with
+          | '*' -> if i+1 < length && Astring.get sel_path (i+1) = '*' then (
+              Buffer.add_string buf ".*";
+              replace_chars (i+2)
+            ) else (
+              Buffer.add_string buf "[^\/]*";
+              replace_chars (i+1))
+          | '/' -> Buffer.add_string buf "\/"; replace_chars (i+1)
+          | c -> Buffer.add_char buf c; replace_chars (i+1)
+      in
+      Buffer.add_string buf "/^";
+      replace_chars 0;
+      Buffer.add_string buf "$/";
+      Buffer.contents buf
 
     let get storage_info selector =
       Logs.debug (fun m -> m "[Inflx]: get(%s) from db %s" (Selector.to_string selector) (storage_info.db.name));
@@ -43,14 +56,9 @@ module InfluxBE = struct
         let measurement_regex = regex_of_selector sub_sel in
         Influxdb_driver.query_keyvalues storage_info.db ("SELECT * FROM "^measurement_regex) >>=
         Lwt_list.fold_left_s (fun result (key, values) ->
-          (* NOTE: replacing '*' with '.*' in FROM clause gives more keys than we want (as .* is similar to .*.* ). 
-            We need to check matching with sub-selector, and to discard those that don't match *)
-          if Selector.is_matching_path (Path.of_string key) sub_sel then
             let path = (Path.of_string @@ (Path.to_string storage_info.keys_prefix)^key) in
             let pvs = List.map (fun tv -> (path, tv)) values in
             Lwt.return (pvs @ result)
-          else
-            Lwt.return result
         ) []
 
     let put storage_info path (value:TimedValue.t) =
