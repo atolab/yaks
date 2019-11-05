@@ -48,13 +48,28 @@ module InfluxBE = struct
       Buffer.add_string buf "$/";
       Buffer.contents buf
 
+    let clauses_of_selector sel =
+      let rfc3339regex = Str.regexp "\\('?\\([0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9][ T]?[0-9:.]*Z?\\)'?\\)" in
+      let normalize_rfc3339 = Str.global_replace rfc3339regex "'\\2'" in
+      match Selector.properties sel with
+        | None -> (* No time selection, return only latest values *) "ORDER BY time DESC LIMIT 1"
+        | Some p ->
+          let props = Properties.of_string p in
+          match Properties.get "starttime" props, Properties.get "stoptime" props with
+          | Some start, Some stop -> Printf.sprintf "WHERE time >= %s AND time <= %s" (normalize_rfc3339 start) (normalize_rfc3339 stop)
+          | Some start, None -> Printf.sprintf "WHERE time >= %s" (normalize_rfc3339 start)
+          | None, Some stop -> Printf.sprintf "WHERE time <= %s" (normalize_rfc3339 stop)
+          | _, _ -> (* No time selection, return only latest values *) "ORDER BY time DESC LIMIT 1"
+      
     let get storage_info selector =
       Logs.debug (fun m -> m "[Inflx]: get(%s) from db %s" (Selector.to_string selector) (storage_info.db.name));
       match Selector.remaining_after_match storage_info.keys_prefix selector with
       | None -> Lwt.return []
-      | Some sub_sel -> 
+      | Some sub_sel ->
         let measurement_regex = regex_of_selector sub_sel in
-        Influxdb_driver.query_keyvalues storage_info.db ("SELECT * FROM "^measurement_regex) >>=
+        let clauses = clauses_of_selector sub_sel  in
+        Influxdb_driver.query_keyvalues storage_info.db @@ 
+          Printf.sprintf "SELECT * FROM %s %s" measurement_regex clauses >>=
         Lwt_list.fold_left_s (fun result (key, values) ->
             let path = (Path.of_string @@ (Path.to_string storage_info.keys_prefix)^key) in
             let pvs = List.map (fun tv -> (path, tv)) values in
