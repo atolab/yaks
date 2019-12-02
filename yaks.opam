@@ -6,7 +6,7 @@ bug-reports:  "https://github.com/atolab/yaks/issues/"
 dev-repo:     "git+https://github.com/atolab/yaks.git"
 tags:         ["org:adlink-technology"]
 
-version:"0.2.7"
+version:"0.3.0"
 license: "Apache-2.0"
 
 build: [
@@ -23,8 +23,8 @@ install: [
 depends: [
   "ocaml" {>= "4.03.0"}
   "dune"
-  "zenoh-router" {= "0.2.5"}
-  "yaks-common"  {= "0.2.7"}
-  "yaks-be-mm"  {= "0.2.7"}
-  "yaks-be-sql"  {= "0.2.7"}
+  "zenoh-router" {= "0.3.0"}
+  "yaks-common"  {= "0.3.0"}
+  "yaks-be-mm"  {= "0.3.0"}
+  "yaks-be-sql"  {= "0.3.0"}
 ]

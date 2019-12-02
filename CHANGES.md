@@ -1,3 +1,11 @@
+## 0.3.0 (2019-12-02)
+ - Updated Zenoh to 0.3.0
+ - Re-designed Yaks as a Zenoh plugin
+ - Removed socket and web-socket frontends (as now Zenoh is the only transport used by Yaks APIs)
+ - Removed REST frontends (replaced by the Zenoh HTTP plugin)
+ - Updated Admin Space to integrate with Zenoh's (now Yaks' is /@/_zenoh-id_/plugins/yaks/...)
+ - Added InfluxDB backend and support of "starttime" and "stoptime" in selectors properties
+
 ## 0.2.7 (2019-04-18)
  - Added for key /@/_yaksid_ a JSON value representing the full admin view of a Yaks service
  - Fixed bug in admin space occuring at creation of worksapce or subscription
