@@ -1,5 +1,9 @@
-[![Build Status](https://travis-ci.org/atolab/yaks.svg?branch=master)](https://travis-ci.org/atolab/yaks)
-[![Gitter](https://badges.gitter.im/atolab/yaks.svg)](https://gitter.im/atolab/yaks?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge)
+The YAKS project has been merged into the **zenoh** project.
 
-# yaks
-A high-performance decentralised key-value store
+**Retrieve all the YAKS features an more in the [Eclipse zenoh](http://zenoh.io) project!**
+
+  - zenoh service: https://github.com/eclipse-zenoh/zenoh
+  - Python API: https://github.com/eclipse-zenoh/zenoh-python
+  - Java API: https://github.com/eclipse-zenoh/zenoh-java
+  - Go API: https://github.com/eclipse-zenoh/zenoh-go
+  - C API: https://github.com/eclipse-zenoh/zenoh-c
